@@ -62,6 +62,11 @@ function inPeriod(isoDate: string, filter: PeriodFilter): boolean {
   return true;
 }
 
+/** Like {@link inPeriod} but a null filter means "all time" (matches everything). */
+export function matchesPeriod(isoDate: string, filter: PeriodFilter | null): boolean {
+  return filter == null || inPeriod(isoDate, filter);
+}
+
 /** Roll up totals across every transaction (self-transfers excluded). */
 export function totalsFor(txns: AnalyticsTxn[]): PeriodTotals {
   const t = emptyTotals();

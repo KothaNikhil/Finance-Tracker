@@ -26,6 +26,11 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Icon sf="chart.bar.fill" md="bar_chart" />
       </NativeTabs.Trigger>
 
+      <NativeTabs.Trigger name="reports">
+        <NativeTabs.Trigger.Label>Reports</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="list.bullet.rectangle" md="receipt_long" />
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="explore">
         <NativeTabs.Trigger.Label>Manage</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon

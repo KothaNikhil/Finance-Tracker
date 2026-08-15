@@ -14,7 +14,16 @@ import type { AnalyticsTxn } from '../types';
 
 /** Compact helper to build a test transaction; sensible defaults, override what matters. */
 function txn(over: Partial<AnalyticsTxn> & Pick<AnalyticsTxn, 'isoDate' | 'paise' | 'direction'>): AnalyticsTxn {
-  return { isRefund: false, categoryId: null, subcategoryId: null, ...over };
+  return {
+    isRefund: false,
+    categoryId: null,
+    subcategoryId: null,
+    counterpartyName: null,
+    counterpartyVpa: null,
+    accountName: null,
+    personId: null,
+    ...over,
+  };
 }
 
 // A small realistic set spanning two years, with spend, income, refunds and self-transfers.

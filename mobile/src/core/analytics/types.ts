@@ -28,6 +28,14 @@ export interface AnalyticsTxn {
   categoryId: number | null;
   /** Sub-category within the category, or null when none was set. */
   subcategoryId: number | null;
+  /** Counterparty (merchant/person) display name, for the reports grouping. */
+  counterpartyName: string | null;
+  /** Counterparty UPI id, used as a fallback merchant key when the name is missing. */
+  counterpartyVpa: string | null;
+  /** Funding account, e.g. `Axis Bank - 15`, for the per-account report. */
+  accountName: string | null;
+  /** The "For" person this is assigned to, or null when unassigned. */
+  personId: number | null;
 }
 
 /**
@@ -84,4 +92,28 @@ export interface PeriodFilter {
   year: number;
   /** 1-based month; omit for the whole year. */
   month?: number;
+}
+
+// --- Reports (Step 6) -------------------------------------------------------
+
+/** Spend for one named group (a merchant or an account), for the reports. */
+export interface GroupSpend {
+  /** Display name / group key (e.g. a merchant name or `Axis Bank - 15`). */
+  key: string;
+  spentPaise: number;
+  txnCount: number;
+}
+
+/** Spend attributed to one "For" person, for the spend-by-person report. */
+export interface PersonSpend {
+  /** null = not assigned to anyone. */
+  personId: number | null;
+  spentPaise: number;
+  txnCount: number;
+}
+
+/** Cashback / refund summary for a period. */
+export interface CashbackSummary {
+  totalPaise: number;
+  count: number;
 }

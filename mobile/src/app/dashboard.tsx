@@ -57,6 +57,10 @@ export default function DashboardScreen() {
           isRefund: transactions.isRefund,
           categoryId: transactions.categoryId,
           subcategoryId: transactions.subcategoryId,
+          counterpartyName: transactions.counterpartyName,
+          counterpartyVpa: transactions.counterpartyVpa,
+          accountName: transactions.accountName,
+          personId: transactions.personId,
         })
         .from(transactions),
     [db],
