@@ -34,7 +34,12 @@ export function workbookToSheets(workbook: XLSX.WorkBook): SheetLike[] {
   });
 }
 
-/** Parse a base64-encoded .xlsx (used in the app) into sheets. */
+/** Parse a base64-encoded .xlsx into sheets. */
 export function parseXlsxBase64(base64: string): SheetLike[] {
   return workbookToSheets(XLSX.read(base64, { type: 'base64' }));
+}
+
+/** Parse raw .xlsx bytes into sheets (used in the app after reading the picked file). */
+export function parseXlsxBytes(bytes: Uint8Array): SheetLike[] {
+  return workbookToSheets(XLSX.read(bytes, { type: 'array' }));
 }
