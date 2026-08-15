@@ -1,180 +1,161 @@
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+/**
+ * Manage screen (the second tab): edit the lists the rest of the app draws from —
+ * categories and their nested sub-categories, payment modes, and the "For" people list.
+ * Everything here is add / rename / reorder / delete; deletes keep history (a row still used
+ * by a transaction is hidden rather than dropped — see the repository).
+ */
 
-import { ExternalLink } from '@/components/external-link';
+import { useState } from 'react';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { EditableList, type EditableItem } from '@/components/editable-list';
+import { SubcategoryManager } from '@/components/subcategory-manager';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Collapsible } from '@/components/ui/collapsible';
-import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
+import {
+  addCategory,
+  addPaymentMode,
+  addPerson,
+  deleteCategory,
+  deletePaymentMode,
+  deletePerson,
+  moveCategory,
+  movePaymentMode,
+  movePerson,
+  renameCategory,
+  renamePaymentMode,
+  renamePerson,
+  setCategoryEmoji,
+} from '@/services/db/repository';
 
-export default function TabTwoScreen() {
-  const safeAreaInsets = useSafeAreaInsets();
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
+export default function ManageScreen() {
+  const [openCategoryId, setOpenCategoryId] = useState<number | null>(null);
+
+  const index = useCategoryIndex();
+  const lists = useLists();
+
+  const categoryItems: EditableItem[] = index.categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    emoji: c.emoji,
+    hint: `${c.subcategories.length} sub${c.subcategories.length === 1 ? '' : 's'}`,
+  }));
+
+  const openCategory = openCategoryId != null ? index.byId.get(openCategoryId) ?? null : null;
+
+  const confirmDelete = (kind: string, item: EditableItem, run: () => void) => {
+    Alert.alert(
+      `Delete “${item.name}”?`,
+      `This removes the ${kind}. If it's still used by any transaction it's hidden from lists but kept in your history.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: run },
+      ],
+    );
   };
-  const theme = useTheme();
-
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingTop: insets.top,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingBottom: insets.bottom,
-    },
-    web: {
-      paddingTop: Spacing.six,
-      paddingBottom: Spacing.four,
-    },
-  });
 
   return (
-    <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
-      contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
-            This starter app includes example{'\n'}code to help you get started.
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <ThemedText type="subtitle">Manage</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            Edit your categories, payment modes and people. Changes apply to auto-categorization
+            and the pickers.
           </ThemedText>
 
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView type="backgroundElement" style={styles.linkButton}>
-                <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={theme.text}
-                  name={{ ios: 'arrow.up.right.square', android: 'link', web: 'link' }}
-                  size={12}
-                />
-              </ThemedView>
-            </Pressable>
-          </ExternalLink>
-        </ThemedView>
+          <Section
+            title="Categories"
+            subtitle="Tap a category to edit its sub-categories."
+          >
+            <EditableList
+              items={categoryItems}
+              withEmoji
+              addLabel="New category"
+              onAdd={(name, emoji) => {
+                addCategory(name, emoji);
+              }}
+              onRename={(id, name, emoji) => {
+                renameCategory(id, name);
+                setCategoryEmoji(id, emoji);
+              }}
+              onDelete={(item) => confirmDelete('category', item, () => deleteCategory(item.id))}
+              onMove={(id, dir) => moveCategory(id, dir)}
+              onOpen={(item) => setOpenCategoryId(item.id)}
+            />
+          </Section>
 
-        <ThemedView style={styles.sectionsWrapper}>
-          <Collapsible title="File-based routing">
-            <ThemedText type="small">
-              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
-              <ThemedText type="code">src/app/explore.tsx</ThemedText>
-            </ThemedText>
-            <ThemedText type="small">
-              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
-              the tab navigator.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/router/introduction">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+          <Section title="Payment modes">
+            <EditableList
+              items={lists.paymentModes}
+              addLabel="New payment mode"
+              onAdd={(name) => {
+                addPaymentMode(name);
+              }}
+              onRename={(id, name) => {
+                renamePaymentMode(id, name);
+              }}
+              onDelete={(item) => confirmDelete('payment mode', item, () => deletePaymentMode(item.id))}
+              onMove={(id, dir) => movePaymentMode(id, dir)}
+            />
+          </Section>
 
-          <Collapsible title="Android, iOS, and web support">
-            <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
-              <ThemedText type="small">
-                You can open this project on Android, iOS, and the web. To open the web version,
-                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
-                project.
-              </ThemedText>
-              <Image
-                source={require('@/assets/images/tutorial-web.png')}
-                style={styles.imageTutorial}
-              />
-            </ThemedView>
-          </Collapsible>
+          <Section title="For (people)">
+            <EditableList
+              items={lists.people}
+              addLabel="New person"
+              onAdd={(name) => {
+                addPerson(name);
+              }}
+              onRename={(id, name) => {
+                renamePerson(id, name);
+              }}
+              onDelete={(item) => confirmDelete('person', item, () => deletePerson(item.id))}
+              onMove={(id, dir) => movePerson(id, dir)}
+            />
+          </Section>
+        </ScrollView>
+      </SafeAreaView>
 
-          <Collapsible title="Images">
-            <ThemedText type="small">
-              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
-              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
-              screen densities.
-            </ThemedText>
-            <Image source={require('@/assets/images/react-logo.png')} style={styles.imageReact} />
-            <ExternalLink href="https://reactnative.dev/docs/images">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+      <SubcategoryManager category={openCategory} onClose={() => setOpenCategoryId(null)} />
+    </ThemedView>
+  );
+}
 
-          <Collapsible title="Light and dark mode components">
-            <ThemedText type="small">
-              This template has light and dark mode support. The{' '}
-              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
-              user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Animations">
-            <ThemedText type="small">
-              This template includes an example of an animated component. The{' '}
-              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
-              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
-              animate opening this hint.
-            </ThemedText>
-          </Collapsible>
-        </ThemedView>
-        {Platform.OS === 'web' && <WebBadge />}
-      </ThemedView>
-    </ScrollView>
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.section}>
+      <ThemedText type="smallBold">{title}</ThemedText>
+      {subtitle && (
+        <ThemedText type="small" themeColor="textSecondary" style={styles.sectionSubtitle}>
+          {subtitle}
+        </ThemedText>
+      )}
+      {children}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
-  },
-  contentContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  container: {
-    maxWidth: MaxContentWidth,
-    flexGrow: 1,
-  },
-  titleContainer: {
-    gap: Spacing.three,
-    alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
-  },
-  centerText: {
-    textAlign: 'center',
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  linkButton: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.five,
-    justifyContent: 'center',
-    gap: Spacing.one,
-    alignItems: 'center',
-  },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
+  container: { flex: 1 },
+  safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
+  content: {
+    paddingHorizontal: Spacing.three,
     paddingTop: Spacing.three,
+    paddingBottom: BottomTabInset + Spacing.five,
+    gap: Spacing.two,
   },
-  collapsibleContent: {
-    alignItems: 'center',
-  },
-  imageTutorial: {
-    width: '100%',
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  imageReact: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
-  },
+  section: { marginTop: Spacing.four, gap: Spacing.two },
+  sectionSubtitle: { marginTop: -Spacing.one },
 });

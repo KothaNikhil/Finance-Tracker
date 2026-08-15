@@ -52,6 +52,8 @@ export interface TransactionDetailProps {
   personName: string | null;
   onClose: () => void;
   onChangeCategory: () => void;
+  /** Clear the category (back to uncategorized). */
+  onRemoveCategory: () => void;
 }
 
 export function TransactionDetail({
@@ -62,6 +64,7 @@ export function TransactionDetail({
   personName,
   onClose,
   onChangeCategory,
+  onRemoveCategory,
 }: TransactionDetailProps) {
   const theme = useTheme();
   if (!txn) return null;
@@ -126,6 +129,16 @@ export function TransactionDetail({
                     Change category
                   </ThemedText>
                 </Pressable>
+                {txn.categoryId != null && (
+                  <Pressable
+                    onPress={onRemoveCategory}
+                    style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? 0.6 : 1 }]}
+                  >
+                    <ThemedText type="small" style={{ color: '#e5484d' }}>
+                      Remove category
+                    </ThemedText>
+                  </Pressable>
+                )}
               </Section>
 
               {/* What you wrote */}
@@ -246,4 +259,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  removeBtn: { marginTop: Spacing.one, paddingVertical: Spacing.one, alignItems: 'center' },
 });

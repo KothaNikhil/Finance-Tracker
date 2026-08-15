@@ -4,7 +4,7 @@
  * user's edits. Keeps SQL/Drizzle details in one place so screens stay simple.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
 import { getDb } from './database';
 import {
@@ -266,6 +266,145 @@ export function addSubcategory(categoryId: number, name: string): number {
     .returning({ id: subcategories.id })
     .all();
   return inserted[0].id;
+}
+
+// ---------------------------------------------------------------------------
+// Managing the editable lists (Step 5): rename / delete / reorder.
+//
+// These four tables (categories, subcategories, payment_modes, people) share the
+// same id/name/sort_order/is_archived shape, so the generic helpers below operate on
+// whichever Drizzle table is passed in. "Delete" is history-safe: if any transaction still
+// references the row we archive it (hide it) instead of dropping it; otherwise we hard-delete.
+// ---------------------------------------------------------------------------
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Count transactions matching a condition — used to decide delete-vs-archive. */
+function txnCount(where: any): number {
+  return getDb().select({ n: sql<number>`count(*)` }).from(transactions).where(where).get()?.n ?? 0;
+}
+
+/** Rename a row in any of the list tables. */
+function renameRow(table: any, id: number, name: string): void {
+  const trimmed = name.trim();
+  if (trimmed === '') throw new Error('Enter a name');
+  getDb().update(table).set({ name: trimmed }).where(eq(table.id, id)).run();
+}
+
+/** Move a row up/down among its (non-archived) siblings by renumbering sort order. */
+function reorderRows(table: any, id: number, dir: 'up' | 'down', parentWhere?: any): void {
+  const db = getDb();
+  const filter = parentWhere ? and(eq(table.isArchived, false), parentWhere) : eq(table.isArchived, false);
+  const items = db
+    .select({ id: table.id })
+    .from(table)
+    .where(filter)
+    .orderBy(asc(table.sortOrder), asc(table.id))
+    .all() as { id: number }[];
+
+  const idx = items.findIndex((r) => r.id === id);
+  const j = dir === 'up' ? idx - 1 : idx + 1;
+  if (idx < 0 || j < 0 || j >= items.length) return;
+
+  [items[idx], items[j]] = [items[j], items[idx]];
+  items.forEach((it, pos) => db.update(table).set({ sortOrder: pos }).where(eq(table.id, it.id)).run());
+}
+
+/** Add a plain name-only list row (payment mode / person), reusing an existing match. */
+function addRow(table: any, name: string): number {
+  const trimmed = name.trim();
+  if (trimmed === '') throw new Error('Enter a name');
+  const db = getDb();
+  const all = db.select({ id: table.id, name: table.name, isArchived: table.isArchived }).from(table).all() as {
+    id: number;
+    name: string;
+    isArchived: boolean;
+  }[];
+  const existing = all.find((r) => !r.isArchived && r.name.trim().toLowerCase() === trimmed.toLowerCase());
+  if (existing) return existing.id;
+  const inserted = db.insert(table).values({ name: trimmed, sortOrder: all.length }).returning({ id: table.id }).all();
+  return inserted[0].id;
+}
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// --- Categories ---
+export const renameCategory = (id: number, name: string): void => renameRow(categories, id, name);
+export const moveCategory = (id: number, dir: 'up' | 'down'): void => reorderRows(categories, id, dir);
+
+/** Change (or clear) a category's emoji. */
+export function setCategoryEmoji(id: number, emoji: string | null): void {
+  getDb().update(categories).set({ emoji: (emoji ?? '').trim() || null }).where(eq(categories.id, id)).run();
+}
+
+/** Delete a category: archive it if it (or its sub-categories) are still used, else hard-delete. */
+export function deleteCategory(id: number): void {
+  const db = getDb();
+  const subIds = db.select({ id: subcategories.id }).from(subcategories).where(eq(subcategories.categoryId, id)).all().map((s) => s.id);
+  const used =
+    txnCount(eq(transactions.categoryId, id)) > 0 ||
+    (subIds.length > 0 && txnCount(inArray(transactions.subcategoryId, subIds)) > 0);
+
+  if (used) {
+    db.update(categories).set({ isArchived: true }).where(eq(categories.id, id)).run();
+    return;
+  }
+  db.delete(categoryRules).where(eq(categoryRules.categoryId, id)).run();
+  db.delete(subcategories).where(eq(subcategories.categoryId, id)).run();
+  db.delete(categories).where(eq(categories.id, id)).run();
+}
+
+// --- Sub-categories ---
+export const renameSubcategory = (id: number, name: string): void => renameRow(subcategories, id, name);
+
+export function moveSubcategory(id: number, dir: 'up' | 'down'): void {
+  const sub = getDb().select({ categoryId: subcategories.categoryId }).from(subcategories).where(eq(subcategories.id, id)).get();
+  if (!sub) return;
+  reorderRows(subcategories, id, dir, eq(subcategories.categoryId, sub.categoryId));
+}
+
+export function deleteSubcategory(id: number): void {
+  const db = getDb();
+  if (txnCount(eq(transactions.subcategoryId, id)) > 0) {
+    db.update(subcategories).set({ isArchived: true }).where(eq(subcategories.id, id)).run();
+    return;
+  }
+  // Keep any learned rule but drop its now-gone sub-category.
+  db.update(categoryRules).set({ subcategoryId: null }).where(eq(categoryRules.subcategoryId, id)).run();
+  db.delete(subcategories).where(eq(subcategories.id, id)).run();
+}
+
+// --- Payment modes ---
+export const addPaymentMode = (name: string): number => addRow(paymentModes, name);
+export const renamePaymentMode = (id: number, name: string): void => renameRow(paymentModes, id, name);
+export const movePaymentMode = (id: number, dir: 'up' | 'down'): void => reorderRows(paymentModes, id, dir);
+export function deletePaymentMode(id: number): void {
+  if (txnCount(eq(transactions.paymentModeId, id)) > 0) {
+    getDb().update(paymentModes).set({ isArchived: true }).where(eq(paymentModes.id, id)).run();
+    return;
+  }
+  getDb().delete(paymentModes).where(eq(paymentModes.id, id)).run();
+}
+
+// --- People ("For") ---
+export const addPerson = (name: string): number => addRow(people, name);
+export const renamePerson = (id: number, name: string): void => renameRow(people, id, name);
+export const movePerson = (id: number, dir: 'up' | 'down'): void => reorderRows(people, id, dir);
+export function deletePerson(id: number): void {
+  if (txnCount(eq(transactions.personId, id)) > 0) {
+    getDb().update(people).set({ isArchived: true }).where(eq(people.id, id)).run();
+    return;
+  }
+  getDb().delete(people).where(eq(people.id, id)).run();
+}
+
+/** Remove a transaction's category (back to uncategorized) and clear its review flag. */
+export function clearTransactionCategory(txnId: number): void {
+  getDb()
+    .update(transactions)
+    .set({ categoryId: null, subcategoryId: null, autoCategorized: false, needsReview: false })
+    .where(eq(transactions.id, txnId))
+    .run();
 }
 
 /** Remove all transactions (used by the "Clear" action while testing). Leaves learned rules. */

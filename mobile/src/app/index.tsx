@@ -16,6 +16,7 @@ import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
 import { parseXlsxBytes } from '@/core/import/xlsx';
 import { useTheme } from '@/hooks/use-theme';
+import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { transactions, type TransactionRow } from '@/core/db/schema';
 import { getDb } from '@/services/db/database';
 import {
@@ -23,9 +24,8 @@ import {
   addCategory,
   addSubcategory,
   clearAllTransactions,
-  getCategoryIndex,
+  clearTransactionCategory,
   getExistingDedupeKeys,
-  getLists,
   saveTransactions,
   setTransactionCategory,
 } from '@/services/db/repository';
@@ -68,8 +68,6 @@ export default function HomeScreen() {
   // The transaction whose detail sheet is open; `pickerOpen` layers the category picker on top.
   const [detailId, setDetailId] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  // Bumped whenever categories/sub-categories change so the index below rebuilds.
-  const [catVersion, setCatVersion] = useState(0);
 
   const db = getDb();
   const query = useMemo(
@@ -81,19 +79,15 @@ export default function HomeScreen() {
 
   // Category reference data for display + the picker. Categories are seeded once and there's no
   // editing UI yet, so building this once per render from the DB is fine for v1.
-  const index = useMemo(() => getCategoryIndex(), [db, catVersion]);
+  const index = useCategoryIndex();
+  const lists = useLists();
   const subNames = useMemo(() => {
     const m = new Map<number, string>();
     index.categories.forEach((c) => c.subcategories.forEach((s) => m.set(s.id, s.name)));
     return m;
   }, [index]);
-  const { pmNames, personNames } = useMemo(() => {
-    const lists = getLists();
-    return {
-      pmNames: new Map(lists.paymentModes.map((p) => [p.id, p.name])),
-      personNames: new Map(lists.people.map((p) => [p.id, p.name])),
-    };
-  }, [db]);
+  const pmNames = useMemo(() => new Map(lists.paymentModes.map((p) => [p.id, p.name])), [lists.paymentModes]);
+  const personNames = useMemo(() => new Map(lists.people.map((p) => [p.id, p.name])), [lists.people]);
 
   // Look the open transaction up live so the detail sheet reflects edits immediately.
   const detailTxn = detailId != null ? (txns.find((t) => t.id === detailId) ?? null) : null;
@@ -172,17 +166,12 @@ export default function HomeScreen() {
     [detailId],
   );
 
-  const onAddCategory = useCallback((name: string, emoji: string | null) => {
-    const id = addCategory(name, emoji);
-    setCatVersion((v) => v + 1); // rebuild the index so the new category resolves everywhere
-    return id;
-  }, []);
-
-  const onAddSubcategory = useCallback((categoryId: number, name: string) => {
-    const id = addSubcategory(categoryId, name);
-    setCatVersion((v) => v + 1);
-    return id;
-  }, []);
+  // Live queries keep `index` in sync, so these just write and return the new id.
+  const onAddCategory = useCallback((name: string, emoji: string | null) => addCategory(name, emoji), []);
+  const onAddSubcategory = useCallback(
+    (categoryId: number, name: string) => addSubcategory(categoryId, name),
+    [],
+  );
 
   return (
     <ThemedView style={styles.container}>
@@ -269,6 +258,9 @@ export default function HomeScreen() {
         personName={detailTxn?.personId != null ? (personNames.get(detailTxn.personId) ?? null) : null}
         onClose={() => setDetailId(null)}
         onChangeCategory={() => setPickerOpen(true)}
+        onRemoveCategory={() => {
+          if (detailId != null) clearTransactionCategory(detailId);
+        }}
       />
 
       <CategoryPicker
