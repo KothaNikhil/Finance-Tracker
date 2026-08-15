@@ -1,0 +1,10 @@
+# Sensitive personal data — never commit real financial statements.
+# (Kept locally for testing; the importer's integration test reads them if present.)
+Refernce sample data/
+
+# Claude Code local (machine-specific) settings
+.claude/settings.local.json
+
+# OS junk
+.DS_Store
+Thumbs.db
