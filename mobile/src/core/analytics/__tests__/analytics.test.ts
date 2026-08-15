@@ -4,6 +4,7 @@ import {
   monthlyForYear,
   MONTH_LABELS,
   monthOf,
+  subcategoryBreakdown,
   totalsFor,
   totalsForPeriod,
   yearlyTotals,
@@ -13,7 +14,7 @@ import type { AnalyticsTxn } from '../types';
 
 /** Compact helper to build a test transaction; sensible defaults, override what matters. */
 function txn(over: Partial<AnalyticsTxn> & Pick<AnalyticsTxn, 'isoDate' | 'paise' | 'direction'>): AnalyticsTxn {
-  return { isRefund: false, categoryId: null, ...over };
+  return { isRefund: false, categoryId: null, subcategoryId: null, ...over };
 }
 
 // A small realistic set spanning two years, with spend, income, refunds and self-transfers.
@@ -151,5 +152,40 @@ describe('categoryBreakdown', () => {
     const all = categoryBreakdown(SAMPLE, { year: 2026 });
     const sumOfBars = all.reduce((s, c) => s + c.spentPaise, 0);
     expect(sumOfBars).toBe(totalsForPeriod(SAMPLE, { year: 2026 }).spentPaise);
+  });
+});
+
+describe('subcategoryBreakdown', () => {
+  // Category 1 with two sub-categories (10, 11) plus one txn with no sub-category.
+  const CAT: AnalyticsTxn[] = [
+    txn({ isoDate: '2026-05-01', paise: 30000, direction: 'out', categoryId: 1, subcategoryId: 10 }),
+    txn({ isoDate: '2026-05-05', paise: 20000, direction: 'out', categoryId: 1, subcategoryId: 10 }),
+    txn({ isoDate: '2026-05-08', paise: 15000, direction: 'out', categoryId: 1, subcategoryId: 11 }),
+    txn({ isoDate: '2026-05-09', paise: 5000, direction: 'out', categoryId: 1 }), // no sub-category
+    txn({ isoDate: '2026-05-10', paise: 99999, direction: 'out', categoryId: 2, subcategoryId: 20 }), // other category
+    txn({ isoDate: '2026-05-11', paise: 88888, direction: 'in', categoryId: 1, subcategoryId: 10 }), // money in, not spend
+    txn({ isoDate: '2026-04-30', paise: 12345, direction: 'out', categoryId: 1, subcategoryId: 10 }), // other month
+  ];
+
+  it('splits one category into its sub-categories for a period, biggest first', () => {
+    const rows = subcategoryBreakdown(CAT, 1, { year: 2026, month: 5 });
+    expect(rows).toEqual([
+      { subcategoryId: 10, spentPaise: 50000, txnCount: 2 },
+      { subcategoryId: 11, spentPaise: 15000, txnCount: 1 },
+      { subcategoryId: null, spentPaise: 5000, txnCount: 1 }, // no sub-category bucket
+    ]);
+  });
+
+  it('bars sum to that category’s spend in the same period', () => {
+    const rows = subcategoryBreakdown(CAT, 1, { year: 2026, month: 5 });
+    const sum = rows.reduce((s, r) => s + r.spentPaise, 0);
+    const catSpend = categoryBreakdown(CAT, { year: 2026, month: 5 }).find((c) => c.categoryId === 1);
+    expect(sum).toBe(catSpend?.spentPaise);
+  });
+
+  it('ignores other categories, money in, and other periods', () => {
+    const rows = subcategoryBreakdown(CAT, 1, { year: 2026, month: 5 });
+    // category 2, the money-in row, and the April row must all be excluded
+    expect(rows.reduce((s, r) => s + r.spentPaise, 0)).toBe(50000 + 15000 + 5000);
   });
 });

@@ -7,7 +7,7 @@
  * period's gross "Spent" total.
  */
 
-import { type DimensionValue, StyleSheet, View } from 'react-native';
+import { type DimensionValue, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
@@ -20,6 +20,11 @@ export interface CategoryBreakdownRow {
   label: string;
   /** Spend in paise. */
   value: number;
+  /**
+   * Optional id carried back to the caller on press (e.g. a category id). A row is only tappable
+   * when `onRowPress` is set AND this is non-null, so rows like "Uncategorized" stay inert.
+   */
+  id?: number | null;
 }
 
 export interface CategoryBreakdownProps {
@@ -27,9 +32,11 @@ export interface CategoryBreakdownProps {
   /** Total spend for the period, used to show each row's percentage share. */
   total: number;
   color: string;
+  /** When set, drillable rows (those with a non-null `id`) become tappable. */
+  onRowPress?: (row: CategoryBreakdownRow) => void;
 }
 
-export function CategoryBreakdown({ rows, total, color }: CategoryBreakdownProps) {
+export function CategoryBreakdown({ rows, total, color, onRowPress }: CategoryBreakdownProps) {
   const theme = useTheme();
   if (rows.length === 0) {
     return (
@@ -46,8 +53,9 @@ export function CategoryBreakdown({ rows, total, color }: CategoryBreakdownProps
       {rows.map((r) => {
         const pct = total > 0 ? Math.round((r.value / total) * 100) : 0;
         const fill: DimensionValue = `${Math.max(2, (r.value / max) * 100)}%`;
-        return (
-          <View key={r.key} style={styles.row}>
+        const pressable = onRowPress != null && r.id != null;
+        const body = (
+          <>
             <View style={styles.rowHeader}>
               <ThemedText type="small" numberOfLines={1} style={styles.label}>
                 {r.label}
@@ -55,6 +63,11 @@ export function CategoryBreakdown({ rows, total, color }: CategoryBreakdownProps
               <ThemedText type="smallBold" style={styles.amount}>
                 {formatINR(r.value)}
               </ThemedText>
+              {pressable && (
+                <ThemedText type="small" themeColor="textSecondary" style={styles.chevron}>
+                  ›
+                </ThemedText>
+              )}
             </View>
             <View style={styles.trackRow}>
               <View style={[styles.track, { backgroundColor: theme.backgroundSelected }]}>
@@ -64,6 +77,19 @@ export function CategoryBreakdown({ rows, total, color }: CategoryBreakdownProps
                 {pct}%
               </ThemedText>
             </View>
+          </>
+        );
+        return pressable ? (
+          <Pressable
+            key={r.key}
+            onPress={() => onRowPress!(r)}
+            style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            {body}
+          </Pressable>
+        ) : (
+          <View key={r.key} style={styles.row}>
+            {body}
           </View>
         );
       })}
@@ -77,6 +103,7 @@ const styles = StyleSheet.create({
   rowHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   label: { flex: 1 },
   amount: { flexShrink: 0 },
+  chevron: { fontSize: 18, lineHeight: 20, marginLeft: -Spacing.one },
   trackRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   track: { flex: 1, height: 8, borderRadius: 4, overflow: 'hidden' },
   fill: { height: '100%', borderRadius: 4 },

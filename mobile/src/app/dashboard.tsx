@@ -15,6 +15,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
+import { CategoryDetail } from '@/components/category-detail';
 import { SpendBarChart, type BarDatum } from '@/components/spend-bar-chart';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -24,6 +25,7 @@ import {
   listYears,
   monthlyForYear,
   MONTH_LABELS,
+  subcategoryBreakdown,
   totalsForPeriod,
   yearlyTotals,
   type AnalyticsTxn,
@@ -54,6 +56,7 @@ export default function DashboardScreen() {
           direction: transactions.direction,
           isRefund: transactions.isRefund,
           categoryId: transactions.categoryId,
+          subcategoryId: transactions.subcategoryId,
         })
         .from(transactions),
     [db],
@@ -69,6 +72,8 @@ export default function DashboardScreen() {
   // Selected period: a year, optionally narrowed to one month (set by tapping a bar).
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  // The category whose sub-category drill-down sheet is open, if any.
+  const [openCategoryId, setOpenCategoryId] = useState<number | null>(null);
 
   // Default to the most recent year that has data (falls back to the current calendar year).
   const activeYear = selectedYear ?? years[0] ?? new Date().getFullYear();
@@ -90,9 +95,29 @@ export default function DashboardScreen() {
     return categoryBreakdown(txns, period).map((c) => {
       const cat = c.categoryId != null ? index.byId.get(c.categoryId) : null;
       const label = cat ? `${cat.emoji ? cat.emoji + ' ' : ''}${cat.name}` : 'Uncategorized';
-      return { key: String(c.categoryId ?? 'none'), label, value: c.spentPaise };
+      return { key: String(c.categoryId ?? 'none'), label, value: c.spentPaise, id: c.categoryId };
     });
   }, [txns, period, index]);
+
+  // Sub-category split for the open category, within the current period (for the drill-down sheet).
+  const openCategory = openCategoryId != null ? index.byId.get(openCategoryId) ?? null : null;
+  const subRows: CategoryBreakdownRow[] = useMemo(() => {
+    if (openCategoryId == null || !openCategory) return [];
+    const subNames = new Map(openCategory.subcategories.map((s) => [s.id, s.name]));
+    return subcategoryBreakdown(txns, openCategoryId, period).map((s) => ({
+      key: String(s.subcategoryId ?? 'none'),
+      label: s.subcategoryId != null ? (subNames.get(s.subcategoryId) ?? 'Sub-category') : 'No sub-category',
+      value: s.spentPaise,
+    }));
+  }, [txns, openCategoryId, openCategory, period]);
+  const subTotal = subRows.reduce((sum, r) => sum + r.value, 0);
+  const subCount = useMemo(
+    () =>
+      openCategoryId == null
+        ? 0
+        : subcategoryBreakdown(txns, openCategoryId, period).reduce((n, s) => n + s.txnCount, 0),
+    [txns, openCategoryId, period],
+  );
 
   const yearRows: CategoryBreakdownRow[] = yearly.map((y) => ({
     key: String(y.year),
@@ -184,7 +209,19 @@ export default function DashboardScreen() {
                 Where it went · {periodLabel}
               </ThemedText>
               <ThemedView type="backgroundElement" style={styles.card}>
-                <CategoryBreakdown rows={catRows} total={periodTotals.spentPaise} color={SPEND} />
+                <CategoryBreakdown
+                  rows={catRows}
+                  total={periodTotals.spentPaise}
+                  color={SPEND}
+                  onRowPress={(row) => {
+                    if (row.id != null) setOpenCategoryId(row.id);
+                  }}
+                />
+                {catRows.length > 0 && (
+                  <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
+                    Tap a category to see its sub-category breakdown.
+                  </ThemedText>
+                )}
               </ThemedView>
 
               {/* Yearly overview */}
@@ -207,6 +244,17 @@ export default function DashboardScreen() {
           )}
         </ScrollView>
       </SafeAreaView>
+
+      <CategoryDetail
+        visible={openCategory !== null}
+        title={openCategory ? `${openCategory.emoji ? openCategory.emoji + ' ' : ''}${openCategory.name}` : null}
+        periodLabel={periodLabel}
+        totalPaise={subTotal}
+        txnCount={subCount}
+        rows={subRows}
+        color={SPEND}
+        onClose={() => setOpenCategoryId(null)}
+      />
     </ThemedView>
   );
 }

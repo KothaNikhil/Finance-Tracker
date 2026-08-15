@@ -26,6 +26,8 @@ export interface AnalyticsTxn {
   isRefund: boolean;
   /** Category the transaction is filed under, or null when uncategorized. */
   categoryId: number | null;
+  /** Sub-category within the category, or null when none was set. */
+  subcategoryId: number | null;
 }
 
 /**
@@ -64,6 +66,15 @@ export interface CategorySpend {
   /** null = uncategorized spend. */
   categoryId: number | null;
   /** Gross money out filed under this category. */
+  spentPaise: number;
+  txnCount: number;
+}
+
+/** Spend for one sub-category within a category, for the drill-down chart. */
+export interface SubcategorySpend {
+  /** null = no sub-category set. */
+  subcategoryId: number | null;
+  /** Gross money out filed under this sub-category. */
   spentPaise: number;
   txnCount: number;
 }

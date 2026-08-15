@@ -11,6 +11,7 @@ import type {
   MonthPoint,
   PeriodFilter,
   PeriodTotals,
+  SubcategorySpend,
   YearPoint,
 } from './types';
 
@@ -129,4 +130,28 @@ export function categoryBreakdown(
     c.txnCount += 1;
   }
   return [...byCat.values()].sort((a, b) => b.spentPaise - a.spentPaise);
+}
+
+/**
+ * Gross spend per sub-category *within one category* for a period, biggest first — the data
+ * behind the category drill-down chart. Only money out is counted; transactions filed under the
+ * category but with no sub-category come back as `subcategoryId: null`.
+ */
+export function subcategoryBreakdown(
+  txns: AnalyticsTxn[],
+  categoryId: number,
+  filter: PeriodFilter,
+): SubcategorySpend[] {
+  const bySub = new Map<number | null, SubcategorySpend>();
+  for (const txn of txns) {
+    if (txn.direction !== 'out') continue;
+    if (txn.categoryId !== categoryId) continue;
+    if (!inPeriod(txn.isoDate, filter)) continue;
+    const key = txn.subcategoryId ?? null;
+    let s = bySub.get(key);
+    if (!s) bySub.set(key, (s = { subcategoryId: key, spentPaise: 0, txnCount: 0 }));
+    s.spentPaise += txn.paise;
+    s.txnCount += 1;
+  }
+  return [...bySub.values()].sort((a, b) => b.spentPaise - a.spentPaise);
 }
