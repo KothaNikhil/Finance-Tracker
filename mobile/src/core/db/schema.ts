@@ -6,7 +6,7 @@
  * all user-editable; `is_archived` is a soft-delete so history and backups never lose rows.
  */
 
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const categories = sqliteTable('categories', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -69,10 +69,35 @@ export const transactions = sqliteTable('transactions', {
   createdAt: text('created_at').notNull(), // ISO timestamp
 });
 
+/**
+ * Rules the auto-categorizer learns from the user's edits. When the user re-files a
+ * transaction, we remember "this counterparty (or tag) → this category" so future imports of
+ * the same payee are categorized automatically. `matcherKey` is stored normalized.
+ */
+export const categoryRules = sqliteTable(
+  'category_rules',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    matcherType: text('matcher_type').notNull(), // 'vpa' | 'merchant' | 'tag'
+    matcherKey: text('matcher_key').notNull(), // normalized
+    categoryId: integer('category_id')
+      .notNull()
+      .references(() => categories.id),
+    subcategoryId: integer('subcategory_id').references(() => subcategories.id),
+    hitCount: integer('hit_count').notNull().default(1),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => ({
+    // One rule per (matcher type, key); re-learning updates the existing row.
+    byMatcher: uniqueIndex('idx_category_rules_matcher').on(t.matcherType, t.matcherKey),
+  }),
+);
+
 export type TransactionRow = typeof transactions.$inferSelect;
 export type NewTransactionRow = typeof transactions.$inferInsert;
 export type CategoryRow = typeof categories.$inferSelect;
 export type SubcategoryRow = typeof subcategories.$inferSelect;
+export type CategoryRuleRow = typeof categoryRules.$inferSelect;
 
 /**
  * Raw SQL to create the tables. We run this at startup (idempotent) instead of wiring up
@@ -133,4 +158,14 @@ CREATE TABLE IF NOT EXISTS transactions (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(iso_date);
+CREATE TABLE IF NOT EXISTS category_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  matcher_type TEXT NOT NULL,
+  matcher_key TEXT NOT NULL,
+  category_id INTEGER NOT NULL REFERENCES categories(id),
+  subcategory_id INTEGER REFERENCES subcategories(id),
+  hit_count INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_category_rules_matcher ON category_rules(matcher_type, matcher_key);
 `;
