@@ -15,8 +15,8 @@ import type { CategoryRef } from '@/core/categorize';
 import {
   addSubcategory,
   deleteSubcategory,
-  moveSubcategory,
   renameSubcategory,
+  reorderSubcategories,
 } from '@/services/db/repository';
 
 export interface SubcategoryManagerProps {
@@ -65,7 +65,7 @@ export function SubcategoryManager({ category, onClose }: SubcategoryManagerProp
                     ],
                   )
                 }
-                onMove={(id, dir) => moveSubcategory(id, dir)}
+                onReorder={(ids) => reorderSubcategories(ids)}
               />
             )}
           </ScrollView>

@@ -1,12 +1,16 @@
 /**
  * A reusable editable list used on the Manage screen for categories, sub-categories, payment
- * modes and the "For" people list. Each row can be reordered (↑/↓), renamed inline, or deleted;
- * a footer row adds a new item. Categories opt into an emoji field (`withEmoji`) and a tap
- * target to drill into their sub-categories (`onOpen`).
+ * modes and the "For" people list. Rows can be reordered by long-press-and-drag, renamed
+ * inline, or deleted; a footer row adds a new item. Categories opt into an emoji field
+ * (`withEmoji`) and a tap target to drill into their sub-categories (`onOpen`).
  */
 
 import { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import DraggableFlatList, {
+  ScaleDecorator,
+  type RenderItemParams,
+} from 'react-native-draggable-flatlist';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -31,7 +35,8 @@ export interface EditableListProps {
   onAdd: (name: string, emoji: string | null) => void;
   onRename: (id: number, name: string, emoji: string | null) => void;
   onDelete: (item: EditableItem) => void;
-  onMove: (id: number, dir: 'up' | 'down') => void;
+  /** New order as the full sequence of ids (from a drag). */
+  onReorder: (orderedIds: number[]) => void;
   /** When set, tapping the row label drills in (e.g. to sub-categories). */
   onOpen?: (item: EditableItem) => void;
 }
@@ -43,35 +48,57 @@ export function EditableList({
   onAdd,
   onRename,
   onDelete,
-  onMove,
+  onReorder,
   onOpen,
 }: EditableListProps) {
   const theme = useTheme();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
 
-  return (
-    <View style={styles.wrap}>
-      {items.map((item, i) => (
-        <Row
-          key={item.id}
-          item={item}
+  const renderItem = ({ item, drag, isActive }: RenderItemParams<EditableItem>) => {
+    if (editingId === item.id) {
+      return (
+        <ItemEditor
           withEmoji={withEmoji}
-          editing={editingId === item.id}
-          isFirst={i === 0}
-          isLast={i === items.length - 1}
-          onStartEdit={() => setEditingId(item.id)}
-          onCancelEdit={() => setEditingId(null)}
-          onSave={(name, emoji) => {
+          initialName={item.name}
+          initialEmoji={item.emoji ?? ''}
+          submitLabel="Save"
+          onCancel={() => setEditingId(null)}
+          onSubmit={(name, emoji) => {
             onRename(item.id, name, emoji);
             setEditingId(null);
           }}
+          theme={theme}
+        />
+      );
+    }
+    return (
+      <ScaleDecorator activeScale={1.03}>
+        <Row
+          item={item}
+          withEmoji={withEmoji}
+          isActive={isActive}
+          onDrag={drag}
+          onStartEdit={() => setEditingId(item.id)}
           onDelete={() => onDelete(item)}
-          onMove={(dir) => onMove(item.id, dir)}
           onOpen={onOpen ? () => onOpen(item) : undefined}
           theme={theme}
         />
-      ))}
+      </ScaleDecorator>
+    );
+  };
+
+  return (
+    <View style={styles.wrap}>
+      <DraggableFlatList
+        data={items}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={renderItem}
+        onDragEnd={({ data }) => onReorder(data.map((d) => d.id))}
+        scrollEnabled={false}
+        activationDistance={12}
+        containerStyle={styles.listContainer}
+      />
 
       {adding ? (
         <ItemEditor
@@ -103,47 +130,35 @@ export function EditableList({
 function Row({
   item,
   withEmoji,
-  editing,
-  isFirst,
-  isLast,
+  isActive,
+  onDrag,
   onStartEdit,
-  onCancelEdit,
-  onSave,
   onDelete,
-  onMove,
   onOpen,
   theme,
 }: {
   item: EditableItem;
   withEmoji?: boolean;
-  editing: boolean;
-  isFirst: boolean;
-  isLast: boolean;
+  isActive: boolean;
+  onDrag: () => void;
   onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onSave: (name: string, emoji: string | null) => void;
   onDelete: () => void;
-  onMove: (dir: 'up' | 'down') => void;
   onOpen?: () => void;
   theme: ReturnType<typeof useTheme>;
 }) {
-  if (editing) {
-    return (
-      <ItemEditor
-        withEmoji={withEmoji}
-        initialName={item.name}
-        initialEmoji={item.emoji ?? ''}
-        submitLabel="Save"
-        onCancel={onCancelEdit}
-        onSubmit={onSave}
-        theme={theme}
-      />
-    );
-  }
-
   return (
-    <ThemedView type="backgroundElement" style={styles.row}>
-      <Pressable style={styles.rowMain} onPress={onOpen} disabled={!onOpen}>
+    <ThemedView
+      type="backgroundElement"
+      style={[styles.row, styles.rowSpacing, isActive && { backgroundColor: theme.backgroundSelected }]}
+    >
+      {/* Long-press the grip (or the row) to drag. */}
+      <Pressable onLongPress={onDrag} delayLongPress={200} hitSlop={6} style={styles.grip}>
+        <ThemedText type="default" themeColor="textSecondary">
+          ⋮⋮
+        </ThemedText>
+      </Pressable>
+
+      <Pressable style={styles.rowMain} onPress={onOpen} onLongPress={onDrag} delayLongPress={200} disabled={!onOpen}>
         {withEmoji && <ThemedText type="default">{item.emoji || '🏷️'}</ThemedText>}
         <ThemedText type="default" numberOfLines={1} style={styles.rowName}>
           {item.name}
@@ -161,8 +176,6 @@ function Row({
       </Pressable>
 
       <View style={styles.actions}>
-        <IconBtn label="↑" disabled={isFirst} onPress={() => onMove('up')} color={theme.text} />
-        <IconBtn label="↓" disabled={isLast} onPress={() => onMove('down')} color={theme.text} />
         <IconBtn label="Edit" onPress={onStartEdit} color={ACCENT} />
         <IconBtn label="Delete" onPress={onDelete} color={DANGER} />
       </View>
@@ -196,7 +209,7 @@ function ItemEditor({
   };
 
   return (
-    <ThemedView type="backgroundElement" style={[styles.row, styles.editorRow]}>
+    <ThemedView type="backgroundElement" style={[styles.row, styles.rowSpacing]}>
       <View style={styles.editorInputs}>
         {withEmoji && (
           <TextInput
@@ -248,6 +261,7 @@ function IconBtn({
 
 const styles = StyleSheet.create({
   wrap: { gap: Spacing.one },
+  listContainer: {},
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -258,11 +272,12 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     minHeight: 48,
   },
+  rowSpacing: { marginBottom: Spacing.one },
+  grip: { paddingRight: Spacing.one, paddingVertical: Spacing.one },
   rowMain: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, flex: 1 },
   rowName: { flex: 1 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   iconBtn: { paddingHorizontal: Spacing.half, paddingVertical: 2 },
-  editorRow: { alignItems: 'center' },
   editorInputs: { flexDirection: 'row', gap: Spacing.two, flex: 1 },
   input: { borderRadius: Spacing.one, paddingHorizontal: Spacing.two, paddingVertical: Spacing.two, fontSize: 15 },
   emojiInput: { width: 52, textAlign: 'center' },

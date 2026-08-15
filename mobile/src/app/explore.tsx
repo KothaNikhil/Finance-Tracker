@@ -22,12 +22,12 @@ import {
   deleteCategory,
   deletePaymentMode,
   deletePerson,
-  moveCategory,
-  movePaymentMode,
-  movePerson,
   renameCategory,
   renamePaymentMode,
   renamePerson,
+  reorderCategories,
+  reorderPaymentModes,
+  reorderPeople,
   setCategoryEmoji,
 } from '@/services/db/repository';
 
@@ -83,7 +83,7 @@ export default function ManageScreen() {
                 setCategoryEmoji(id, emoji);
               }}
               onDelete={(item) => confirmDelete('category', item, () => deleteCategory(item.id))}
-              onMove={(id, dir) => moveCategory(id, dir)}
+              onReorder={(ids) => reorderCategories(ids)}
               onOpen={(item) => setOpenCategoryId(item.id)}
             />
           </Section>
@@ -99,7 +99,7 @@ export default function ManageScreen() {
                 renamePaymentMode(id, name);
               }}
               onDelete={(item) => confirmDelete('payment mode', item, () => deletePaymentMode(item.id))}
-              onMove={(id, dir) => movePaymentMode(id, dir)}
+              onReorder={(ids) => reorderPaymentModes(ids)}
             />
           </Section>
 
@@ -114,7 +114,7 @@ export default function ManageScreen() {
                 renamePerson(id, name);
               }}
               onDelete={(item) => confirmDelete('person', item, () => deletePerson(item.id))}
-              onMove={(id, dir) => movePerson(id, dir)}
+              onReorder={(ids) => reorderPeople(ids)}
             />
           </Section>
         </ScrollView>

@@ -4,7 +4,7 @@
  * user's edits. Keeps SQL/Drizzle details in one place so screens stay simple.
  */
 
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 
 import { getDb } from './database';
 import {
@@ -291,23 +291,10 @@ function renameRow(table: any, id: number, name: string): void {
   getDb().update(table).set({ name: trimmed }).where(eq(table.id, id)).run();
 }
 
-/** Move a row up/down among its (non-archived) siblings by renumbering sort order. */
-function reorderRows(table: any, id: number, dir: 'up' | 'down', parentWhere?: any): void {
+/** Persist a new order for a list from the full sequence of ids (as produced by a drag). */
+function applyOrder(table: any, orderedIds: number[]): void {
   const db = getDb();
-  const filter = parentWhere ? and(eq(table.isArchived, false), parentWhere) : eq(table.isArchived, false);
-  const items = db
-    .select({ id: table.id })
-    .from(table)
-    .where(filter)
-    .orderBy(asc(table.sortOrder), asc(table.id))
-    .all() as { id: number }[];
-
-  const idx = items.findIndex((r) => r.id === id);
-  const j = dir === 'up' ? idx - 1 : idx + 1;
-  if (idx < 0 || j < 0 || j >= items.length) return;
-
-  [items[idx], items[j]] = [items[j], items[idx]];
-  items.forEach((it, pos) => db.update(table).set({ sortOrder: pos }).where(eq(table.id, it.id)).run());
+  orderedIds.forEach((id, pos) => db.update(table).set({ sortOrder: pos }).where(eq(table.id, id)).run());
 }
 
 /** Add a plain name-only list row (payment mode / person), reusing an existing match. */
@@ -330,7 +317,7 @@ function addRow(table: any, name: string): number {
 
 // --- Categories ---
 export const renameCategory = (id: number, name: string): void => renameRow(categories, id, name);
-export const moveCategory = (id: number, dir: 'up' | 'down'): void => reorderRows(categories, id, dir);
+export const reorderCategories = (orderedIds: number[]): void => applyOrder(categories, orderedIds);
 
 /** Change (or clear) a category's emoji. */
 export function setCategoryEmoji(id: number, emoji: string | null): void {
@@ -356,12 +343,8 @@ export function deleteCategory(id: number): void {
 
 // --- Sub-categories ---
 export const renameSubcategory = (id: number, name: string): void => renameRow(subcategories, id, name);
-
-export function moveSubcategory(id: number, dir: 'up' | 'down'): void {
-  const sub = getDb().select({ categoryId: subcategories.categoryId }).from(subcategories).where(eq(subcategories.id, id)).get();
-  if (!sub) return;
-  reorderRows(subcategories, id, dir, eq(subcategories.categoryId, sub.categoryId));
-}
+/** `orderedIds` are the sub-categories of a single category, in their new order. */
+export const reorderSubcategories = (orderedIds: number[]): void => applyOrder(subcategories, orderedIds);
 
 export function deleteSubcategory(id: number): void {
   const db = getDb();
@@ -377,7 +360,7 @@ export function deleteSubcategory(id: number): void {
 // --- Payment modes ---
 export const addPaymentMode = (name: string): number => addRow(paymentModes, name);
 export const renamePaymentMode = (id: number, name: string): void => renameRow(paymentModes, id, name);
-export const movePaymentMode = (id: number, dir: 'up' | 'down'): void => reorderRows(paymentModes, id, dir);
+export const reorderPaymentModes = (orderedIds: number[]): void => applyOrder(paymentModes, orderedIds);
 export function deletePaymentMode(id: number): void {
   if (txnCount(eq(transactions.paymentModeId, id)) > 0) {
     getDb().update(paymentModes).set({ isArchived: true }).where(eq(paymentModes.id, id)).run();
@@ -389,7 +372,7 @@ export function deletePaymentMode(id: number): void {
 // --- People ("For") ---
 export const addPerson = (name: string): number => addRow(people, name);
 export const renamePerson = (id: number, name: string): void => renameRow(people, id, name);
-export const movePerson = (id: number, dir: 'up' | 'down'): void => reorderRows(people, id, dir);
+export const reorderPeople = (orderedIds: number[]): void => applyOrder(people, orderedIds);
 export function deletePerson(id: number): void {
   if (txnCount(eq(transactions.personId, id)) > 0) {
     getDb().update(people).set({ isArchived: true }).where(eq(people.id, id)).run();
