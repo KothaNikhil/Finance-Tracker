@@ -20,6 +20,12 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
+      <NativeTabs.Trigger name="dashboard">
+        <NativeTabs.Trigger.Label>Dashboard</NativeTabs.Trigger.Label>
+        {/* Vector icon: SF Symbol on iOS, Material icon on Android — no PNG asset needed. */}
+        <NativeTabs.Trigger.Icon sf="chart.bar.fill" md="bar_chart" />
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="explore">
         <NativeTabs.Trigger.Label>Manage</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
