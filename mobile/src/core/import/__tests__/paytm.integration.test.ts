@@ -48,6 +48,15 @@ suite('Paytm real-file import', () => {
     expect(parsed.some((t) => (t.rawTag ?? '').startsWith('#'))).toBe(true);
   });
 
+  it('captures the user’s Remarks column into remarks', () => {
+    const { parsed } = runImport(readSheets(MAY_FILE), [paytmAdapter]);
+    const withRemarks = parsed.filter((t) => (t.remarks ?? '').trim() !== '');
+    // The May file has many rows with a user note in "Remarks".
+    expect(withRemarks.length).toBeGreaterThan(0);
+    // A known row: "Paid to Sri Babu Raju Ram Fuel" carries the note "Fuel".
+    expect(parsed.some((t) => t.remarks === 'Fuel')).toBe(true);
+  });
+
   it('does NOT double-count: May rows re-appear as duplicates inside the Apr–Jul file', () => {
     const may = runImport(readSheets(MAY_FILE), [paytmAdapter]);
     const existingKeys = new Set(may.newTxns.map((t) => t.dedupeKey));
