@@ -6,7 +6,15 @@
  */
 
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EditableList, type EditableItem } from '@/components/editable-list';
@@ -17,6 +25,7 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { restoreFromPickedFile, saveBackupToFolder, shareBackup } from '@/services/backup';
+import { backupToDrive, restoreLatestFromDrive } from '@/services/drive';
 import {
   addCategory,
   addPaymentMode,
@@ -158,6 +167,7 @@ function Section({
 function BackupSection() {
   const theme = useTheme();
   const [busy, setBusy] = useState(false);
+  const driveEnabled = Platform.OS !== 'web';
 
   const run = useCallback(async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -171,7 +181,7 @@ function BackupSection() {
   }, []);
 
   const onBackup = useCallback(() => {
-    Alert.alert('Back up', 'Save your data as a backup file, or share it (e.g. to Google Drive).', [
+    const options = [
       {
         text: 'Save to a folder',
         onPress: () =>
@@ -187,13 +197,28 @@ function BackupSection() {
             await shareBackup();
           }),
       },
+    ];
+    if (driveEnabled) {
+      options.push({
+        text: 'Google Drive',
+        onPress: () =>
+          run(async () => {
+            const res = await backupToDrive();
+            if (res.done) {
+              Alert.alert('Backed up to Drive', `Saved ${res.fileName} to your Google Drive (${res.account}).`);
+            }
+          }),
+      });
+    }
+    Alert.alert('Back up', 'Save your data as a backup file, or send it to Google Drive.', [
+      ...options,
       { text: 'Cancel', style: 'cancel' },
     ]);
-  }, [run]);
+  }, [run, driveEnabled]);
 
   const onRestore = useCallback(() => {
     Alert.alert(
-      'Restore from backup?',
+      'Restore from a file?',
       'This replaces ALL current data in the app with the contents of the backup file you pick. This can’t be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -204,6 +229,29 @@ function BackupSection() {
             run(async () => {
               const res = await restoreFromPickedFile();
               if (res.restored) Alert.alert('Restored', 'Your data was restored from the backup.');
+            }),
+        },
+      ],
+    );
+  }, [run]);
+
+  const onRestoreDrive = useCallback(() => {
+    Alert.alert(
+      'Restore latest from Drive?',
+      'This finds your most recent Google Drive backup and replaces ALL current data with it. This can’t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Restore latest',
+          style: 'destructive',
+          onPress: () =>
+            run(async () => {
+              const res = await restoreLatestFromDrive();
+              if (!res.found) {
+                Alert.alert('No backup found', 'There are no Finance Tracker backups in your Google Drive yet.');
+              } else if (res.restored) {
+                Alert.alert('Restored', `Restored ${res.fileName} from your Google Drive.`);
+              }
             }),
         },
       ],
@@ -231,6 +279,8 @@ function BackupSection() {
             Back up
           </ThemedText>
         </Pressable>
+      </View>
+      <View style={styles.backupButtons}>
         <Pressable
           onPress={onRestore}
           disabled={busy}
@@ -241,6 +291,18 @@ function BackupSection() {
         >
           <ThemedText type="smallBold">Restore from file</ThemedText>
         </Pressable>
+        {driveEnabled && (
+          <Pressable
+            onPress={onRestoreDrive}
+            disabled={busy}
+            style={({ pressed }) => [
+              styles.backupBtn,
+              { backgroundColor: theme.backgroundSelected, opacity: pressed || busy ? 0.6 : 1 },
+            ]}
+          >
+            <ThemedText type="smallBold">Restore from Drive</ThemedText>
+          </Pressable>
+        )}
       </View>
       {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
     </View>
