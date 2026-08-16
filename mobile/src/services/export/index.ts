@@ -7,7 +7,7 @@
  * React-Native adapter that touches the database, the filesystem, and sharing.
  */
 
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 import { buildYearlyWorkbook, type ExportTxn } from '@/core/export';
@@ -45,7 +45,42 @@ function loadExportTxns(): ExportTxn[] {
   }));
 }
 
-export interface ExportResult {
+/** Build the workbook bytes for one year. */
+function buildYearBytes(year: number): { bytes: Uint8Array; fileName: string } {
+  const model = buildYearlyWorkbook(loadExportTxns(), year);
+  return { bytes: writeWorkbookBytes(model), fileName: model.fileName };
+}
+
+export interface SaveResult {
+  /** False when the user cancelled the folder picker. */
+  saved: boolean;
+  fileName: string;
+}
+
+/**
+ * Save the workbook directly to a folder the user picks (Android Storage Access Framework /
+ * iOS Files). This is the "download / save to Files" path — the file lands wherever the user
+ * chooses (Downloads, Documents, a Drive folder, …), outside the app sandbox.
+ *
+ * Returns `saved: false` if the user backs out of the folder picker. A genuine write failure
+ * throws so the caller can surface it.
+ */
+export async function saveYearToFolder(year: number): Promise<SaveResult> {
+  const { bytes, fileName } = buildYearBytes(year);
+
+  let dir: Directory;
+  try {
+    dir = await Directory.pickDirectoryAsync();
+  } catch {
+    return { saved: false, fileName }; // user dismissed the picker
+  }
+
+  const file = dir.createFile(fileName, XLSX_MIME);
+  file.write(bytes);
+  return { saved: true, fileName };
+}
+
+export interface ShareResult {
   uri: string;
   /** True if the OS share sheet was shown; false if sharing isn't available on this device. */
   shared: boolean;
@@ -53,14 +88,13 @@ export interface ExportResult {
 }
 
 /**
- * Build and share the Excel workbook for one calendar year. Returns the file URI (kept in the
- * cache directory) so the caller can tell the user where it went if sharing isn't available.
+ * Write the workbook to the (temporary) cache directory and hand it to the OS share sheet, for
+ * sending to Drive / email / etc. On iOS the share sheet also offers "Save to Files".
  */
-export async function exportYearToExcel(year: number): Promise<ExportResult> {
-  const model = buildYearlyWorkbook(loadExportTxns(), year);
-  const bytes = writeWorkbookBytes(model);
+export async function shareYearToExcel(year: number): Promise<ShareResult> {
+  const { bytes, fileName } = buildYearBytes(year);
 
-  const file = new File(Paths.cache, model.fileName);
+  const file = new File(Paths.cache, fileName);
   file.create({ overwrite: true });
   file.write(bytes);
 
@@ -72,5 +106,5 @@ export async function exportYearToExcel(year: number): Promise<ExportResult> {
       UTI: 'org.openxmlformats.spreadsheetml.sheet',
     });
   }
-  return { uri: file.uri, shared: canShare, fileName: model.fileName };
+  return { uri: file.uri, shared: canShare, fileName };
 }

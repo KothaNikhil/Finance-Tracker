@@ -35,7 +35,7 @@ import { formatINR } from '@/core/domain/money';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex } from '@/hooks/use-reference-data';
 import { getDb } from '@/services/db/database';
-import { exportYearToExcel } from '@/services/export';
+import { saveYearToFolder, shareYearToExcel } from '@/services/export';
 
 // Semantic colours, shared with the rest of the app. Each is always paired with a text label,
 // so the red↔green pair is never distinguished by colour alone.
@@ -144,20 +144,49 @@ export default function DashboardScreen() {
   };
 
   const [exporting, setExporting] = useState(false);
-  const onExport = useCallback(async () => {
-    setExporting(true);
-    try {
-      // Export the whole active year (one workbook = one year, a sheet per month + a summary).
-      const res = await exportYearToExcel(activeYear);
-      if (!res.shared) {
-        Alert.alert('Saved', `Sharing isn’t available here. The workbook was saved as ${res.fileName}.`);
+
+  // Save the whole active year (one workbook = one year, a sheet per month + a summary).
+  const runExport = useCallback(
+    async (fn: () => Promise<void>) => {
+      setExporting(true);
+      try {
+        await fn();
+      } catch (err) {
+        Alert.alert('Could not export', err instanceof Error ? err.message : String(err));
+      } finally {
+        setExporting(false);
       }
-    } catch (err) {
-      Alert.alert('Could not export', err instanceof Error ? err.message : String(err));
-    } finally {
-      setExporting(false);
-    }
-  }, [activeYear]);
+    },
+    [],
+  );
+
+  const saveToFolder = useCallback(
+    () =>
+      runExport(async () => {
+        const res = await saveYearToFolder(activeYear);
+        if (res.saved) Alert.alert('Saved', `${res.fileName} was saved to the folder you chose.`);
+      }),
+    [runExport, activeYear],
+  );
+
+  const shareFile = useCallback(
+    () =>
+      runExport(async () => {
+        const res = await shareYearToExcel(activeYear);
+        if (!res.shared) {
+          Alert.alert('Saved', `Sharing isn’t available here. The workbook was saved as ${res.fileName}.`);
+        }
+      }),
+    [runExport, activeYear],
+  );
+
+  const onExport = useCallback(() => {
+    Alert.alert(`Export ${activeYear}`, 'Save the Excel workbook to your device, or share it.', [
+      { text: 'Save to a folder', onPress: saveToFolder },
+      { text: 'Share…', onPress: shareFile },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [activeYear, saveToFolder, shareFile]);
 
   return (
     <ThemedView style={styles.container}>
