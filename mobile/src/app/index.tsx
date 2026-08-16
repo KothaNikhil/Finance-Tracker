@@ -5,7 +5,10 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/button';
 import { CategoryPicker } from '@/components/category-picker';
+import { EmptyState } from '@/components/empty-state';
+import { StatTile } from '@/components/stat-tile';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { TransactionDetail } from '@/components/transaction-detail';
@@ -15,6 +18,7 @@ import { paytmAdapter } from '@/core/import/adapters/paytm';
 import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
 import { parseXlsxBytes } from '@/core/import/xlsx';
+import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { transactions, type TransactionRow } from '@/core/db/schema';
@@ -31,9 +35,9 @@ import {
 } from '@/services/db/repository';
 
 const DIRECTION_META = {
-  out: { sign: '−', color: '#e5484d' },
-  in: { sign: '+', color: '#30a46c' },
-  self: { sign: '⇄', color: '#f5a524' },
+  out: { sign: '−', color: 'spend' },
+  in: { sign: '+', color: 'income' },
+  self: { sign: '⇄', color: 'review' },
 } as const;
 
 // A tiny built-in sample (no personal data) for a one-tap demo of import + auto-categorization.
@@ -64,7 +68,7 @@ function buildSampleSheet(): SheetLike {
 
 export default function HomeScreen() {
   const theme = useTheme();
-  const [busy, setBusy] = useState(false);
+  const { busy, run } = useBusyAction();
   // The transaction whose detail sheet is open; `pickerOpen` layers the category picker on top.
   const [detailId, setDetailId] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -98,46 +102,62 @@ export default function HomeScreen() {
   const totalIn = txns.filter((t) => t.direction === 'in').reduce((s, t) => s + t.paise, 0);
   const reviewCount = txns.filter((t) => t.needsReview).length;
 
-  const commit = useCallback((sheets: SheetLike[], sourceLabel: string) => {
-    const preview = runImport(sheets, [paytmAdapter], getExistingDedupeKeys());
-    const save = () => {
-      const n = saveTransactions(preview.newTxns);
+  const commit = useCallback(
+    (sheets: SheetLike[], sourceLabel: string) => {
+      const preview = runImport(sheets, [paytmAdapter], getExistingDedupeKeys());
+      const save = () =>
+        run(
+          async () => {
+            // Yield a frame so the spinner paints before the synchronous DB write blocks the thread.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            const n = saveTransactions(preview.newTxns);
+            Alert.alert(
+              'Imported',
+              `${n} new transaction(s) saved from ${sourceLabel} and auto-categorized. ` +
+                `Anything the app was unsure about is flagged “Needs review”.`,
+            );
+          },
+          { errorTitle: 'Could not save import' },
+        );
       Alert.alert(
-        'Imported',
-        `${n} new transaction(s) saved from ${sourceLabel} and auto-categorized. ` +
-          `Anything the app was unsure about is flagged “Needs review”.`,
+        'Import preview',
+        `Found ${preview.totalRows} rows\nNew: ${preview.newTxns.length}\nDuplicates: ${preview.duplicates.length}\nErrors: ${preview.errors.length}`,
+        preview.newTxns.length > 0
+          ? [{ text: 'Cancel', style: 'cancel' }, { text: 'Save', onPress: save }]
+          : [{ text: 'OK' }],
       );
-    };
-    Alert.alert(
-      'Import preview',
-      `Found ${preview.totalRows} rows\nNew: ${preview.newTxns.length}\nDuplicates: ${preview.duplicates.length}\nErrors: ${preview.errors.length}`,
-      preview.newTxns.length > 0
-        ? [{ text: 'Cancel', style: 'cancel' }, { text: 'Save', onPress: save }]
-        : [{ text: 'OK' }],
-    );
-  }, []);
+    },
+    [run],
+  );
 
   const onAddSample = useCallback(() => commit([buildSampleSheet()], 'the sample'), [commit]);
 
   const onImportFile = useCallback(async () => {
+    let picked;
     try {
-      const picked = await File.pickFileAsync({
+      picked = await File.pickFileAsync({
         mimeTypes: [
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'application/octet-stream',
         ],
       });
-      if (picked.canceled || !picked.result) return;
-      setBusy(true);
-      const buffer = await picked.result.arrayBuffer();
-      const sheets = parseXlsxBytes(new Uint8Array(buffer));
-      commit(sheets, picked.result.name);
     } catch (err) {
       Alert.alert('Could not import', err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
+      return;
     }
-  }, [commit]);
+    if (picked.canceled || !picked.result) return;
+    const file = picked.result;
+    run(
+      async () => {
+        // Yield a frame so the spinner paints before the synchronous parse blocks the thread.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const buffer = await file.arrayBuffer();
+        const sheets = parseXlsxBytes(new Uint8Array(buffer));
+        commit(sheets, file.name);
+      },
+      { errorTitle: 'Could not import' },
+    );
+  }, [commit, run]);
 
   const onAcceptAll = useCallback(() => {
     if (reviewCount === 0) return;
@@ -182,32 +202,34 @@ export default function HomeScreen() {
             {txns.length} transaction{txns.length === 1 ? '' : 's'} saved on this device
           </ThemedText>
 
-          {/* Totals */}
-          <ThemedView type="backgroundElement" style={styles.card}>
-            <View style={styles.statsRow}>
-              <Stat label="Spent" value={formatINR(totalOut)} color="#e5484d" />
-              <Stat label="Received" value={formatINR(totalIn)} color="#30a46c" />
+          {/* Totals (only once there's something to total) */}
+          {txns.length > 0 && (
+            <View style={styles.tiles}>
+              <StatTile label="Spent" value={formatINR(totalOut)} color={theme.spend} />
+              <StatTile label="Received" value={formatINR(totalIn)} color={theme.income} />
             </View>
-          </ThemedView>
+          )}
 
           {/* Needs-review banner */}
           {reviewCount > 0 && (
             <Pressable
               onPress={onAcceptAll}
+              accessibilityRole="button"
+              accessibilityLabel={`${reviewCount} transactions need review. Accept all suggestions.`}
               style={({ pressed }) => [
                 styles.reviewBanner,
-                { borderColor: '#f5a524', opacity: pressed ? 0.8 : 1 },
+                { borderColor: theme.review, opacity: pressed ? 0.8 : 1 },
               ]}
             >
               <View style={{ flex: 1 }}>
-                <ThemedText type="smallBold" style={{ color: '#f5a524' }}>
+                <ThemedText type="smallBold" style={{ color: theme.review }}>
                   {reviewCount} need{reviewCount === 1 ? 's' : ''} review
                 </ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
                   Tap a transaction to fix its category, or accept all suggestions.
                 </ThemedText>
               </View>
-              <ThemedText type="smallBold" style={{ color: '#f5a524' }}>
+              <ThemedText type="smallBold" style={{ color: theme.review }}>
                 Accept all
               </ThemedText>
             </Pressable>
@@ -215,9 +237,9 @@ export default function HomeScreen() {
 
           {/* Actions */}
           <View style={styles.actions}>
-            <Button label="Import file" onPress={onImportFile} theme={theme} primary />
-            <Button label="Add sample" onPress={onAddSample} theme={theme} />
-            <Button label="Clear" onPress={onClear} theme={theme} />
+            <Button label="Import file" variant="primary" onPress={onImportFile} disabled={busy} />
+            <Button label="Add sample" onPress={onAddSample} disabled={busy} />
+            <Button label="Clear" onPress={onClear} disabled={busy} />
           </View>
           {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
 
@@ -226,9 +248,7 @@ export default function HomeScreen() {
             Transactions
           </ThemedText>
           {txns.length === 0 && (
-            <ThemedText type="small" themeColor="textSecondary">
-              None yet. Tap “Import file” to load a Paytm statement, or “Add sample” to try it.
-            </ThemedText>
+            <EmptyState message="None yet. Tap “Import file” to load a Paytm statement, or “Add sample” to try it." />
           )}
           {txns.slice(0, 100).map((t) => (
             <TxnRow
@@ -289,45 +309,6 @@ function categoryLabel(
   return `${cat.emoji ? cat.emoji + ' ' : ''}${cat.name}${sub ? ` · ${sub}` : ''}`;
 }
 
-function Stat({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <View style={styles.stat}>
-      <ThemedText type="smallBold" style={{ color }}>
-        {value}
-      </ThemedText>
-      <ThemedText type="small" themeColor="textSecondary">
-        {label}
-      </ThemedText>
-    </View>
-  );
-}
-
-function Button({
-  label,
-  onPress,
-  theme,
-  primary,
-}: {
-  label: string;
-  onPress: () => void;
-  theme: ReturnType<typeof useTheme>;
-  primary?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        { backgroundColor: primary ? '#3c87f7' : theme.backgroundSelected, opacity: pressed ? 0.7 : 1 },
-      ]}
-    >
-      <ThemedText type="smallBold" style={{ color: primary ? '#ffffff' : theme.text }}>
-        {label}
-      </ThemedText>
-    </Pressable>
-  );
-}
-
 function TxnRow({
   txn,
   categoryLabel,
@@ -337,9 +318,14 @@ function TxnRow({
   categoryLabel: string | null;
   onPress: () => void;
 }) {
+  const theme = useTheme();
   const meta = DIRECTION_META[txn.direction as keyof typeof DIRECTION_META] ?? DIRECTION_META.out;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+    >
       <ThemedView type="backgroundElement" style={styles.txnRow}>
         <View style={styles.txnLeft}>
           <ThemedText type="default" numberOfLines={1}>
@@ -352,15 +338,15 @@ function TxnRow({
               {txn.isoDate}
             </ThemedText>
             {txn.needsReview && (
-              <View style={styles.badge}>
-                <ThemedText type="small" style={styles.badgeText}>
+              <View style={[styles.badge, { backgroundColor: theme.review }]}>
+                <ThemedText type="small" style={[styles.badgeText, { color: theme.onReview }]}>
                   Review
                 </ThemedText>
               </View>
             )}
           </View>
         </View>
-        <ThemedText type="smallBold" style={{ color: meta.color }}>
+        <ThemedText type="smallBold" style={{ color: theme[meta.color] }}>
           {meta.sign} {formatINR(txn.paise)}
         </ThemedText>
       </ThemedView>
@@ -377,9 +363,7 @@ const styles = StyleSheet.create({
     paddingBottom: BottomTabInset + Spacing.four,
     gap: Spacing.two,
   },
-  card: { borderRadius: Spacing.three, padding: Spacing.three, marginTop: Spacing.two },
-  statsRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  stat: { alignItems: 'center', flex: 1, gap: 2 },
+  tiles: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
   reviewBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -390,13 +374,6 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
   },
   actions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
-  button: {
-    flex: 1,
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.two,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   sectionTitle: { marginTop: Spacing.three },
   txnRow: {
     flexDirection: 'row',
@@ -411,11 +388,10 @@ const styles = StyleSheet.create({
   txnMetaRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one },
   txnMeta: { flexShrink: 1 },
   badge: {
-    backgroundColor: '#f5a524',
     borderRadius: Spacing.one,
     paddingHorizontal: Spacing.one,
     paddingVertical: 1,
   },
-  badgeText: { color: '#1a1200', fontSize: 11, lineHeight: 16, fontWeight: '700' },
+  badgeText: { fontSize: 11, lineHeight: 16, fontWeight: '700' },
   footer: { marginTop: Spacing.three },
 });

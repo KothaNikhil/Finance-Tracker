@@ -14,6 +14,14 @@ export const Colors = {
     backgroundElement: '#F0F0F3',
     backgroundSelected: '#E0E1E6',
     textSecondary: '#60646C',
+    // Semantic palette (money direction + UI accents). Every use is text-labeled elsewhere,
+    // so colour is reinforcement, not the sole signal (keeps the red/green pair CVD-safe).
+    spend: '#e5484d', // money out
+    income: '#30a46c', // money in
+    accent: '#3c87f7', // primary actions, refunds, links
+    review: '#f5a524', // "needs review" amber
+    onAccent: '#ffffff', // text/icons on top of `accent`
+    onReview: '#1a1200', // text on top of `review` (badge)
   },
   dark: {
     text: '#ffffff',
@@ -21,6 +29,13 @@ export const Colors = {
     backgroundElement: '#212225',
     backgroundSelected: '#2E3135',
     textSecondary: '#B0B4BA',
+    // Brighter variants so they stay legible on the near-black dark background.
+    spend: '#ff6369',
+    income: '#3dd68c',
+    accent: '#5b9dff',
+    review: '#ffca16',
+    onAccent: '#ffffff',
+    onReview: '#1a1200',
   },
 } as const;
 

@@ -29,8 +29,6 @@ import { Spacing } from '@/constants/theme';
 import type { CategoryRef } from '@/core/categorize';
 import { useTheme } from '@/hooks/use-theme';
 
-const ACCENT = '#3c87f7';
-
 export interface CategoryPickerProps {
   visible: boolean;
   categories: CategoryRef[];
@@ -193,12 +191,13 @@ export function CategoryPicker({
                   <Pressable
                     onPress={submitAdd}
                     disabled={draftName.trim() === ''}
+                    accessibilityRole="button"
                     style={({ pressed }) => [
                       styles.addBtn,
-                      { backgroundColor: ACCENT, opacity: draftName.trim() === '' ? 0.4 : pressed ? 0.7 : 1 },
+                      { backgroundColor: theme.accent, opacity: draftName.trim() === '' ? 0.4 : pressed ? 0.7 : 1 },
                     ]}
                   >
-                    <ThemedText type="smallBold" style={{ color: '#ffffff' }}>
+                    <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
                       {selected ? 'Add & use sub-category' : 'Add category'}
                     </ThemedText>
                   </Pressable>
@@ -262,15 +261,17 @@ function Row({
   chevron?: boolean;
   accent?: boolean;
 }) {
+  const theme = useTheme();
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
       style={({ pressed }) => [styles.row, { backgroundColor: color, opacity: pressed ? 0.7 : 1 }]}
     >
       <ThemedText
         type={accent ? 'smallBold' : 'default'}
         numberOfLines={1}
-        style={[styles.rowLabel, accent ? { color: ACCENT } : null]}
+        style={[styles.rowLabel, accent ? { color: theme.accent } : null]}
       >
         {label}
       </ThemedText>

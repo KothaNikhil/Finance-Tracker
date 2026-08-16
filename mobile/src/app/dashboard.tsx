@@ -11,12 +11,16 @@
 
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/button';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
 import { CategoryDetail } from '@/components/category-detail';
+import { Chip } from '@/components/chip';
+import { EmptyState } from '@/components/empty-state';
 import { SpendBarChart, type BarDatum } from '@/components/spend-bar-chart';
+import { StatTile } from '@/components/stat-tile';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -32,20 +36,20 @@ import {
 } from '@/core/analytics';
 import { transactions } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
+import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex } from '@/hooks/use-reference-data';
 import { getDb } from '@/services/db/database';
 import { saveYearToFolder, shareYearToExcel } from '@/services/export';
 
-// Semantic colours, shared with the rest of the app. Each is always paired with a text label,
-// so the red↔green pair is never distinguished by colour alone.
-const SPEND = '#e5484d';
-const INCOME = '#30a46c';
-const REFUND = '#3c87f7';
-
 export default function DashboardScreen() {
   const theme = useTheme();
   const db = getDb();
+  // Semantic colours (theme-aware) — each is always paired with a text label, so the red↔green
+  // pair is never distinguished by colour alone.
+  const SPEND = theme.spend;
+  const INCOME = theme.income;
+  const REFUND = theme.accent;
 
   // Only the columns the analytics need; useLiveQuery keeps this in sync with imports/edits.
   const query = useMemo(
@@ -143,22 +147,8 @@ export default function DashboardScreen() {
     setSelectedMonth((cur) => (cur === month ? null : month)); // tap again to zoom back out
   };
 
-  const [exporting, setExporting] = useState(false);
-
   // Save the whole active year (one workbook = one year, a sheet per month + a summary).
-  const runExport = useCallback(
-    async (fn: () => Promise<void>) => {
-      setExporting(true);
-      try {
-        await fn();
-      } catch (err) {
-        Alert.alert('Could not export', err instanceof Error ? err.message : String(err));
-      } finally {
-        setExporting(false);
-      }
-    },
-    [],
-  );
+  const { busy: exporting, run: runExport } = useBusyAction('Could not export');
 
   const saveToFolder = useCallback(
     () =>
@@ -195,10 +185,10 @@ export default function DashboardScreen() {
           <ThemedText type="subtitle">Dashboard</ThemedText>
 
           {txns.length === 0 ? (
-            <ThemedText type="small" themeColor="textSecondary" style={styles.empty}>
-              No transactions yet. Import a Paytm statement (or add the sample) on the Home tab and
-              your monthly and yearly spend will show up here.
-            </ThemedText>
+            <EmptyState
+              style={styles.empty}
+              message="No transactions yet. Import a Paytm statement (or add the sample) on the Home tab and your monthly and yearly spend will show up here."
+            />
           ) : (
             <>
               {/* Year selector */}
@@ -208,9 +198,8 @@ export default function DashboardScreen() {
                     <Chip
                       key={y}
                       label={String(y)}
-                      active={y === activeYear}
+                      selected={y === activeYear}
                       onPress={() => selectYear(y)}
-                      theme={theme}
                     />
                   ))}
                 </View>
@@ -231,20 +220,13 @@ export default function DashboardScreen() {
               </ThemedText>
 
               {/* Export the whole active year to Excel */}
-              <Pressable
+              <Button
+                label={`⤓  Export ${activeYear} to Excel`}
+                accessibilityLabel={`Export ${activeYear} to Excel`}
                 onPress={onExport}
-                disabled={exporting}
-                style={({ pressed }) => [
-                  styles.exportBtn,
-                  { backgroundColor: theme.backgroundSelected, opacity: pressed || exporting ? 0.6 : 1 },
-                ]}
-              >
-                {exporting ? (
-                  <ActivityIndicator />
-                ) : (
-                  <ThemedText type="smallBold">⤓  Export {activeYear} to Excel</ThemedText>
-                )}
-              </Pressable>
+                loading={exporting}
+                style={styles.exportBtn}
+              />
 
               {/* Monthly net-spend chart */}
               <View style={styles.sectionHead}>
@@ -325,45 +307,6 @@ export default function DashboardScreen() {
   );
 }
 
-function StatTile({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <ThemedView type="backgroundElement" style={styles.tile}>
-      <ThemedText type="small" themeColor="textSecondary">
-        {label}
-      </ThemedText>
-      <ThemedText type="smallBold" style={{ color, fontSize: 20, lineHeight: 26 }} numberOfLines={1}>
-        {value}
-      </ThemedText>
-    </ThemedView>
-  );
-}
-
-function Chip({
-  label,
-  active,
-  onPress,
-  theme,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  theme: ReturnType<typeof useTheme>;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        { backgroundColor: active ? theme.backgroundSelected : theme.backgroundElement, opacity: pressed ? 0.7 : 1 },
-      ]}
-    >
-      <ThemedText type="smallBold" themeColor={active ? 'text' : 'textSecondary'}>
-        {label}
-      </ThemedText>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
@@ -375,16 +318,8 @@ const styles = StyleSheet.create({
   },
   empty: { marginTop: Spacing.three },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.one },
-  chip: { paddingVertical: Spacing.one, paddingHorizontal: Spacing.three, borderRadius: Spacing.four },
   tiles: { flexDirection: 'row', gap: Spacing.two },
-  tile: { flex: 1, borderRadius: Spacing.three, padding: Spacing.three, gap: 2 },
-  exportBtn: {
-    marginTop: Spacing.two,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.two,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  exportBtn: { marginTop: Spacing.two },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -9,10 +9,12 @@
 
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
+import { Chip } from '@/components/chip';
+import { EmptyState } from '@/components/empty-state';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -32,8 +34,6 @@ import { useTheme } from '@/hooks/use-theme';
 import { useLists } from '@/hooks/use-reference-data';
 import { getDb } from '@/services/db/database';
 
-const SPEND = '#e5484d';
-const REFUND = '#3c87f7';
 const TOP_MERCHANTS = 12;
 
 /** null year = "All years". */
@@ -41,6 +41,8 @@ type YearSel = number | 'all';
 
 export default function ReportsScreen() {
   const theme = useTheme();
+  const SPEND = theme.spend;
+  const REFUND = theme.accent;
   const db = getDb();
 
   const query = useMemo(
@@ -103,17 +105,17 @@ export default function ReportsScreen() {
           <ThemedText type="subtitle">Reports</ThemedText>
 
           {txns.length === 0 ? (
-            <ThemedText type="small" themeColor="textSecondary" style={styles.empty}>
-              No transactions yet. Import a Paytm statement on the Home tab and your merchant,
-              account and person reports will show up here.
-            </ThemedText>
+            <EmptyState
+              style={styles.empty}
+              message="No transactions yet. Import a Paytm statement on the Home tab and your merchant, account and person reports will show up here."
+            />
           ) : (
             <>
               {years.length > 1 && (
                 <View style={styles.chipsRow}>
-                  <Chip label="All" active={active === 'all'} onPress={() => setSel('all')} theme={theme} />
+                  <Chip label="All" selected={active === 'all'} onPress={() => setSel('all')} />
                   {years.map((y) => (
-                    <Chip key={y} label={String(y)} active={active === y} onPress={() => setSel(y)} theme={theme} />
+                    <Chip key={y} label={String(y)} selected={active === y} onPress={() => setSel(y)} />
                   ))}
                 </View>
               )}
@@ -188,32 +190,6 @@ export default function ReportsScreen() {
   );
 }
 
-function Chip({
-  label,
-  active,
-  onPress,
-  theme,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  theme: ReturnType<typeof useTheme>;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        { backgroundColor: active ? theme.backgroundSelected : theme.backgroundElement, opacity: pressed ? 0.7 : 1 },
-      ]}
-    >
-      <ThemedText type="smallBold" themeColor={active ? 'text' : 'textSecondary'}>
-        {label}
-      </ThemedText>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
@@ -225,7 +201,6 @@ const styles = StyleSheet.create({
   },
   empty: { marginTop: Spacing.three },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.one },
-  chip: { paddingVertical: Spacing.one, paddingHorizontal: Spacing.three, borderRadius: Spacing.four },
   sectionTitle: { marginTop: Spacing.three },
   card: { borderRadius: Spacing.three, padding: Spacing.three, marginTop: Spacing.one, gap: Spacing.half },
   hint: { marginTop: Spacing.two },

@@ -6,23 +6,16 @@
  */
 
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/button';
 import { EditableList, type EditableItem } from '@/components/editable-list';
 import { SubcategoryManager } from '@/components/subcategory-manager';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { useBusyAction } from '@/hooks/use-busy-action';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { restoreFromPickedFile, saveBackupToFolder, shareBackup } from '@/services/backup';
 import { backupToDrive, restoreLatestFromDrive } from '@/services/drive';
@@ -165,20 +158,8 @@ function Section({
  * and restore from a backup file. Restore is destructive, so it's behind a confirm.
  */
 function BackupSection() {
-  const theme = useTheme();
-  const [busy, setBusy] = useState(false);
+  const { busy, run } = useBusyAction();
   const driveEnabled = Platform.OS !== 'web';
-
-  const run = useCallback(async (fn: () => Promise<void>) => {
-    setBusy(true);
-    try {
-      await fn();
-    } catch (err) {
-      Alert.alert('Something went wrong', err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
 
   const onBackup = useCallback(() => {
     const options = [
@@ -267,41 +248,12 @@ function BackupSection() {
       </ThemedText>
 
       <View style={styles.backupButtons}>
-        <Pressable
-          onPress={onBackup}
-          disabled={busy}
-          style={({ pressed }) => [
-            styles.backupBtn,
-            { backgroundColor: '#3c87f7', opacity: pressed || busy ? 0.6 : 1 },
-          ]}
-        >
-          <ThemedText type="smallBold" style={{ color: '#ffffff' }}>
-            Back up
-          </ThemedText>
-        </Pressable>
+        <Button label="Back up" variant="primary" onPress={onBackup} disabled={busy} />
       </View>
       <View style={styles.backupButtons}>
-        <Pressable
-          onPress={onRestore}
-          disabled={busy}
-          style={({ pressed }) => [
-            styles.backupBtn,
-            { backgroundColor: theme.backgroundSelected, opacity: pressed || busy ? 0.6 : 1 },
-          ]}
-        >
-          <ThemedText type="smallBold">Restore from file</ThemedText>
-        </Pressable>
+        <Button label="Restore from file" onPress={onRestore} disabled={busy} />
         {driveEnabled && (
-          <Pressable
-            onPress={onRestoreDrive}
-            disabled={busy}
-            style={({ pressed }) => [
-              styles.backupBtn,
-              { backgroundColor: theme.backgroundSelected, opacity: pressed || busy ? 0.6 : 1 },
-            ]}
-          >
-            <ThemedText type="smallBold">Restore from Drive</ThemedText>
-          </Pressable>
+          <Button label="Restore from Drive" onPress={onRestoreDrive} disabled={busy} />
         )}
       </View>
       {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
@@ -321,11 +273,4 @@ const styles = StyleSheet.create({
   section: { marginTop: Spacing.four, gap: Spacing.two },
   sectionSubtitle: { marginTop: -Spacing.one },
   backupButtons: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
-  backupBtn: {
-    flex: 1,
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.two,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 });

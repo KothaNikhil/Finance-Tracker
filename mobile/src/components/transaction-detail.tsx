@@ -17,9 +17,9 @@ import { formatINR } from '@/core/domain/money';
 import { useTheme } from '@/hooks/use-theme';
 
 const DIRECTION = {
-  out: { sign: '−', color: '#e5484d', label: 'Money out' },
-  in: { sign: '+', color: '#30a46c', label: 'Money in' },
-  self: { sign: '⇄', color: '#f5a524', label: 'Between own accounts' },
+  out: { sign: '−', color: 'spend', label: 'Money out' },
+  in: { sign: '+', color: 'income', label: 'Money in' },
+  self: { sign: '⇄', color: 'review', label: 'Between own accounts' },
 } as const;
 
 const KIND_LABEL: Record<string, string> = {
@@ -95,7 +95,7 @@ export function TransactionDetail({
               <ThemedText type="subtitle" numberOfLines={2}>
                 {title}
               </ThemedText>
-              <ThemedText type="title" style={{ color: dir.color, fontSize: 34, lineHeight: 40 }}>
+              <ThemedText type="title" style={{ color: theme[dir.color], fontSize: 34, lineHeight: 40 }}>
                 {dir.sign} {formatINR(txn.paise)}
               </ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
@@ -120,21 +120,23 @@ export function TransactionDetail({
                 />
                 <Pressable
                   onPress={onChangeCategory}
+                  accessibilityRole="button"
                   style={({ pressed }) => [
                     styles.changeBtn,
-                    { backgroundColor: '#3c87f7', opacity: pressed ? 0.7 : 1 },
+                    { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 },
                   ]}
                 >
-                  <ThemedText type="smallBold" style={{ color: '#ffffff' }}>
+                  <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
                     Change category
                   </ThemedText>
                 </Pressable>
                 {txn.categoryId != null && (
                   <Pressable
                     onPress={onRemoveCategory}
+                    accessibilityRole="button"
                     style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? 0.6 : 1 }]}
                   >
-                    <ThemedText type="small" style={{ color: '#e5484d' }}>
+                    <ThemedText type="small" style={{ color: theme.spend }}>
                       Remove category
                     </ThemedText>
                   </Pressable>

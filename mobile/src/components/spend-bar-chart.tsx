@@ -65,6 +65,9 @@ export function SpendBarChart({
               onPress={() => onSelect(i)}
               style={styles.column}
               hitSlop={{ top: 8, bottom: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={`${d.label}: ${formatValue(d.value)}`}
+              accessibilityState={{ selected: isSelected }}
             >
               {isSelected && (
                 <ThemedText type="small" style={styles.valueLabel} numberOfLines={1}>

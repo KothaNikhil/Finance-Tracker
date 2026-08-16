@@ -83,6 +83,8 @@ export function CategoryBreakdown({ rows, total, color, onRowPress }: CategoryBr
           <Pressable
             key={r.key}
             onPress={() => onRowPress!(r)}
+            accessibilityRole="button"
+            accessibilityLabel={`${r.label}, ${formatINR(r.value)}, ${pct}% of spend`}
             style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
           >
             {body}

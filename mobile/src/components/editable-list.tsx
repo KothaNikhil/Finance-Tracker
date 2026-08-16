@@ -17,9 +17,6 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-const ACCENT = '#3c87f7';
-const DANGER = '#e5484d';
-
 export interface EditableItem {
   id: number;
   name: string;
@@ -116,9 +113,11 @@ export function EditableList({
       ) : (
         <Pressable
           onPress={() => setAdding(true)}
+          accessibilityRole="button"
+          accessibilityLabel={addLabel}
           style={({ pressed }) => [styles.row, { backgroundColor: theme.backgroundElement, opacity: pressed ? 0.7 : 1 }]}
         >
-          <ThemedText type="smallBold" style={{ color: ACCENT }}>
+          <ThemedText type="smallBold" style={{ color: theme.accent }}>
             ＋  {addLabel}
           </ThemedText>
         </Pressable>
@@ -152,7 +151,14 @@ function Row({
       style={[styles.row, styles.rowSpacing, isActive && { backgroundColor: theme.backgroundSelected }]}
     >
       {/* Long-press the grip (or the row) to drag. */}
-      <Pressable onLongPress={onDrag} delayLongPress={200} hitSlop={6} style={styles.grip}>
+      <Pressable
+        onLongPress={onDrag}
+        delayLongPress={200}
+        hitSlop={6}
+        style={styles.grip}
+        accessibilityRole="button"
+        accessibilityLabel={`Drag to reorder ${item.name}`}
+      >
         <ThemedText type="default" themeColor="textSecondary">
           ⋮⋮
         </ThemedText>
@@ -176,8 +182,8 @@ function Row({
       </Pressable>
 
       <View style={styles.actions}>
-        <IconBtn label="Edit" onPress={onStartEdit} color={ACCENT} />
-        <IconBtn label="Delete" onPress={onDelete} color={DANGER} />
+        <IconBtn label="Edit" accessibilityLabel={`Edit ${item.name}`} onPress={onStartEdit} color={theme.accent} />
+        <IconBtn label="Delete" accessibilityLabel={`Delete ${item.name}`} onPress={onDelete} color={theme.spend} />
       </View>
     </ThemedView>
   );
@@ -232,7 +238,7 @@ function ItemEditor({
         />
       </View>
       <View style={styles.actions}>
-        <IconBtn label={submitLabel} onPress={submit} color={ACCENT} disabled={name.trim() === ''} />
+        <IconBtn label={submitLabel} onPress={submit} color={theme.accent} disabled={name.trim() === ''} />
         <IconBtn label="Cancel" onPress={onCancel} color={theme.textSecondary} />
       </View>
     </ThemedView>
@@ -244,14 +250,24 @@ function IconBtn({
   onPress,
   color,
   disabled,
+  accessibilityLabel,
 }: {
   label: string;
   onPress: () => void;
   color: string;
   disabled?: boolean;
+  accessibilityLabel?: string;
 }) {
   return (
-    <Pressable onPress={onPress} disabled={disabled} hitSlop={6} style={styles.iconBtn}>
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={6}
+      style={styles.iconBtn}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: !!disabled }}
+    >
       <ThemedText type="smallBold" style={{ color, opacity: disabled ? 0.3 : 1 }}>
         {label}
       </ThemedText>
