@@ -42,6 +42,12 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.117169471675-fd8734b5q3u7ka2m4h6i46q342pekvu7"
         }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Unlock Finance Tracker with Face ID."
+        }
       ]
     ],
     "experiments": {

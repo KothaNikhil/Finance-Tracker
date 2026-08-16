@@ -15,8 +15,10 @@ import { SubcategoryManager } from '@/components/subcategory-manager';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useAuth } from '@/hooks/use-auth';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
+import { signOut } from '@/services/auth/auth';
 import { restoreFromPickedFile, saveBackupToFolder, shareBackup } from '@/services/backup';
 import { backupToDrive, restoreLatestFromDrive } from '@/services/drive';
 import {
@@ -123,6 +125,7 @@ export default function ManageScreen() {
           </Section>
 
           <BackupSection />
+          <AccountSection />
         </ScrollView>
       </SafeAreaView>
 
@@ -257,6 +260,30 @@ function BackupSection() {
         )}
       </View>
       {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
+    </View>
+  );
+}
+
+/** Shows the signed-in account + a sign-out button — only when login is configured and active. */
+function AccountSection() {
+  const { session, configured } = useAuth();
+  const { busy, run } = useBusyAction();
+
+  if (!configured || !session) return null;
+
+  return (
+    <View style={styles.section}>
+      <ThemedText type="smallBold">Account</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.sectionSubtitle}>
+        Signed in as {session.user.email ?? 'your account'}.
+      </ThemedText>
+      <View style={styles.backupButtons}>
+        <Button
+          label="Sign out"
+          onPress={() => run(async () => { await signOut(); }, { errorTitle: 'Could not sign out' })}
+          disabled={busy}
+        />
+      </View>
     </View>
   );
 }

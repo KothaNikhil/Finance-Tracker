@@ -10,26 +10,12 @@
 import { GoogleSignin, type User } from '@react-native-google-signin/google-signin';
 
 import { DRIVE_FILE_SCOPE } from '@/core/drive';
-import { WEB_CLIENT_ID } from './config';
+import { configureGoogleSignin } from '@/services/auth/google';
 
 /** The signed-in Google account, trimmed to what we show in the UI. */
 export interface DriveAccount {
   email: string;
   name: string | null;
-}
-
-let configured = false;
-
-/** Configure Google Sign-In once (idempotent). Requests only the least-privileged Drive scope. */
-function ensureConfigured(): void {
-  if (configured) return;
-  GoogleSignin.configure({
-    webClientId: WEB_CLIENT_ID,
-    scopes: [DRIVE_FILE_SCOPE],
-    // We use the access token directly from the device — no backend, so no offline/refresh token.
-    offlineAccess: false,
-  });
-  configured = true;
 }
 
 function toAccount(u: User): DriveAccount {
@@ -49,7 +35,7 @@ async function withDriveScope(u: User): Promise<DriveAccount> {
  * the user cancels the sign-in.
  */
 export async function ensureSignedIn(): Promise<DriveAccount | null> {
-  ensureConfigured();
+  configureGoogleSignin();
   await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
   const silent = await GoogleSignin.signInSilently();
@@ -68,13 +54,13 @@ export function currentAccount(): DriveAccount | null {
 
 /** Fetch a fresh OAuth access token for the Drive REST calls. Caller must be signed in first. */
 export async function getAccessToken(): Promise<string> {
-  ensureConfigured();
+  configureGoogleSignin();
   const { accessToken } = await GoogleSignin.getTokens();
   return accessToken;
 }
 
 /** Sign the user out (forgets the account; next backup will prompt again). */
 export async function signOutDrive(): Promise<void> {
-  ensureConfigured();
+  configureGoogleSignin();
   await GoogleSignin.signOut();
 }
