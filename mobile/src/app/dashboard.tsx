@@ -10,8 +10,8 @@
  */
 
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
@@ -35,6 +35,7 @@ import { formatINR } from '@/core/domain/money';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex } from '@/hooks/use-reference-data';
 import { getDb } from '@/services/db/database';
+import { exportYearToExcel } from '@/services/export';
 
 // Semantic colours, shared with the rest of the app. Each is always paired with a text label,
 // so the red↔green pair is never distinguished by colour alone.
@@ -142,6 +143,22 @@ export default function DashboardScreen() {
     setSelectedMonth((cur) => (cur === month ? null : month)); // tap again to zoom back out
   };
 
+  const [exporting, setExporting] = useState(false);
+  const onExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      // Export the whole active year (one workbook = one year, a sheet per month + a summary).
+      const res = await exportYearToExcel(activeYear);
+      if (!res.shared) {
+        Alert.alert('Saved', `Sharing isn’t available here. The workbook was saved as ${res.fileName}.`);
+      }
+    } catch (err) {
+      Alert.alert('Could not export', err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
+    }
+  }, [activeYear]);
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -183,6 +200,22 @@ export default function DashboardScreen() {
                 {periodLabel} · {periodTotals.txnCount} transaction
                 {periodTotals.txnCount === 1 ? '' : 's'} · self-transfers excluded
               </ThemedText>
+
+              {/* Export the whole active year to Excel */}
+              <Pressable
+                onPress={onExport}
+                disabled={exporting}
+                style={({ pressed }) => [
+                  styles.exportBtn,
+                  { backgroundColor: theme.backgroundSelected, opacity: pressed || exporting ? 0.6 : 1 },
+                ]}
+              >
+                {exporting ? (
+                  <ActivityIndicator />
+                ) : (
+                  <ThemedText type="smallBold">⤓  Export {activeYear} to Excel</ThemedText>
+                )}
+              </Pressable>
 
               {/* Monthly net-spend chart */}
               <View style={styles.sectionHead}>
@@ -316,6 +349,13 @@ const styles = StyleSheet.create({
   chip: { paddingVertical: Spacing.one, paddingHorizontal: Spacing.three, borderRadius: Spacing.four },
   tiles: { flexDirection: 'row', gap: Spacing.two },
   tile: { flex: 1, borderRadius: Spacing.three, padding: Spacing.three, gap: 2 },
+  exportBtn: {
+    marginTop: Spacing.two,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',

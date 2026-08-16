@@ -15,6 +15,7 @@ import {
   subcategories,
   transactions,
   type NewTransactionRow,
+  type TransactionRow,
 } from '@/core/db/schema';
 import {
   buildCategoryIndex,
@@ -30,6 +31,11 @@ import type { NormalizedTxn } from '@/core/import/types';
 export function getExistingDedupeKeys(): Set<string> {
   const rows = getDb().select({ k: transactions.dedupeKey }).from(transactions).all();
   return new Set(rows.map((r) => r.k));
+}
+
+/** Every stored transaction row (one-shot read used by the Excel export). */
+export function getAllTransactions(): TransactionRow[] {
+  return getDb().select().from(transactions).all();
 }
 
 /** Build the category lookup index (categories + nested sub-categories) from the database. */
