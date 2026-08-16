@@ -14,15 +14,17 @@ import { File, Paths } from 'expo-file-system';
 
 import { backupFileName, isSqliteFile, type StampParts } from '@/core/backup';
 import {
-  BACKUP_FOLDER_NAME,
   buildListUrl,
+  buildMultipartRelatedBody,
+  bytesToBase64,
   createFileMetaBody,
   createFolderBody,
   DRIVE_FILES_URL,
   folderChildrenQuery,
   folderSearchQuery,
   mediaDownloadUrl,
-  mediaUpdateUrl,
+  multipartRelatedContentType,
+  multipartUploadUrl,
   parseFileId,
   parseFileList,
   pickLatestBackup,
@@ -109,7 +111,9 @@ export interface DriveBackupResult {
 
 /**
  * Back up the whole database to the user's Google Drive: sign in, make sure our folder exists,
- * create a named file in it, then upload the serialized database bytes as that file's contents.
+ * then create the backup file — metadata (name + parent folder) and content together — in a single
+ * `multipart/related` upload. The one-shot upload is what guarantees the file lands *inside* the
+ * folder rather than in Drive's root.
  */
 export async function backupToDrive(): Promise<DriveBackupResult> {
   const account = await ensureSignedIn();
@@ -119,28 +123,17 @@ export async function backupToDrive(): Promise<DriveBackupResult> {
   const folderId = await ensureFolderId(token);
   const fileName = backupFileName(nowStamp());
 
-  // 1) Create the (empty) file with its name + parent folder in one shot.
-  const created = await driveFetch(token, `${DRIVE_FILES_URL}?fields=id`, {
+  const body = buildMultipartRelatedBody(
+    createFileMetaBody(fileName, folderId),
+    bytesToBase64(serializeDatabase()),
+    DB_MIME,
+  );
+  const created = await driveFetch(token, multipartUploadUrl(), {
     method: 'POST',
-    headers: { 'Content-Type': JSON_MIME },
-    body: JSON.stringify(createFileMetaBody(fileName, folderId)),
+    headers: { 'Content-Type': multipartRelatedContentType() },
+    body,
   });
-  const fileId = parseFileId(created);
-  if (!fileId) throw new Error('Could not create the backup file in Drive.');
-
-  // 2) Write the DB bytes to a temp file and upload them as the file's media content.
-  const cacheFile = new File(Paths.cache, fileName);
-  cacheFile.create({ overwrite: true });
-  cacheFile.write(serializeDatabase());
-
-  const result = await cacheFile.upload(mediaUpdateUrl(fileId), {
-    httpMethod: 'PATCH',
-    headers: { Authorization: `Bearer ${token}` },
-    mimeType: DB_MIME,
-  });
-  if (result.status < 200 || result.status >= 300) {
-    throw new Error(`Uploading the backup to Drive failed (${result.status}).`);
-  }
+  if (!parseFileId(created)) throw new Error('Could not upload the backup to Drive.');
 
   return { done: true, fileName, account: account.email };
 }

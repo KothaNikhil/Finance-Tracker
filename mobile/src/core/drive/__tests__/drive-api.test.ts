@@ -1,6 +1,8 @@
 import {
   BACKUP_FOLDER_NAME,
   buildListUrl,
+  buildMultipartRelatedBody,
+  bytesToBase64,
   createFileMetaBody,
   createFolderBody,
   DRIVE_FILES_URL,
@@ -10,6 +12,8 @@ import {
   folderSearchQuery,
   mediaDownloadUrl,
   mediaUpdateUrl,
+  multipartRelatedContentType,
+  multipartUploadUrl,
   parseFileId,
   parseFileList,
   pickLatestBackup,
@@ -99,6 +103,60 @@ describe('response parsing', () => {
     expect(parseFileList(null)).toEqual([]);
     expect(parseFileList({})).toEqual([]);
     expect(parseFileList({ files: 'x' })).toEqual([]);
+  });
+});
+
+describe('bytesToBase64', () => {
+  const enc = (s: string) => bytesToBase64(new Uint8Array([...s].map((c) => c.charCodeAt(0))));
+
+  it('encodes the empty array', () => {
+    expect(bytesToBase64(new Uint8Array([]))).toBe('');
+  });
+
+  it('encodes with correct padding for each length mod 3', () => {
+    expect(enc('Man')).toBe('TWFu'); // 3 bytes, no padding
+    expect(enc('Ma')).toBe('TWE='); // 2 bytes, one pad
+    expect(enc('M')).toBe('TQ=='); // 1 byte, two pads
+  });
+
+  it('encodes high bytes correctly', () => {
+    expect(bytesToBase64(new Uint8Array([255, 254, 253]))).toBe('//79');
+    expect(bytesToBase64(new Uint8Array([0, 0, 0]))).toBe('AAAA');
+  });
+
+  it('matches the canonical base64 encoding for arbitrary bytes', () => {
+    const bytes = new Uint8Array([0, 1, 2, 127, 128, 200, 255, 42, 99, 250]);
+    expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString('base64'));
+  });
+});
+
+describe('multipart upload', () => {
+  it('builds the upload url and content-type', () => {
+    expect(multipartUploadUrl()).toBe(`${DRIVE_UPLOAD_URL}?uploadType=multipart&fields=id,parents`);
+    expect(multipartRelatedContentType('BND')).toBe('multipart/related; boundary=BND');
+  });
+
+  it('builds a related body with metadata (incl. parents) then a base64 media part', () => {
+    const body = buildMultipartRelatedBody(
+      createFileMetaBody('backup.db', 'folder1'),
+      'QUJD',
+      'application/x-sqlite3',
+      'BND',
+    );
+    expect(body).toBe(
+      [
+        '--BND',
+        'Content-Type: application/json; charset=UTF-8',
+        '',
+        '{"name":"backup.db","parents":["folder1"]}',
+        '--BND',
+        'Content-Type: application/x-sqlite3',
+        'Content-Transfer-Encoding: base64',
+        '',
+        'QUJD',
+        '--BND--',
+      ].join('\r\n'),
+    );
   });
 });
 

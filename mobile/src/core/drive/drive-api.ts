@@ -89,6 +89,69 @@ export function mediaDownloadUrl(fileId: string): string {
   return `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?alt=media`;
 }
 
+/**
+ * Upload URL for a single `multipart/related` request that creates a file with BOTH its metadata
+ * (name + parent folder) AND its content in one shot. Doing it atomically avoids a create-then-
+ * upload split that can leave the content file stranded in Drive's root.
+ */
+export function multipartUploadUrl(): string {
+  return `${DRIVE_UPLOAD_URL}?uploadType=multipart&fields=id,parents`;
+}
+
+/** Boundary string separating the metadata and media parts of the multipart body. */
+export const MULTIPART_BOUNDARY = 'finance-tracker-boundary-7mA4YwxkTLLH';
+
+/** The `Content-Type` header value for a multipart/related upload. */
+export function multipartRelatedContentType(boundary: string = MULTIPART_BOUNDARY): string {
+  return `multipart/related; boundary=${boundary}`;
+}
+
+/**
+ * Build the body of a `multipart/related` Drive upload: a JSON metadata part followed by a
+ * base64-encoded media part. Drive decodes the media because of the `Content-Transfer-Encoding:
+ * base64` header — this keeps the whole body a plain string, which React Native's `fetch` sends
+ * reliably (unlike raw binary bodies).
+ */
+export function buildMultipartRelatedBody(
+  metadata: Record<string, unknown>,
+  base64Content: string,
+  mediaMimeType: string,
+  boundary: string = MULTIPART_BOUNDARY,
+): string {
+  const delimiter = `--${boundary}`;
+  const close = `--${boundary}--`;
+  return [
+    delimiter,
+    'Content-Type: application/json; charset=UTF-8',
+    '',
+    JSON.stringify(metadata),
+    delimiter,
+    `Content-Type: ${mediaMimeType}`,
+    'Content-Transfer-Encoding: base64',
+    '',
+    base64Content,
+    close,
+  ].join('\r\n');
+}
+
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/** Standard base64-encode a byte array (no line breaks). Pure — no Buffer / btoa dependency. */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let out = '';
+  const len = bytes.length;
+  for (let i = 0; i < len; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < len ? bytes[i + 1] : 0;
+    const b2 = i + 2 < len ? bytes[i + 2] : 0;
+    out += BASE64_ALPHABET[b0 >> 2];
+    out += BASE64_ALPHABET[((b0 & 0x03) << 4) | (b1 >> 4)];
+    out += i + 1 < len ? BASE64_ALPHABET[((b1 & 0x0f) << 2) | (b2 >> 6)] : '=';
+    out += i + 2 < len ? BASE64_ALPHABET[b2 & 0x3f] : '=';
+  }
+  return out;
+}
+
 /** Pull the `id` out of a create/get response, or null if it's missing. */
 export function parseFileId(json: unknown): string | null {
   if (json && typeof json === 'object' && typeof (json as { id?: unknown }).id === 'string') {
