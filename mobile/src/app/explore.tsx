@@ -251,12 +251,12 @@ function BackupSection() {
       </ThemedText>
 
       <View style={styles.backupButtons}>
-        <Button label="Back up" variant="primary" onPress={onBackup} disabled={busy} />
+        <Button label="Back up" variant="primary" onPress={onBackup} disabled={busy} style={styles.grow} />
       </View>
       <View style={styles.backupButtons}>
-        <Button label="Restore from file" onPress={onRestore} disabled={busy} />
+        <Button label="Restore from file" onPress={onRestore} disabled={busy} style={styles.grow} />
         {driveEnabled && (
-          <Button label="Restore from Drive" onPress={onRestoreDrive} disabled={busy} />
+          <Button label="Restore from Drive" onPress={onRestoreDrive} disabled={busy} style={styles.grow} />
         )}
       </View>
       {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
@@ -282,6 +282,7 @@ function AccountSection() {
           label="Sign out"
           onPress={() => run(async () => { await signOut(); }, { errorTitle: 'Could not sign out' })}
           disabled={busy}
+          style={styles.grow}
         />
       </View>
     </View>
@@ -300,4 +301,5 @@ const styles = StyleSheet.create({
   section: { marginTop: Spacing.four, gap: Spacing.two },
   sectionSubtitle: { marginTop: -Spacing.one },
   backupButtons: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
+  grow: { flex: 1 },
 });

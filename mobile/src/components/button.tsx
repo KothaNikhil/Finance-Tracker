@@ -64,9 +64,11 @@ export function Button({
 }
 
 const styles = StyleSheet.create({
+  // No `flex: 1` here — in a column it collapses the label's layout. Callers in a row pass
+  // `style={{ flex: 1 }}` for equal widths; in a column the button fills width via align-stretch.
   button: {
-    flex: 1,
     paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.three,
     borderRadius: Spacing.two,
     alignItems: 'center',
     justifyContent: 'center',

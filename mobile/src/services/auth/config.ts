@@ -7,8 +7,10 @@
  * app skips the login gate so it stays usable during setup.
  */
 
-export const SUPABASE_URL = 'https://YOUR_PROJECT.supabase.co';
-export const SUPABASE_ANON_KEY = 'YOUR_ANON_PUBLIC_KEY';
+// Project base URL (no `/rest/v1/` suffix — the SDK appends its own paths).
+export const SUPABASE_URL = 'https://utfhnxdhavemxlzagiaf.supabase.co';
+// Publishable key (the new name for the anon/public key) — safe to ship; guarded by RLS.
+export const SUPABASE_ANON_KEY = 'sb_publishable_-_IbeOqe3kahIdvjTv-YVg_HRdkvjF5';
 
 /** True once real Supabase credentials have been filled in (not the placeholders). */
 export function isSupabaseConfigured(): boolean {

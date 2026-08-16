@@ -237,9 +237,9 @@ export default function HomeScreen() {
 
           {/* Actions */}
           <View style={styles.actions}>
-            <Button label="Import file" variant="primary" onPress={onImportFile} disabled={busy} />
-            <Button label="Add sample" onPress={onAddSample} disabled={busy} />
-            <Button label="Clear" onPress={onClear} disabled={busy} />
+            <Button label="Import file" variant="primary" onPress={onImportFile} disabled={busy} style={styles.grow} />
+            <Button label="Add sample" onPress={onAddSample} disabled={busy} style={styles.grow} />
+            <Button label="Clear" onPress={onClear} disabled={busy} style={styles.grow} />
           </View>
           {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
 
@@ -374,6 +374,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
   },
   actions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
+  grow: { flex: 1 },
   sectionTitle: { marginTop: Spacing.three },
   txnRow: {
     flexDirection: 'row',

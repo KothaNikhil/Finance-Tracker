@@ -1,6 +1,6 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { StyleSheet, useColorScheme, View } from 'react-native';
+import { StyleSheet, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
@@ -21,24 +21,11 @@ function Gate() {
   const auth = useAuth();
   const lock = useAppLock();
 
-  const showLogin = auth.configured && !auth.loading && !auth.session;
-  const showLock = !showLogin && lock.locked;
-
-  return (
-    <View style={styles.root}>
-      <AppTabs />
-      {showLogin && (
-        <View style={StyleSheet.absoluteFill}>
-          <LoginScreen />
-        </View>
-      )}
-      {showLock && (
-        <View style={StyleSheet.absoluteFill}>
-          <LockScreen />
-        </View>
-      )}
-    </View>
-  );
+  // Keep the splash up while we read the persisted session.
+  if (auth.loading) return null;
+  if (auth.configured && !auth.session) return <LoginScreen />;
+  if (lock.locked) return <LockScreen />;
+  return <AppTabs />;
 }
 
 export default function TabLayout() {
