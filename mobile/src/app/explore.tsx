@@ -5,8 +5,8 @@
  * by a transaction is hidden rather than dropped — see the repository).
  */
 
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EditableList, type EditableItem } from '@/components/editable-list';
@@ -14,7 +14,9 @@ import { SubcategoryManager } from '@/components/subcategory-manager';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
+import { restoreFromPickedFile, saveBackupToFolder, shareBackup } from '@/services/backup';
 import {
   addCategory,
   addPaymentMode,
@@ -117,6 +119,8 @@ export default function ManageScreen() {
               onReorder={(ids) => reorderPeople(ids)}
             />
           </Section>
+
+          <BackupSection />
         </ScrollView>
       </SafeAreaView>
 
@@ -147,6 +151,102 @@ function Section({
   );
 }
 
+/**
+ * Back up all data to a `.db` file (save to the device or share — e.g. drop it in Google Drive),
+ * and restore from a backup file. Restore is destructive, so it's behind a confirm.
+ */
+function BackupSection() {
+  const theme = useTheme();
+  const [busy, setBusy] = useState(false);
+
+  const run = useCallback(async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await fn();
+    } catch (err) {
+      Alert.alert('Something went wrong', err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const onBackup = useCallback(() => {
+    Alert.alert('Back up', 'Save your data as a backup file, or share it (e.g. to Google Drive).', [
+      {
+        text: 'Save to a folder',
+        onPress: () =>
+          run(async () => {
+            const res = await saveBackupToFolder();
+            if (res.saved) Alert.alert('Backed up', `Saved ${res.fileName} to the folder you chose.`);
+          }),
+      },
+      {
+        text: 'Share…',
+        onPress: () =>
+          run(async () => {
+            await shareBackup();
+          }),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [run]);
+
+  const onRestore = useCallback(() => {
+    Alert.alert(
+      'Restore from backup?',
+      'This replaces ALL current data in the app with the contents of the backup file you pick. This can’t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Choose file & restore',
+          style: 'destructive',
+          onPress: () =>
+            run(async () => {
+              const res = await restoreFromPickedFile();
+              if (res.restored) Alert.alert('Restored', 'Your data was restored from the backup.');
+            }),
+        },
+      ],
+    );
+  }, [run]);
+
+  return (
+    <View style={styles.section}>
+      <ThemedText type="smallBold">Backup &amp; restore</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.sectionSubtitle}>
+        Save a backup file of everything in the app (keep it safe in Google Drive), or restore from
+        one. Restoring replaces all current data.
+      </ThemedText>
+
+      <View style={styles.backupButtons}>
+        <Pressable
+          onPress={onBackup}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.backupBtn,
+            { backgroundColor: '#3c87f7', opacity: pressed || busy ? 0.6 : 1 },
+          ]}
+        >
+          <ThemedText type="smallBold" style={{ color: '#ffffff' }}>
+            Back up
+          </ThemedText>
+        </Pressable>
+        <Pressable
+          onPress={onRestore}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.backupBtn,
+            { backgroundColor: theme.backgroundSelected, opacity: pressed || busy ? 0.6 : 1 },
+          ]}
+        >
+          <ThemedText type="smallBold">Restore from file</ThemedText>
+        </Pressable>
+      </View>
+      {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
@@ -158,4 +258,12 @@ const styles = StyleSheet.create({
   },
   section: { marginTop: Spacing.four, gap: Spacing.two },
   sectionSubtitle: { marginTop: -Spacing.one },
+  backupButtons: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
+  backupBtn: {
+    flex: 1,
+    paddingVertical: Spacing.three,
+    borderRadius: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

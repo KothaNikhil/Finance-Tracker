@@ -10,9 +10,10 @@ import * as SQLite from 'expo-sqlite';
 import * as schema from '@/core/db/schema';
 import { SEED_CATEGORIES, SEED_PAYMENT_MODES, SEED_PEOPLE } from '@/core/db/seed';
 
-const DB_NAME = 'finance.db';
+export const DB_NAME = 'finance.db';
 
 let cached: ExpoSQLiteDatabase<typeof schema> | null = null;
+let cachedSqlite: SQLite.SQLiteDatabase | null = null;
 
 /** Get the shared database, initializing (create tables + seed) on first use. */
 export function getDb(): ExpoSQLiteDatabase<typeof schema> {
@@ -27,7 +28,18 @@ export function getDb(): ExpoSQLiteDatabase<typeof schema> {
   seedIfEmpty(db);
 
   cached = db;
+  cachedSqlite = sqlite;
   return db;
+}
+
+/**
+ * The raw expo-sqlite handle behind {@link getDb} — used by backup/restore for a WAL checkpoint
+ * and the row-copy restore. Writes through this handle still fire the change listener, so
+ * `useLiveQuery` screens refresh after a restore.
+ */
+export function getSqlite(): SQLite.SQLiteDatabase {
+  if (!cachedSqlite) getDb();
+  return cachedSqlite!;
 }
 
 /** Insert the starter categories/sub-categories/payment modes/people if the DB is empty. */

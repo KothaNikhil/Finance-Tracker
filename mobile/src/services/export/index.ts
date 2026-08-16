@@ -7,12 +7,10 @@
  * React-Native adapter that touches the database, the filesystem, and sharing.
  */
 
-import { Directory, File, Paths } from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
-
 import { buildYearlyWorkbook, type ExportTxn } from '@/core/export';
 import type { Direction } from '@/core/domain/money';
 import { getAllTransactions, getCategoryIndex, getLists } from '@/services/db/repository';
+import { saveBytesToFolder, shareBytes } from '@/services/file-io';
 import { writeWorkbookBytes } from './xlsx-writer';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -67,17 +65,8 @@ export interface SaveResult {
  */
 export async function saveYearToFolder(year: number): Promise<SaveResult> {
   const { bytes, fileName } = buildYearBytes(year);
-
-  let dir: Directory;
-  try {
-    dir = await Directory.pickDirectoryAsync();
-  } catch {
-    return { saved: false, fileName }; // user dismissed the picker
-  }
-
-  const file = dir.createFile(fileName, XLSX_MIME);
-  file.write(bytes);
-  return { saved: true, fileName };
+  const saved = await saveBytesToFolder(bytes, fileName, XLSX_MIME);
+  return { saved, fileName };
 }
 
 export interface ShareResult {
@@ -93,18 +82,12 @@ export interface ShareResult {
  */
 export async function shareYearToExcel(year: number): Promise<ShareResult> {
   const { bytes, fileName } = buildYearBytes(year);
-
-  const file = new File(Paths.cache, fileName);
-  file.create({ overwrite: true });
-  file.write(bytes);
-
-  const canShare = await Sharing.isAvailableAsync();
-  if (canShare) {
-    await Sharing.shareAsync(file.uri, {
-      mimeType: XLSX_MIME,
-      dialogTitle: `Finance Tracker ${year}`,
-      UTI: 'org.openxmlformats.spreadsheetml.sheet',
-    });
-  }
-  return { uri: file.uri, shared: canShare, fileName };
+  const { shared, uri } = await shareBytes(
+    bytes,
+    fileName,
+    XLSX_MIME,
+    `Finance Tracker ${year}`,
+    'org.openxmlformats.spreadsheetml.sheet',
+  );
+  return { uri, shared, fileName };
 }
