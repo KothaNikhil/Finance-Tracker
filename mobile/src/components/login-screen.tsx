@@ -1,7 +1,6 @@
 /**
- * Full-screen login (Step 1): Continue-with-Google (native → Supabase) or an email 6-digit code.
- * Shown as an opaque overlay by the root layout whenever Supabase is configured and there's no
- * session.
+ * Full-screen login (Step 1): Continue-with-Google (native → Supabase) or an email magic link.
+ * Shown by the root layout whenever Supabase is configured and there's no session.
  */
 
 import { useState } from 'react';
@@ -14,31 +13,25 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
-import { sendEmailOtp, signInWithGoogleAccount, verifyEmailOtp } from '@/services/auth/auth';
+import { sendMagicLink, signInWithGoogleAccount } from '@/services/auth/auth';
 
 export function LoginScreen() {
   const theme = useTheme();
   const { busy, run } = useBusyAction('Sign-in failed');
   const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [codeSent, setCodeSent] = useState(false);
+  const [linkSent, setLinkSent] = useState(false);
 
   const onGoogle = () =>
     run(async () => {
       await signInWithGoogleAccount();
     }, { errorTitle: 'Google sign-in failed' });
 
-  const onSendCode = () =>
+  const onSendLink = () =>
     run(async () => {
       if (email.trim() === '') throw new Error('Enter your email address first.');
-      await sendEmailOtp(email);
-      setCodeSent(true);
-    }, { errorTitle: 'Could not send code' });
-
-  const onVerify = () =>
-    run(async () => {
-      await verifyEmailOtp(email, code);
-    }, { errorTitle: 'Could not verify code' });
+      await sendMagicLink(email);
+      setLinkSent(true);
+    }, { errorTitle: 'Could not send sign-in link' });
 
   const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }];
 
@@ -59,7 +52,7 @@ export function LoginScreen() {
             <View style={[styles.line, { backgroundColor: theme.backgroundSelected }]} />
           </View>
 
-          {!codeSent ? (
+          {!linkSent ? (
             <>
               <TextInput
                 value={email}
@@ -72,29 +65,18 @@ export function LoginScreen() {
                 autoComplete="email"
                 style={inputStyle}
               />
-              <Button label="Email me a code" onPress={onSendCode} disabled={busy} style={styles.btn} />
+              <Button label="Email me a sign-in link" onPress={onSendLink} disabled={busy} style={styles.btn} />
             </>
           ) : (
             <>
               <ThemedText type="small" themeColor="textSecondary">
-                Enter the 6-digit code sent to {email.trim()}.
+                We sent a sign-in link to {email.trim()}. Open the email {' '}
+                <ThemedText type="smallBold">on this phone</ThemedText> and tap the link — it brings
+                you right back here, signed in.
               </ThemedText>
-              <TextInput
-                value={code}
-                onChangeText={setCode}
-                placeholder="123456"
-                placeholderTextColor={theme.textSecondary}
-                keyboardType="number-pad"
-                maxLength={6}
-                style={inputStyle}
-              />
-              <Button label="Verify & sign in" variant="primary" onPress={onVerify} disabled={busy} style={styles.btn} />
               <Button
                 label="Use a different email"
-                onPress={() => {
-                  setCodeSent(false);
-                  setCode('');
-                }}
+                onPress={() => setLinkSent(false)}
                 disabled={busy}
                 style={styles.btn}
               />

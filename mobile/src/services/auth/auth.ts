@@ -5,9 +5,16 @@
  */
 
 import type { Session } from '@supabase/supabase-js';
+import * as Linking from 'expo-linking';
 
 import { signInWithGoogle } from './google';
 import { getSupabase } from './supabase';
+
+/**
+ * Deep link the email magic link redirects back to. Must be listed in Supabase →
+ * Authentication → URL Configuration → Redirect URLs. Uses the app's `mobile` scheme (app.json).
+ */
+export const AUTH_REDIRECT = 'mobile://auth-callback';
 
 function requireSupabase() {
   const s = getSupabase();
@@ -30,23 +37,34 @@ export async function signInWithGoogleAccount(): Promise<boolean> {
   return true;
 }
 
-/** Email a 6-digit sign-in code (creating the user if new). */
-export async function sendEmailOtp(email: string): Promise<void> {
+/**
+ * Email a magic sign-in link (creating the user if new). The link redirects back into the app via
+ * {@link AUTH_REDIRECT}; {@link completeSignInFromUrl} finishes the sign-in. The email must be
+ * opened on THIS device so the link can hand off to the app.
+ */
+export async function sendMagicLink(email: string): Promise<void> {
   const { error } = await requireSupabase().auth.signInWithOtp({
     email: email.trim(),
-    options: { shouldCreateUser: true },
+    options: { emailRedirectTo: AUTH_REDIRECT, shouldCreateUser: true },
   });
   if (error) throw new Error(error.message);
 }
 
-/** Verify the 6-digit email code, establishing a session. */
-export async function verifyEmailOtp(email: string, code: string): Promise<void> {
-  const { error } = await requireSupabase().auth.verifyOtp({
-    email: email.trim(),
-    token: code.trim(),
-    type: 'email',
-  });
-  if (error) throw new Error(error.message);
+/**
+ * Finish a magic-link sign-in from the deep-link URL the app was opened with. Exchanges the
+ * `?code=...` for a session (PKCE). Returns true when a session was established.
+ */
+export async function completeSignInFromUrl(url: string): Promise<boolean> {
+  const { queryParams } = Linking.parse(url);
+  const code = queryParams?.code;
+  if (typeof code === 'string' && code.length > 0) {
+    const { error } = await requireSupabase().auth.exchangeCodeForSession(code);
+    if (error) throw new Error(error.message);
+    return true;
+  }
+  const errorDescription = queryParams?.error_description;
+  if (typeof errorDescription === 'string') throw new Error(errorDescription);
+  return false;
 }
 
 /** Sign out of Supabase (does not sign out of the native Google account used for Drive). */

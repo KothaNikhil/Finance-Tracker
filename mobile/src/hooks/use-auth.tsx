@@ -5,9 +5,10 @@
  */
 
 import type { Session } from '@supabase/supabase-js';
+import * as Linking from 'expo-linking';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-import { getCurrentSession, onAuthChange } from '@/services/auth/auth';
+import { completeSignInFromUrl, getCurrentSession, onAuthChange } from '@/services/auth/auth';
 import { isSupabaseConfigured } from '@/services/auth/config';
 
 interface AuthState {
@@ -43,6 +44,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       active = false;
       unsubscribe();
     };
+  }, [configured]);
+
+  // Handle the email magic-link deep link (both cold start and while running). On success,
+  // onAuthChange above picks up the new session and the gate opens.
+  useEffect(() => {
+    if (!configured) return;
+    const handle = (url: string | null) => {
+      if (url) completeSignInFromUrl(url).catch(() => {});
+    };
+    Linking.getInitialURL().then(handle);
+    const sub = Linking.addEventListener('url', ({ url }) => handle(url));
+    return () => sub.remove();
   }, [configured]);
 
   return <AuthContext.Provider value={{ session, loading, configured }}>{children}</AuthContext.Provider>;

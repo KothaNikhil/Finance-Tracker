@@ -23,8 +23,11 @@ export function getSupabase(): SupabaseClient | null {
         storage: AsyncStorage,
         autoRefreshToken: true,
         persistSession: true,
-        // No URL-based OAuth redirect on native — we use native Google + email OTP.
+        // We handle the email magic-link redirect ourselves via a deep link (see auth.ts),
+        // so Supabase shouldn't try to read a session from a web URL.
         detectSessionInUrl: false,
+        // PKCE: the email link comes back as `?code=...` which we exchange for a session.
+        flowType: 'pkce',
       },
     });
   }
