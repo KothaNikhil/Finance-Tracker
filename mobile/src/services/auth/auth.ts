@@ -7,8 +7,11 @@
 import type { Session } from '@supabase/supabase-js';
 import * as Linking from 'expo-linking';
 
-import { signInWithGoogle } from './google';
 import { getSupabase } from './supabase';
+
+// Google-account sign-in is platform-split: native uses the Google picker + ID token, web uses a
+// Supabase OAuth redirect. Re-exported here so callers keep importing it from `@/services/auth/auth`.
+export { signInWithGoogleAccount } from './google-account';
 
 /**
  * Deep link the email magic link redirects back to. Must be listed in Supabase →
@@ -20,21 +23,6 @@ function requireSupabase() {
   const s = getSupabase();
   if (!s) throw new Error('Sign-in isn’t configured yet.');
   return s;
-}
-
-/**
- * Sign in with Google: native Google picker → ID token → Supabase session. Returns false if the
- * user cancels the Google picker.
- */
-export async function signInWithGoogleAccount(): Promise<boolean> {
-  const identity = await signInWithGoogle();
-  if (!identity) return false;
-  const { error } = await requireSupabase().auth.signInWithIdToken({
-    provider: 'google',
-    token: identity.idToken,
-  });
-  if (error) throw new Error(error.message);
-  return true;
 }
 
 /**

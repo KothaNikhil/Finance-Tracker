@@ -6,6 +6,7 @@
 
 import { drizzle, type ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import * as SQLite from 'expo-sqlite';
+import { Platform } from 'react-native';
 
 import * as schema from '@/core/db/schema';
 import { SEED_CATEGORIES, SEED_PAYMENT_MODES, SEED_PEOPLE } from '@/core/db/seed';
@@ -14,6 +15,27 @@ export const DB_NAME = 'finance.db';
 
 let cached: ExpoSQLiteDatabase<typeof schema> | null = null;
 let cachedSqlite: SQLite.SQLiteDatabase | null = null;
+let warmUpPromise: Promise<void> | null = null;
+
+/**
+ * WEB ONLY (no-op on native). On web, expo-sqlite runs SQLite in a Web Worker, and the *synchronous*
+ * API that Drizzle uses (`openDatabaseSync`/`execSync`/…) blocks the main thread on a
+ * SharedArrayBuffer busy-loop. That loop times out (a few tens of ms) well before the worker can
+ * COLD-load and compile the ~600KB `wa-sqlite.wasm` on the very first `openDatabaseSync`, so that
+ * first call throws "Sync operation timeout". Doing one *async* open first (async uses promises, not
+ * the busy-loop) forces the worker to compile the wasm up front; every later synchronous call then
+ * responds within the loop's window. Call this once, awaited, before anything touches {@link getDb}.
+ */
+export function warmUpDatabaseAsync(): Promise<void> {
+  if (Platform.OS !== 'web') return Promise.resolve();
+  if (!warmUpPromise) {
+    warmUpPromise = (async () => {
+      const db = await SQLite.openDatabaseAsync(DB_NAME);
+      await db.closeAsync();
+    })();
+  }
+  return warmUpPromise;
+}
 
 /** Get the shared database, initializing (create tables + seed) on first use. */
 export function getDb(): ExpoSQLiteDatabase<typeof schema> {
