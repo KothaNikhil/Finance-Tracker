@@ -152,6 +152,31 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return out;
 }
 
+/**
+ * Decide whether the latest Drive backup should replace the local data on sign-in.
+ *
+ * We restore only when the Drive backup is strictly NEWER than the last local change — this is the
+ * "sync via your account" hand-off: the device you just left backed up its state, so the other
+ * device pulls it. If the local data is the same age or newer (you edited here after the last
+ * backup), we keep it and never silently clobber newer local work.
+ *
+ * `localUpdatedAt` is null on a fresh install (no data yet) → always restore. A missing
+ * `driveModifiedTime` (shouldn't happen — we request the field) is treated as "can't tell, don't
+ * restore" to stay on the safe side.
+ */
+export function shouldRestoreFromDrive(
+  localUpdatedAt: string | null,
+  driveModifiedTime: string | undefined,
+): boolean {
+  if (!driveModifiedTime) return false;
+  if (!localUpdatedAt) return true;
+  const drive = Date.parse(driveModifiedTime);
+  const local = Date.parse(localUpdatedAt);
+  if (Number.isNaN(drive)) return false;
+  if (Number.isNaN(local)) return true;
+  return drive > local;
+}
+
 /** Pull the `id` out of a create/get response, or null if it's missing. */
 export function parseFileId(json: unknown): string | null {
   if (json && typeof json === 'object' && typeof (json as { id?: unknown }).id === 'string') {

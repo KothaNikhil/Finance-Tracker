@@ -52,7 +52,10 @@ function Gate() {
   // Wait for the SQLite worker (web) before mounting any screen that reads the DB.
   if (!dbReady) return null;
   if (lock.locked) return <LockScreen />;
-  return <AppTabs />;
+  // Key the DB-backed app on the account id: switching accounts remounts every screen so their
+  // live queries re-bind to that account's own database (AuthProvider already pointed the DB at it).
+  const accountKey = auth.configured ? (auth.session?.user?.id ?? null) : null;
+  return <AppTabs key={accountKey ?? 'default'} />;
 }
 
 export default function TabLayout() {

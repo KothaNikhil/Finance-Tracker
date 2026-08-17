@@ -1,52 +1,31 @@
 /**
- * Auth actions (Step 1 login) on top of Supabase: Google (native ID-token) sign-in and email
- * 6-digit OTP. The session itself lives in the Supabase client (persisted in AsyncStorage); these
- * are just the verbs the UI calls.
+ * Auth actions (Step 1 login) on top of Supabase. Login is Google-only: native uses the Google
+ * account picker + ID token; web uses a Supabase OAuth browser redirect. The session itself lives
+ * in the Supabase client (persisted in AsyncStorage); these are just the verbs the UI calls.
  */
 
 import type { Session } from '@supabase/supabase-js';
 import * as Linking from 'expo-linking';
 
+import { signInWithGoogleAccount, signOutGoogleAccount } from './google-account';
 import { getSupabase } from './supabase';
 
-// Google-account sign-in is platform-split: native uses the Google picker + ID token, web uses a
-// Supabase OAuth redirect. Re-exported here so callers keep importing it from `@/services/auth/auth`.
-export { signInWithGoogleAccount } from './google-account';
+// Google-account sign-in/out is platform-split (native picker+ID token vs web OAuth redirect).
+// Re-exported here so callers keep importing from `@/services/auth/auth`.
+export { signInWithGoogleAccount };
 
 /**
- * Deep link the email magic link redirects back to. Must be listed in Supabase →
- * Authentication → URL Configuration → Redirect URLs. Uses the app's `mobile` scheme (app.json).
- */
-export const AUTH_REDIRECT = 'mobile://auth-callback';
-
-function requireSupabase() {
-  const s = getSupabase();
-  if (!s) throw new Error('Sign-in isn’t configured yet.');
-  return s;
-}
-
-/**
- * Email a magic sign-in link (creating the user if new). The link redirects back into the app via
- * {@link AUTH_REDIRECT}; {@link completeSignInFromUrl} finishes the sign-in. The email must be
- * opened on THIS device so the link can hand off to the app.
- */
-export async function sendMagicLink(email: string): Promise<void> {
-  const { error } = await requireSupabase().auth.signInWithOtp({
-    email: email.trim(),
-    options: { emailRedirectTo: AUTH_REDIRECT, shouldCreateUser: true },
-  });
-  if (error) throw new Error(error.message);
-}
-
-/**
- * Finish a magic-link sign-in from the deep-link URL the app was opened with. Exchanges the
- * `?code=...` for a session (PKCE). Returns true when a session was established.
+ * Finish a Google OAuth sign-in from the redirect URL the app was opened with (WEB: the browser
+ * returns to this origin with a PKCE `?code=`; native uses the ID-token flow and never hits this).
+ * Exchanges the `?code=...` for a session. Returns true when a session was established.
  */
 export async function completeSignInFromUrl(url: string): Promise<boolean> {
+  const s = getSupabase();
+  if (!s) return false;
   const { queryParams } = Linking.parse(url);
   const code = queryParams?.code;
   if (typeof code === 'string' && code.length > 0) {
-    const { error } = await requireSupabase().auth.exchangeCodeForSession(code);
+    const { error } = await s.auth.exchangeCodeForSession(code);
     if (error) throw new Error(error.message);
     return true;
   }
@@ -55,8 +34,9 @@ export async function completeSignInFromUrl(url: string): Promise<boolean> {
   return false;
 }
 
-/** Sign out of Supabase (does not sign out of the native Google account used for Drive). */
+/** Sign out: clear the native Google session (so the picker shows next time) and the Supabase session. */
 export async function signOut(): Promise<void> {
+  await signOutGoogleAccount();
   const s = getSupabase();
   if (s) await s.auth.signOut();
 }

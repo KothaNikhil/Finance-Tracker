@@ -168,4 +168,16 @@ CREATE TABLE IF NOT EXISTS category_rules (
   updated_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_category_rules_matcher ON category_rules(matcher_type, matcher_key);
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 `;
+
+/**
+ * Local key/value scratchpad — NOT user data. Holds one row, `data_updated_at` (ISO timestamp of
+ * the last real data change on THIS device), used to decide whether a newer Drive backup should be
+ * auto-restored on sign-in. Deliberately left out of the backup/restore row-copy (see
+ * `core/backup` REQUIRED_TABLES) so it stays a per-device marker.
+ */
+export const DATA_UPDATED_AT_KEY = 'data_updated_at';

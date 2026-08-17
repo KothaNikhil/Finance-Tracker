@@ -11,11 +11,33 @@ import { Platform } from 'react-native';
 import * as schema from '@/core/db/schema';
 import { SEED_CATEGORIES, SEED_PAYMENT_MODES, SEED_PEOPLE } from '@/core/db/seed';
 
+/** The default/pre-login database (used when there's no signed-in account, e.g. unconfigured dev). */
 export const DB_NAME = 'finance.db';
 
 let cached: ExpoSQLiteDatabase<typeof schema> | null = null;
 let cachedSqlite: SQLite.SQLiteDatabase | null = null;
+let cachedName: string | null = null; // which db file is currently open
+let targetName = DB_NAME; // which db file we WANT open (per the active account)
 let warmUpPromise: Promise<void> | null = null;
+
+/**
+ * A filesystem-safe database filename for an account, or the default when signed out. Each account
+ * gets its OWN database file so different accounts on the same device never see each other's data.
+ */
+function dbNameForAccount(accountKey: string | null): string {
+  if (!accountKey) return DB_NAME;
+  return `finance-${accountKey.replace(/[^a-zA-Z0-9]/g, '')}.db`;
+}
+
+/**
+ * Point the database at a specific account's file (pass null for signed-out/default). Only records
+ * the target — the actual switch (close old + open new) happens lazily on the next {@link getDb}.
+ * Callers MUST remount DB-backed screens after switching accounts (the root layout keys the app on
+ * the account id) so live queries re-bind to the new connection.
+ */
+export function setActiveDbAccount(accountKey: string | null): void {
+  targetName = dbNameForAccount(accountKey);
+}
 
 /**
  * WEB ONLY (no-op on native). On web, expo-sqlite runs SQLite in a Web Worker, and the *synchronous*
@@ -30,19 +52,31 @@ export function warmUpDatabaseAsync(): Promise<void> {
   if (Platform.OS !== 'web') return Promise.resolve();
   if (!warmUpPromise) {
     warmUpPromise = (async () => {
-      const db = await SQLite.openDatabaseAsync(DB_NAME);
+      const db = await SQLite.openDatabaseAsync(targetName);
       await db.closeAsync();
     })();
   }
   return warmUpPromise;
 }
 
-/** Get the shared database, initializing (create tables + seed) on first use. */
+/** Get the shared database for the active account, initializing (create tables + seed) on first use. */
 export function getDb(): ExpoSQLiteDatabase<typeof schema> {
-  if (cached) return cached;
+  if (cached && cachedName === targetName) return cached;
+
+  // Account switched (or first open): drop the previous connection before opening the new file.
+  if (cachedSqlite && cachedName !== targetName) {
+    try {
+      cachedSqlite.closeSync();
+    } catch {
+      // ignore — worst case the OS reclaims it; we're about to open a different file anyway
+    }
+    cached = null;
+    cachedSqlite = null;
+    cachedName = null;
+  }
 
   // enableChangeListener lets Drizzle's useLiveQuery refresh screens automatically.
-  const sqlite = SQLite.openDatabaseSync(DB_NAME, { enableChangeListener: true });
+  const sqlite = SQLite.openDatabaseSync(targetName, { enableChangeListener: true });
   sqlite.execSync('PRAGMA foreign_keys = ON;');
   sqlite.execSync(schema.CREATE_TABLES_SQL);
 
@@ -51,6 +85,7 @@ export function getDb(): ExpoSQLiteDatabase<typeof schema> {
 
   cached = db;
   cachedSqlite = sqlite;
+  cachedName = targetName;
   return db;
 }
 

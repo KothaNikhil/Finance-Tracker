@@ -28,9 +28,11 @@ import {
   parseFileId,
   parseFileList,
   pickLatestBackup,
+  shouldRestoreFromDrive,
   type DriveFile,
 } from '@/core/drive';
 import { restoreFromBytes, serializeDatabase } from '@/services/db/backup';
+import { getDataUpdatedAt } from '@/services/db/repository';
 import { ensureSignedIn, getAccessToken } from './auth';
 
 const JSON_MIME = 'application/json';
@@ -181,6 +183,40 @@ export async function restoreLatestFromDrive(): Promise<DriveRestoreResult> {
   const backups = folderId ? await listBackupsIn(token, folderId) : [];
   const latest = pickLatestBackup(backups);
   if (!latest) return { restored: false, found: false };
+
+  await downloadAndRestore(token, latest.id);
+  return { restored: true, found: true, fileName: latest.name };
+}
+
+export interface DriveSyncResult {
+  /** True if a newer Drive backup was pulled in over local data. */
+  restored: boolean;
+  /** False when there's no backup in Drive to consider. */
+  found: boolean;
+  /** True when a backup existed but local data was as new or newer, so we kept local. */
+  keptLocal?: boolean;
+  fileName?: string;
+}
+
+/**
+ * Sign-in sync: silently restore the latest Drive backup, but ONLY if it's newer than this device's
+ * data (see {@link shouldRestoreFromDrive}). This is the "pick up where you left off on another
+ * device" path — safe because it never overwrites newer local work. Runs silently (no confirm)
+ * because the user just chose to sign in.
+ */
+export async function syncDownFromDrive(): Promise<DriveSyncResult> {
+  const account = await ensureSignedIn();
+  if (!account) return { restored: false, found: false };
+
+  const token = await getAccessToken();
+  const folderId = await findFolderId(token);
+  const backups = folderId ? await listBackupsIn(token, folderId) : [];
+  const latest = pickLatestBackup(backups);
+  if (!latest) return { restored: false, found: false };
+
+  if (!shouldRestoreFromDrive(getDataUpdatedAt(), latest.modifiedTime)) {
+    return { restored: false, found: true, keptLocal: true, fileName: latest.name };
+  }
 
   await downloadAndRestore(token, latest.id);
   return { restored: true, found: true, fileName: latest.name };

@@ -10,6 +10,7 @@ import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { ConfirmDeleteModal } from '@/components/confirm-delete-modal';
 import { EditableList, type EditableItem } from '@/components/editable-list';
 import { SubcategoryManager } from '@/components/subcategory-manager';
 import { ThemedText } from '@/components/themed-text';
@@ -25,9 +26,11 @@ import {
   addCategory,
   addPaymentMode,
   addPerson,
+  clearAllTransactions,
   deleteCategory,
   deletePaymentMode,
   deletePerson,
+  getAllTransactions,
   renameCategory,
   renamePaymentMode,
   renamePerson,
@@ -125,6 +128,7 @@ export default function ManageScreen() {
           </Section>
 
           <BackupSection />
+          <DangerSection />
           <AccountSection />
         </ScrollView>
       </SafeAreaView>
@@ -264,10 +268,99 @@ function BackupSection() {
   );
 }
 
+/**
+ * "Delete all data" — the one destructive, irreversible action, deliberately behind a type-DELETE
+ * modal and placed next to Backup so the user is one tap from saving first. Categories/lists are
+ * kept; only transactions are removed.
+ */
+function DangerSection() {
+  const { busy, run } = useBusyAction();
+  const driveEnabled = Platform.OS !== 'web';
+  const [modalVisible, setModalVisible] = useState(false);
+  const [count, setCount] = useState(0);
+
+  const onOpen = useCallback(() => {
+    setCount(getAllTransactions().length);
+    setModalVisible(true);
+  }, []);
+
+  const onBackupFirst = useCallback(
+    () =>
+      run(async () => {
+        const res = await backupToDrive();
+        if (res.done) Alert.alert('Backed up to Drive', `Saved ${res.fileName} to your Google Drive (${res.account}).`);
+      }),
+    [run],
+  );
+
+  const onConfirm = useCallback(
+    () =>
+      run(async () => {
+        clearAllTransactions();
+        setModalVisible(false);
+        Alert.alert('Deleted', 'All transactions were removed from this device.');
+      }),
+    [run],
+  );
+
+  return (
+    <View style={styles.section}>
+      <ThemedText type="smallBold">Danger zone</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.sectionSubtitle}>
+        Permanently delete every transaction on this device. Your categories and lists are kept.
+        Back up first if you might want the data later.
+      </ThemedText>
+      <View style={styles.backupButtons}>
+        <Button label="Delete all data" variant="danger" onPress={onOpen} disabled={busy} style={styles.grow} />
+      </View>
+
+      <ConfirmDeleteModal
+        visible={modalVisible}
+        count={count}
+        busy={busy}
+        onCancel={() => setModalVisible(false)}
+        onConfirm={onConfirm}
+        onBackupFirst={driveEnabled ? onBackupFirst : undefined}
+      />
+    </View>
+  );
+}
+
 /** Shows the signed-in account + a sign-out button — only when login is configured and active. */
 function AccountSection() {
   const { session, configured } = useAuth();
   const { busy, run } = useBusyAction();
+  const driveEnabled = Platform.OS !== 'web';
+
+  const onSignOut = useCallback(
+    () =>
+      run(
+        async () => {
+          // Back up to Drive first so data isn't stranded when this device signs out. If it fails
+          // (offline, Drive error, sign-in cancelled), block the sign-out and tell the user to back
+          // up manually — never sign out with unsaved data on a device that may then be wiped.
+          if (driveEnabled) {
+            let backedUp = false;
+            try {
+              backedUp = (await backupToDrive()).done;
+            } catch {
+              backedUp = false;
+            }
+            if (!backedUp) {
+              Alert.alert(
+                'Back up before signing out',
+                'We couldn’t back up your data to Google Drive automatically. Tap “Back up” above to ' +
+                  'save it (Google Drive, or Save to a folder), then sign out — so nothing is lost.',
+              );
+              return; // stay signed in
+            }
+          }
+          await signOut();
+        },
+        { errorTitle: 'Could not sign out' },
+      ),
+    [run, driveEnabled],
+  );
 
   if (!configured || !session) return null;
 
@@ -275,15 +368,10 @@ function AccountSection() {
     <View style={styles.section}>
       <ThemedText type="smallBold">Account</ThemedText>
       <ThemedText type="small" themeColor="textSecondary" style={styles.sectionSubtitle}>
-        Signed in as {session.user.email ?? 'your account'}.
+        Signed in as {session.user.email ?? 'your account'}. Signing out backs up to Drive first.
       </ThemedText>
       <View style={styles.backupButtons}>
-        <Button
-          label="Sign out"
-          onPress={() => run(async () => { await signOut(); }, { errorTitle: 'Could not sign out' })}
-          disabled={busy}
-          style={styles.grow}
-        />
+        <Button label="Sign out" onPress={onSignOut} disabled={busy} style={styles.grow} />
       </View>
     </View>
   );

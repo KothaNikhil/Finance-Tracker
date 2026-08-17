@@ -17,6 +17,7 @@ import {
   parseFileId,
   parseFileList,
   pickLatestBackup,
+  shouldRestoreFromDrive,
 } from '../drive-api';
 
 describe('query building', () => {
@@ -33,6 +34,30 @@ describe('query building', () => {
 
   it("lists a folder's children by parent id", () => {
     expect(folderChildrenQuery('abc123')).toBe("'abc123' in parents and trashed=false");
+  });
+});
+
+describe('shouldRestoreFromDrive', () => {
+  it('restores on a fresh install (no local timestamp)', () => {
+    expect(shouldRestoreFromDrive(null, '2026-08-17T10:00:00.000Z')).toBe(true);
+  });
+
+  it('restores when the Drive backup is newer than local data', () => {
+    expect(shouldRestoreFromDrive('2026-08-17T09:00:00.000Z', '2026-08-17T10:00:00.000Z')).toBe(true);
+  });
+
+  it('keeps local when it is newer or the same age as the backup', () => {
+    expect(shouldRestoreFromDrive('2026-08-17T11:00:00.000Z', '2026-08-17T10:00:00.000Z')).toBe(false);
+    expect(shouldRestoreFromDrive('2026-08-17T10:00:00.000Z', '2026-08-17T10:00:00.000Z')).toBe(false);
+  });
+
+  it('never restores when the Drive timestamp is missing or unparseable', () => {
+    expect(shouldRestoreFromDrive('2026-08-17T09:00:00.000Z', undefined)).toBe(false);
+    expect(shouldRestoreFromDrive('2026-08-17T09:00:00.000Z', 'not-a-date')).toBe(false);
+  });
+
+  it('restores when local timestamp is corrupt but a valid backup exists', () => {
+    expect(shouldRestoreFromDrive('garbage', '2026-08-17T10:00:00.000Z')).toBe(true);
   });
 });
 

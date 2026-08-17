@@ -11,6 +11,7 @@ import { deserializeDatabaseAsync } from 'expo-sqlite';
 
 import { hasRequiredTables, REQUIRED_TABLES } from '@/core/backup';
 import { getSqlite } from './database';
+import { setDataUpdatedAt } from './repository';
 
 /** Serialize the whole database to bytes after a WAL checkpoint (a valid, standalone .db file). */
 export function serializeDatabase(): Uint8Array {
@@ -64,6 +65,9 @@ export async function restoreFromBytes(bytes: Uint8Array): Promise<void> {
     } finally {
       live.execSync('PRAGMA foreign_keys = ON;');
     }
+    // The live data now matches the backup; mark it fresh so a just-restored device isn't seen as
+    // "older than Drive" and restored again on the next sign-in.
+    setDataUpdatedAt(new Date().toISOString());
   } finally {
     src.closeSync();
   }

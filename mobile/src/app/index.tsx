@@ -27,7 +27,6 @@ import {
   acceptAllReviews,
   addCategory,
   addSubcategory,
-  clearAllTransactions,
   clearTransactionCategory,
   getExistingDedupeKeys,
   saveTransactions,
@@ -171,13 +170,6 @@ export default function HomeScreen() {
     );
   }, [reviewCount]);
 
-  const onClear = useCallback(() => {
-    Alert.alert('Clear all transactions?', 'This removes every saved transaction.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear', style: 'destructive', onPress: () => clearAllTransactions() },
-    ]);
-  }, []);
-
   const onPickCategory = useCallback(
     (categoryId: number, subcategoryId: number | null) => {
       if (detailId != null) setTransactionCategory(detailId, categoryId, subcategoryId, { learn: true });
@@ -235,11 +227,11 @@ export default function HomeScreen() {
             </Pressable>
           )}
 
-          {/* Actions */}
+          {/* Actions. "Add sample" is a dev-only affordance (loads a built-in demo statement); it
+              is compiled out of release builds via __DEV__. "Clear all" moved to Manage. */}
           <View style={styles.actions}>
             <Button label="Import file" variant="primary" onPress={onImportFile} disabled={busy} style={styles.grow} />
-            <Button label="Add sample" onPress={onAddSample} disabled={busy} style={styles.grow} />
-            <Button label="Clear" onPress={onClear} disabled={busy} style={styles.grow} />
+            {__DEV__ && <Button label="Add sample" onPress={onAddSample} disabled={busy} style={styles.grow} />}
           </View>
           {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
 
@@ -248,7 +240,13 @@ export default function HomeScreen() {
             Transactions
           </ThemedText>
           {txns.length === 0 && (
-            <EmptyState message="None yet. Tap “Import file” to load a Paytm statement, or “Add sample” to try it." />
+            <EmptyState
+              message={
+                __DEV__
+                  ? 'None yet. Tap “Import file” to load a Paytm statement, or “Add sample” to try it.'
+                  : 'None yet. Tap “Import file” to load a Paytm statement.'
+              }
+            />
           )}
           {txns.slice(0, 100).map((t) => (
             <TxnRow

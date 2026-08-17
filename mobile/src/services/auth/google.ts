@@ -39,6 +39,10 @@ export interface GoogleIdentity {
 export async function signInWithGoogle(): Promise<GoogleIdentity | null> {
   configureGoogleSignin();
   await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  // Clear any cached account first so the native picker ALWAYS appears. Without this, a device with
+  // a previously-used account signs in silently to that same account with no chooser — so a user
+  // can't switch accounts (or even confirm which one they're using) after signing out.
+  await GoogleSignin.signOut().catch(() => {});
   const res = await GoogleSignin.signIn();
   if (res.type !== 'success') return null; // cancelled
   const { idToken, user } = res.data;

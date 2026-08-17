@@ -32,3 +32,8 @@ export async function signInWithGoogleAccount(): Promise<boolean> {
   if (error) throw new Error(error.message);
   return true;
 }
+
+/** No native Google session on web (OAuth is a browser redirect), so there's nothing to clear. */
+export async function signOutGoogleAccount(): Promise<void> {
+  // no-op
+}

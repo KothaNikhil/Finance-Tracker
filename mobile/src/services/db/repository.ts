@@ -6,10 +6,11 @@
 
 import { eq, inArray, sql } from 'drizzle-orm';
 
-import { getDb } from './database';
+import { getDb, getSqlite } from './database';
 import {
   categories,
   categoryRules,
+  DATA_UPDATED_AT_KEY,
   paymentModes,
   people,
   subcategories,
@@ -97,6 +98,35 @@ export function getLearnedRules(): LearnedRule[] {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// `data_updated_at` marker — see schema `meta` table. Bumped by every function below that changes
+// real user data (NOT the startup seed), so sign-in can tell whether a Drive backup is newer than
+// this device's data. Stored/read via the raw handle to keep it a simple key/value.
+// ---------------------------------------------------------------------------
+
+/** The ISO timestamp of the last local data change, or null if nothing has changed yet. */
+export function getDataUpdatedAt(): string | null {
+  const row = getSqlite().getFirstSync<{ value: string }>(
+    'SELECT value FROM meta WHERE key = ?',
+    DATA_UPDATED_AT_KEY,
+  );
+  return row?.value ?? null;
+}
+
+/** Set the `data_updated_at` marker to a specific ISO timestamp (used after a restore). */
+export function setDataUpdatedAt(iso: string): void {
+  getSqlite().runSync(
+    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    DATA_UPDATED_AT_KEY,
+    iso,
+  );
+}
+
+/** Mark the local data as changed right now. Call after any user-initiated data mutation. */
+export function touchDataUpdatedAt(): void {
+  setDataUpdatedAt(new Date().toISOString());
+}
+
 /**
  * Save new transactions, auto-categorizing each one first. Relies on the unique dedupe key as
  * a final safety net against double-inserts.
@@ -152,6 +182,7 @@ export function saveTransactions(txns: NormalizedTxn[]): number {
     .values(rows)
     .onConflictDoNothing({ target: transactions.dedupeKey })
     .run();
+  touchDataUpdatedAt();
   return rows.length;
 }
 
@@ -195,6 +226,7 @@ export function setTransactionCategory(
     .set({ categoryId, subcategoryId, needsReview: false, autoCategorized: false })
     .where(eq(transactions.id, txnId))
     .run();
+  touchDataUpdatedAt();
 
   if (opts.learn === false) return;
 
@@ -223,6 +255,7 @@ export function acceptAllReviews(): number {
     .get();
 
   getDb().update(transactions).set({ needsReview: false }).where(eq(transactions.needsReview, true)).run();
+  touchDataUpdatedAt();
   return pending?.n ?? 0;
 }
 
@@ -247,6 +280,7 @@ export function addCategory(name: string, emoji?: string | null): number {
     .values({ name: trimmed, emoji: (emoji ?? '').trim() || null, sortOrder: all.length })
     .returning({ id: categories.id })
     .all();
+  touchDataUpdatedAt();
   return inserted[0].id;
 }
 
@@ -271,6 +305,7 @@ export function addSubcategory(categoryId: number, name: string): number {
     .values({ categoryId, name: trimmed, sortOrder: subs.length })
     .returning({ id: subcategories.id })
     .all();
+  touchDataUpdatedAt();
   return inserted[0].id;
 }
 
@@ -295,12 +330,14 @@ function renameRow(table: any, id: number, name: string): void {
   const trimmed = name.trim();
   if (trimmed === '') throw new Error('Enter a name');
   getDb().update(table).set({ name: trimmed }).where(eq(table.id, id)).run();
+  touchDataUpdatedAt();
 }
 
 /** Persist a new order for a list from the full sequence of ids (as produced by a drag). */
 function applyOrder(table: any, orderedIds: number[]): void {
   const db = getDb();
   orderedIds.forEach((id, pos) => db.update(table).set({ sortOrder: pos }).where(eq(table.id, id)).run());
+  touchDataUpdatedAt();
 }
 
 /** Add a plain name-only list row (payment mode / person), reusing an existing match. */
@@ -316,6 +353,7 @@ function addRow(table: any, name: string): number {
   const existing = all.find((r) => !r.isArchived && r.name.trim().toLowerCase() === trimmed.toLowerCase());
   if (existing) return existing.id;
   const inserted = db.insert(table).values({ name: trimmed, sortOrder: all.length }).returning({ id: table.id }).all();
+  touchDataUpdatedAt();
   return inserted[0].id;
 }
 
@@ -328,11 +366,13 @@ export const reorderCategories = (orderedIds: number[]): void => applyOrder(cate
 /** Change (or clear) a category's emoji. */
 export function setCategoryEmoji(id: number, emoji: string | null): void {
   getDb().update(categories).set({ emoji: (emoji ?? '').trim() || null }).where(eq(categories.id, id)).run();
+  touchDataUpdatedAt();
 }
 
 /** Delete a category: archive it if it (or its sub-categories) are still used, else hard-delete. */
 export function deleteCategory(id: number): void {
   const db = getDb();
+  touchDataUpdatedAt();
   const subIds = db.select({ id: subcategories.id }).from(subcategories).where(eq(subcategories.categoryId, id)).all().map((s) => s.id);
   const used =
     txnCount(eq(transactions.categoryId, id)) > 0 ||
@@ -354,6 +394,7 @@ export const reorderSubcategories = (orderedIds: number[]): void => applyOrder(s
 
 export function deleteSubcategory(id: number): void {
   const db = getDb();
+  touchDataUpdatedAt();
   if (txnCount(eq(transactions.subcategoryId, id)) > 0) {
     db.update(subcategories).set({ isArchived: true }).where(eq(subcategories.id, id)).run();
     return;
@@ -368,6 +409,7 @@ export const addPaymentMode = (name: string): number => addRow(paymentModes, nam
 export const renamePaymentMode = (id: number, name: string): void => renameRow(paymentModes, id, name);
 export const reorderPaymentModes = (orderedIds: number[]): void => applyOrder(paymentModes, orderedIds);
 export function deletePaymentMode(id: number): void {
+  touchDataUpdatedAt();
   if (txnCount(eq(transactions.paymentModeId, id)) > 0) {
     getDb().update(paymentModes).set({ isArchived: true }).where(eq(paymentModes.id, id)).run();
     return;
@@ -380,6 +422,7 @@ export const addPerson = (name: string): number => addRow(people, name);
 export const renamePerson = (id: number, name: string): void => renameRow(people, id, name);
 export const reorderPeople = (orderedIds: number[]): void => applyOrder(people, orderedIds);
 export function deletePerson(id: number): void {
+  touchDataUpdatedAt();
   if (txnCount(eq(transactions.personId, id)) > 0) {
     getDb().update(people).set({ isArchived: true }).where(eq(people.id, id)).run();
     return;
@@ -394,9 +437,11 @@ export function clearTransactionCategory(txnId: number): void {
     .set({ categoryId: null, subcategoryId: null, autoCategorized: false, needsReview: false })
     .where(eq(transactions.id, txnId))
     .run();
+  touchDataUpdatedAt();
 }
 
-/** Remove all transactions (used by the "Clear" action while testing). Leaves learned rules. */
+/** Remove all transactions ("Delete all data" in Manage). Leaves learned rules and lists intact. */
 export function clearAllTransactions(): void {
   getDb().delete(transactions).run();
+  touchDataUpdatedAt();
 }

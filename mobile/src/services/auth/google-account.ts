@@ -5,6 +5,8 @@
  * module with no browser implementation.
  */
 
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
 import { signInWithGoogle } from './google';
 import { getSupabase } from './supabase';
 
@@ -23,4 +25,12 @@ export async function signInWithGoogleAccount(): Promise<boolean> {
   });
   if (error) throw new Error(error.message);
   return true;
+}
+
+/**
+ * Clear the native Google session on sign-out so no account lingers signed-in while the app is
+ * logged out. (The picker is also forced at sign-in time — see `signInWithGoogle`.)
+ */
+export async function signOutGoogleAccount(): Promise<void> {
+  await GoogleSignin.signOut().catch(() => {});
 }

@@ -10,6 +10,12 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 
 import { completeSignInFromUrl, getCurrentSession, onAuthChange } from '@/services/auth/auth';
 import { isSupabaseConfigured } from '@/services/auth/config';
+import { setActiveDbAccount } from '@/services/db/database';
+
+/** Bind the local database to a session's account BEFORE re-rendering, so screens read the right file. */
+function bindDbToSession(session: Session | null): void {
+  setActiveDbAccount(session?.user?.id ?? null);
+}
 
 interface AuthState {
   session: Session | null;
@@ -33,12 +39,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     getCurrentSession().then((s) => {
       if (active) {
+        bindDbToSession(s);
         setSession(s);
         setLoading(false);
       }
     });
     const unsubscribe = onAuthChange((s) => {
-      if (active) setSession(s);
+      if (active) {
+        bindDbToSession(s);
+        setSession(s);
+      }
     });
     return () => {
       active = false;
@@ -46,8 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [configured]);
 
-  // Handle the email magic-link deep link (both cold start and while running). On success,
-  // onAuthChange above picks up the new session and the gate opens.
+  // Handle the Google OAuth redirect return (WEB: the browser comes back with a PKCE `?code=`;
+  // native uses the ID-token flow and won't hit this). On success, onAuthChange above picks up the
+  // new session and the gate opens.
   useEffect(() => {
     if (!configured) return;
     const handle = (url: string | null) => {
