@@ -7,17 +7,28 @@
  * React-Native adapter that touches the database, the filesystem, and sharing.
  */
 
-import { buildYearlyWorkbook, type ExportTxn } from '@/core/export';
+import { buildFilteredWorkbook, type ExportTxn } from '@/core/export';
+import { matchesFilter, type TxnFilter } from '@/core/analytics';
 import type { Direction } from '@/core/domain/money';
 import { getAllTransactions, getCategoryIndex, getLists } from '@/services/db/repository';
 import { saveBytesToFolder, shareBytes } from '@/services/file-io';
 import { writeWorkbookBytes } from './xlsx-writer';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const XLSX_UTI = 'org.openxmlformats.spreadsheetml.sheet';
 
-/** Map the stored rows into export rows with all reference ids resolved to display names. */
-function loadExportTxns(): ExportTxn[] {
-  const rows = getAllTransactions();
+/** Ensure a user-entered name is a safe `.xlsx` file name. */
+function normalizeXlsxName(name: string): string {
+  const trimmed = name.trim().replace(/[\\/:*?"<>|]/g, '_') || 'Finance-Tracker';
+  return trimmed.toLowerCase().endsWith('.xlsx') ? trimmed : `${trimmed}.xlsx`;
+}
+
+/**
+ * Load the stored rows that match the filter and map them to export rows with reference ids
+ * resolved to display names. Filtering happens on the RAW rows (which still have the ids) so the
+ * same {@link TxnFilter} that drives the Reports view drives the export.
+ */
+function loadExportTxns(filter: TxnFilter): ExportTxn[] {
   const index = getCategoryIndex();
   const lists = getLists();
 
@@ -26,27 +37,42 @@ function loadExportTxns(): ExportTxn[] {
   const pmNames = new Map(lists.paymentModes.map((p) => [p.id, p.name]));
   const personNames = new Map(lists.people.map((p) => [p.id, p.name]));
 
-  return rows.map((r) => ({
-    isoDate: r.isoDate,
-    time: r.time ?? '',
-    paise: r.paise,
-    direction: r.direction as Direction,
-    isRefund: r.isRefund,
-    counterparty: r.counterpartyName ?? r.rawDetails ?? '',
-    categoryName: r.categoryId != null ? (index.byId.get(r.categoryId)?.name ?? '') : '',
-    subcategoryName: r.subcategoryId != null ? (subNames.get(r.subcategoryId) ?? '') : '',
-    paymentMode: r.paymentModeId != null ? (pmNames.get(r.paymentModeId) ?? '') : '',
-    person: r.personId != null ? (personNames.get(r.personId) ?? '') : '',
-    account: r.accountName ?? '',
-    remarks: r.remarks ?? '',
-    ref: r.sourceRef ?? '',
-  }));
+  return getAllTransactions()
+    .filter((r) =>
+      matchesFilter(
+        {
+          isoDate: r.isoDate,
+          direction: r.direction as Direction,
+          categoryId: r.categoryId,
+          subcategoryId: r.subcategoryId,
+          accountName: r.accountName,
+          personId: r.personId,
+        },
+        filter,
+      ),
+    )
+    .map((r) => ({
+      isoDate: r.isoDate,
+      time: r.time ?? '',
+      paise: r.paise,
+      direction: r.direction as Direction,
+      isRefund: r.isRefund,
+      counterparty: r.counterpartyName ?? r.rawDetails ?? '',
+      categoryName: r.categoryId != null ? (index.byId.get(r.categoryId)?.name ?? '') : '',
+      subcategoryName: r.subcategoryId != null ? (subNames.get(r.subcategoryId) ?? '') : '',
+      paymentMode: r.paymentModeId != null ? (pmNames.get(r.paymentModeId) ?? '') : '',
+      person: r.personId != null ? (personNames.get(r.personId) ?? '') : '',
+      account: r.accountName ?? '',
+      remarks: r.remarks ?? '',
+      ref: r.sourceRef ?? '',
+    }));
 }
 
-/** Build the workbook bytes for one year. */
-function buildYearBytes(year: number): { bytes: Uint8Array; fileName: string } {
-  const model = buildYearlyWorkbook(loadExportTxns(), year);
-  return { bytes: writeWorkbookBytes(model), fileName: model.fileName };
+/** Build the workbook bytes for the filtered set under the given (user-chosen) file name. */
+function buildFilteredBytes(filter: TxnFilter, fileName: string): { bytes: Uint8Array; fileName: string } {
+  const safeName = normalizeXlsxName(fileName);
+  const model = buildFilteredWorkbook(loadExportTxns(filter), safeName);
+  return { bytes: writeWorkbookBytes(model), fileName: safeName };
 }
 
 export interface SaveResult {
@@ -56,17 +82,14 @@ export interface SaveResult {
 }
 
 /**
- * Save the workbook directly to a folder the user picks (Android Storage Access Framework /
- * iOS Files). This is the "download / save to Files" path — the file lands wherever the user
- * chooses (Downloads, Documents, a Drive folder, …), outside the app sandbox.
- *
- * Returns `saved: false` if the user backs out of the folder picker. A genuine write failure
- * throws so the caller can surface it.
+ * Save the filtered workbook directly to a folder the user picks (Android Storage Access Framework /
+ * iOS Files) — the "download / save to Files" path. The file lands wherever the user chooses,
+ * outside the app sandbox. Returns `saved: false` if the user backs out; a real write error throws.
  */
-export async function saveYearToFolder(year: number): Promise<SaveResult> {
-  const { bytes, fileName } = buildYearBytes(year);
-  const saved = await saveBytesToFolder(bytes, fileName, XLSX_MIME);
-  return { saved, fileName };
+export async function saveFilteredToFolder(filter: TxnFilter, fileName: string): Promise<SaveResult> {
+  const { bytes, fileName: name } = buildFilteredBytes(filter, fileName);
+  const saved = await saveBytesToFolder(bytes, name, XLSX_MIME);
+  return { saved, fileName: name };
 }
 
 export interface ShareResult {
@@ -77,17 +100,11 @@ export interface ShareResult {
 }
 
 /**
- * Write the workbook to the (temporary) cache directory and hand it to the OS share sheet, for
- * sending to Drive / email / etc. On iOS the share sheet also offers "Save to Files".
+ * Write the filtered workbook to the cache directory and hand it to the OS share sheet (Drive /
+ * email / etc.). On iOS the share sheet also offers "Save to Files".
  */
-export async function shareYearToExcel(year: number): Promise<ShareResult> {
-  const { bytes, fileName } = buildYearBytes(year);
-  const { shared, uri } = await shareBytes(
-    bytes,
-    fileName,
-    XLSX_MIME,
-    `Finance Tracker ${year}`,
-    'org.openxmlformats.spreadsheetml.sheet',
-  );
-  return { uri, shared, fileName };
+export async function shareFilteredToExcel(filter: TxnFilter, fileName: string): Promise<ShareResult> {
+  const { bytes, fileName: name } = buildFilteredBytes(filter, fileName);
+  const { shared, uri } = await shareBytes(bytes, name, XLSX_MIME, 'Finance Tracker export', XLSX_UTI);
+  return { uri, shared, fileName: name };
 }

@@ -108,39 +108,54 @@ function byDateTime(a: ExportTxn, b: ExportTxn): number {
   return a.time < b.time ? -1 : a.time > b.time ? 1 : 0;
 }
 
-/**
- * Build the workbook for one calendar year. Months with no transactions are omitted (no empty
- * sheets); if the whole year is empty the workbook still has a Summary sheet with just totals.
- */
-export function buildYearlyWorkbook(txns: ExportTxn[], year: number): WorkbookModel {
-  const yearStr = String(year).padStart(4, '0');
-  const inYear = txns.filter((t) => t.isoDate.slice(0, 4) === yearStr);
+/** A (year, month) bucket of transactions. `ord` = year*12 + monthIndex, for chronological sorting. */
+interface MonthBucket {
+  year: number;
+  month: number; // 1-based
+  ord: number;
+  txns: ExportTxn[];
+}
 
-  const byMonth = new Map<number, ExportTxn[]>();
-  for (const t of inYear) {
-    const m = parseInt(t.isoDate.slice(5, 7), 10);
-    if (m < 1 || m > 12) continue;
-    const list = byMonth.get(m);
-    if (list) list.push(t);
-    else byMonth.set(m, [t]);
+/** Group the (already-filtered) transactions into chronological (year, month) buckets. */
+function bucketByMonth(txns: ExportTxn[]): MonthBucket[] {
+  const byKey = new Map<number, MonthBucket>();
+  for (const t of txns) {
+    const year = parseInt(t.isoDate.slice(0, 4), 10);
+    const month = parseInt(t.isoDate.slice(5, 7), 10);
+    if (!(month >= 1 && month <= 12)) continue;
+    const ord = year * 12 + (month - 1);
+    let b = byKey.get(ord);
+    if (!b) byKey.set(ord, (b = { year, month, ord, txns: [] }));
+    b.txns.push(t);
   }
+  return [...byKey.values()].sort((a, b) => a.ord - b.ord);
+}
+
+/**
+ * Build a workbook from an already-filtered set of transactions: a Summary sheet of per-month
+ * totals followed by one log sheet per month that has data (chronological). Months that span more
+ * than one calendar year get the year appended to their sheet/summary label so names stay unique;
+ * a single-year set keeps the plain month names. An empty set still yields a Summary sheet.
+ */
+export function buildFilteredWorkbook(txns: ExportTxn[], fileName: string): WorkbookModel {
+  const buckets = bucketByMonth(txns);
+  const multiYear = new Set(buckets.map((b) => b.year)).size > 1;
+  const label = (b: MonthBucket): string =>
+    multiYear ? `${MONTH_NAMES[b.month - 1]} ${b.year}` : MONTH_NAMES[b.month - 1];
 
   const summaryRows: CellModel[][] = [];
   const grand = emptyTotals();
   const monthSheets: SheetModel[] = [];
 
-  for (let m = 1; m <= 12; m++) {
-    const list = byMonth.get(m);
-    if (!list) continue;
-    list.sort(byDateTime);
+  for (const b of buckets) {
+    b.txns.sort(byDateTime);
 
     const totals = emptyTotals();
-    for (const t of list) addTotals(totals, t);
+    for (const t of b.txns) addTotals(totals, t);
     const net = totals.spent - totals.refunds;
 
-    // Summary row for this month.
     summaryRows.push([
-      text(MONTH_NAMES[m - 1]),
+      text(label(b)),
       money(totals.spent),
       money(totals.received),
       money(totals.refunds),
@@ -148,21 +163,20 @@ export function buildYearlyWorkbook(txns: ExportTxn[], year: number): WorkbookMo
       text(totals.count),
     ]);
 
-    // Accumulate into the grand total.
     grand.spent += totals.spent;
     grand.received += totals.received;
     grand.refunds += totals.refunds;
     grand.count += totals.count;
 
     // The month log sheet: transactions + a spacer + total rows.
-    const rows: CellModel[][] = list.map(logRow);
+    const rows: CellModel[][] = b.txns.map(logRow);
     rows.push([text('')]);
     rows.push(totalRow('Spent (₹)', totals.spent));
     rows.push(totalRow('Received (₹)', totals.received));
     rows.push(totalRow('Refunds (₹)', totals.refunds));
     rows.push(totalRow('Net spent (₹)', net));
 
-    monthSheets.push({ name: MONTH_NAMES[m - 1], columns: LOG_COLUMNS, rows });
+    monthSheets.push({ name: label(b), columns: LOG_COLUMNS, rows });
   }
 
   // Grand-total row closes the Summary sheet.
@@ -176,6 +190,15 @@ export function buildYearlyWorkbook(txns: ExportTxn[], year: number): WorkbookMo
   ]);
 
   const summarySheet: SheetModel = { name: 'Summary', columns: SUMMARY_COLUMNS, rows: summaryRows };
+  return { fileName, sheets: [summarySheet, ...monthSheets] };
+}
 
-  return { fileName: `Finance-Tracker-${yearStr}.xlsx`, sheets: [summarySheet, ...monthSheets] };
+/**
+ * Build the workbook for one calendar year (kept for the year-scoped path/tests). Filters to the
+ * year, then delegates to {@link buildFilteredWorkbook} — a single year keeps plain month names.
+ */
+export function buildYearlyWorkbook(txns: ExportTxn[], year: number): WorkbookModel {
+  const yearStr = String(year).padStart(4, '0');
+  const inYear = txns.filter((t) => t.isoDate.slice(0, 4) === yearStr);
+  return buildFilteredWorkbook(inYear, `Finance-Tracker-${yearStr}.xlsx`);
 }

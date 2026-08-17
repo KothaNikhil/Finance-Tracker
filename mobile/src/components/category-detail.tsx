@@ -9,6 +9,7 @@
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/button';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -24,10 +25,14 @@ export interface CategoryDetailProps {
   /** The category's gross spend for the period (equals the sum of the sub-category bars). */
   totalPaise: number;
   txnCount: number;
-  /** Sub-category rows (already labelled and sorted). */
+  /** Sub-category rows (already labelled and sorted; set `id` = sub-category id to make one tappable). */
   rows: CategoryBreakdownRow[];
   color: string;
   onClose: () => void;
+  /** Open this category's transactions in Reports (pre-filtered). */
+  onViewTransactions?: () => void;
+  /** Open one sub-category's transactions in Reports (pre-filtered to category + sub-category). */
+  onSubcategoryPress?: (subcategoryId: number) => void;
 }
 
 export function CategoryDetail({
@@ -39,6 +44,8 @@ export function CategoryDetail({
   rows,
   color,
   onClose,
+  onViewTransactions,
+  onSubcategoryPress,
 }: CategoryDetailProps) {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -68,7 +75,23 @@ export function CategoryDetail({
               <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionTitle}>
                 SUB-CATEGORIES
               </ThemedText>
-              <CategoryBreakdown rows={rows} total={totalPaise} color={color} />
+              <CategoryBreakdown
+                rows={rows}
+                total={totalPaise}
+                color={color}
+                onRowPress={(row) => {
+                  if (row.id != null && onSubcategoryPress) onSubcategoryPress(row.id);
+                }}
+              />
+
+              {onViewTransactions && (
+                <Button
+                  label="View transactions"
+                  variant="secondary"
+                  onPress={onViewTransactions}
+                  style={styles.viewBtn}
+                />
+              )}
             </ScrollView>
           </SafeAreaView>
         </ThemedView>
@@ -94,4 +117,5 @@ const styles = StyleSheet.create({
   },
   body: { paddingBottom: Spacing.four, gap: Spacing.one },
   sectionTitle: { fontSize: 12, letterSpacing: 0.5, marginTop: Spacing.three, marginBottom: Spacing.two },
+  viewBtn: { marginTop: Spacing.three },
 });

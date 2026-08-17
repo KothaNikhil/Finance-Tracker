@@ -10,11 +10,11 @@
  */
 
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button } from '@/components/button';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
 import { CategoryDetail } from '@/components/category-detail';
 import { Chip } from '@/components/chip';
@@ -36,14 +36,13 @@ import {
 } from '@/core/analytics';
 import { transactions } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
-import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex } from '@/hooks/use-reference-data';
 import { getDb } from '@/services/db/database';
-import { saveYearToFolder, shareYearToExcel } from '@/services/export';
 
 export default function DashboardScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const db = getDb();
   // Semantic colours (theme-aware) — each is always paired with a text label, so the red↔green
   // pair is never distinguished by colour alone.
@@ -117,6 +116,7 @@ export default function DashboardScreen() {
       key: String(s.subcategoryId ?? 'none'),
       label: s.subcategoryId != null ? (subNames.get(s.subcategoryId) ?? 'Sub-category') : 'No sub-category',
       value: s.spentPaise,
+      id: s.subcategoryId, // makes a real sub-category row tappable → deep-link to Reports
     }));
   }, [txns, openCategoryId, openCategory, period]);
   const subTotal = subRows.reduce((sum, r) => sum + r.value, 0);
@@ -146,37 +146,6 @@ export default function DashboardScreen() {
     const month = i + 1;
     setSelectedMonth((cur) => (cur === month ? null : month)); // tap again to zoom back out
   };
-
-  // Save the whole active year (one workbook = one year, a sheet per month + a summary).
-  const { busy: exporting, run: runExport } = useBusyAction('Could not export');
-
-  const saveToFolder = useCallback(
-    () =>
-      runExport(async () => {
-        const res = await saveYearToFolder(activeYear);
-        if (res.saved) Alert.alert('Saved', `${res.fileName} was saved to the folder you chose.`);
-      }),
-    [runExport, activeYear],
-  );
-
-  const shareFile = useCallback(
-    () =>
-      runExport(async () => {
-        const res = await shareYearToExcel(activeYear);
-        if (!res.shared) {
-          Alert.alert('Saved', `Sharing isn’t available here. The workbook was saved as ${res.fileName}.`);
-        }
-      }),
-    [runExport, activeYear],
-  );
-
-  const onExport = useCallback(() => {
-    Alert.alert(`Export ${activeYear}`, 'Save the Excel workbook to your device, or share it.', [
-      { text: 'Save to a folder', onPress: saveToFolder },
-      { text: 'Share…', onPress: shareFile },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  }, [activeYear, saveToFolder, shareFile]);
 
   return (
     <ThemedView style={styles.container}>
@@ -218,15 +187,6 @@ export default function DashboardScreen() {
                 {periodLabel} · {periodTotals.txnCount} transaction
                 {periodTotals.txnCount === 1 ? '' : 's'} · self-transfers excluded
               </ThemedText>
-
-              {/* Export the whole active year to Excel */}
-              <Button
-                label={`⤓  Export ${activeYear} to Excel`}
-                accessibilityLabel={`Export ${activeYear} to Excel`}
-                onPress={onExport}
-                loading={exporting}
-                style={styles.exportBtn}
-              />
 
               {/* Monthly net-spend chart */}
               <View style={styles.sectionHead}>
@@ -302,9 +262,25 @@ export default function DashboardScreen() {
         rows={subRows}
         color={SPEND}
         onClose={() => setOpenCategoryId(null)}
+        onViewTransactions={() => openInReports(openCategoryId)}
+        onSubcategoryPress={(subId) => openInReports(openCategoryId, subId)}
       />
     </ThemedView>
   );
+
+  // Deep-link to the Reports tab, pre-filtered to this category (+ optional sub-category) and year.
+  function openInReports(categoryId: number | null, subcategoryId?: number) {
+    if (categoryId == null) return;
+    setOpenCategoryId(null);
+    router.navigate({
+      pathname: '/reports',
+      params: {
+        categoryId: String(categoryId),
+        year: String(activeYear),
+        ...(subcategoryId != null ? { subcategoryId: String(subcategoryId) } : {}),
+      },
+    });
+  }
 }
 
 const styles = StyleSheet.create({
@@ -319,7 +295,6 @@ const styles = StyleSheet.create({
   empty: { marginTop: Spacing.three },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.one },
   tiles: { flexDirection: 'row', gap: Spacing.two },
-  exportBtn: { marginTop: Spacing.two },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',

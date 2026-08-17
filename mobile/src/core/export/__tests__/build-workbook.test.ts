@@ -1,4 +1,4 @@
-import { buildYearlyWorkbook } from '../build-workbook';
+import { buildFilteredWorkbook, buildYearlyWorkbook } from '../build-workbook';
 import type { ExportTxn } from '../types';
 
 function txn(over: Partial<ExportTxn> & Pick<ExportTxn, 'isoDate' | 'paise' | 'direction'>): ExportTxn {
@@ -82,5 +82,31 @@ describe('buildYearlyWorkbook', () => {
     expect(empty.sheets.map((s) => s.name)).toEqual(['Summary']);
     const total = empty.sheets[0].rows.find((r) => r[0].value === 'Total')!;
     expect(total[1].value).toBe(0);
+  });
+});
+
+describe('buildFilteredWorkbook', () => {
+  it('uses the given file name and keeps plain month names within a single year', () => {
+    const wb = buildFilteredWorkbook(SAMPLE.filter((t) => t.isoDate.startsWith('2026')), 'Custom.xlsx');
+    expect(wb.fileName).toBe('Custom.xlsx');
+    expect(wb.sheets.map((s) => s.name)).toEqual(['Summary', 'May', 'August']);
+  });
+
+  it('appends the year to sheet/summary labels when the set spans multiple years', () => {
+    const multi: ExportTxn[] = [
+      txn({ isoDate: '2025-12-31', paise: 99999, direction: 'out', counterparty: 'Dec 2025' }),
+      txn({ isoDate: '2026-01-05', paise: 10000, direction: 'out', counterparty: 'Jan 2026' }),
+    ];
+    const wb = buildFilteredWorkbook(multi, 'Range.xlsx');
+    // Chronological, year-qualified, unique sheet names.
+    expect(wb.sheets.map((s) => s.name)).toEqual(['Summary', 'December 2025', 'January 2026']);
+    expect(wb.sheets[0].rows.map((r) => r[0].value)).toEqual(['December 2025', 'January 2026', 'Total']);
+  });
+
+  it('exports exactly the filtered set (grand total reflects only what was passed in)', () => {
+    const onlyFood = SAMPLE.filter((t) => t.categoryName === 'Food & Dining');
+    const wb = buildFilteredWorkbook(onlyFood, 'Food.xlsx');
+    const total = wb.sheets[0].rows.find((r) => r[0].value === 'Total')!;
+    expect(total[1].value).toBe(45000 / 100); // just the one Zomato row
   });
 });
