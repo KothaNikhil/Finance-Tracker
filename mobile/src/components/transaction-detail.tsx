@@ -6,7 +6,7 @@
  * From here the user can jump to changing the category via `onChangeCategory`.
  */
 
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -54,6 +54,8 @@ export interface TransactionDetailProps {
   onChangeCategory: () => void;
   /** Clear the category (back to uncategorized). */
   onRemoveCategory: () => void;
+  /** Delete this transaction entirely. When provided, a "Delete transaction" action is shown. */
+  onDelete?: () => void;
 }
 
 export function TransactionDetail({
@@ -65,9 +67,28 @@ export function TransactionDetail({
   onClose,
   onChangeCategory,
   onRemoveCategory,
+  onDelete,
 }: TransactionDetailProps) {
   const theme = useTheme();
   if (!txn) return null;
+
+  const confirmDelete = () => {
+    Alert.alert(
+      'Delete this transaction?',
+      'It will be permanently removed from this device. This can’t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            onDelete?.();
+            onClose();
+          },
+        },
+      ],
+    );
+  };
 
   const dir = DIRECTION[txn.direction as keyof typeof DIRECTION] ?? DIRECTION.out;
   const title = txn.counterpartyName ?? txn.rawDetails ?? 'Transaction';
@@ -176,6 +197,19 @@ export function TransactionDetail({
                 {txn.rawDetails ? <NoteField label="Original statement text" value={txn.rawDetails} theme={theme} /> : null}
                 {addedOn ? <Field label="Added on" value={addedOn} /> : null}
               </Section>
+
+              {onDelete && (
+                <Pressable
+                  onPress={confirmDelete}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete this transaction"
+                  style={({ pressed }) => [styles.deleteBtn, { borderColor: theme.spend, opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <ThemedText type="smallBold" style={{ color: theme.spend }}>
+                    Delete transaction
+                  </ThemedText>
+                </Pressable>
+              )}
             </ScrollView>
           </SafeAreaView>
         </ThemedView>
@@ -262,4 +296,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   removeBtn: { marginTop: Spacing.one, paddingVertical: Spacing.one, alignItems: 'center' },
+  deleteBtn: {
+    marginTop: Spacing.four,
+    paddingVertical: Spacing.three,
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
 });

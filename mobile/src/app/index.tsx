@@ -28,6 +28,7 @@ import {
   addCategory,
   addSubcategory,
   clearTransactionCategory,
+  deleteTransaction,
   getExistingDedupeKeys,
   saveTransactions,
   setTransactionCategory,
@@ -278,6 +279,9 @@ export default function HomeScreen() {
         onChangeCategory={() => setPickerOpen(true)}
         onRemoveCategory={() => {
           if (detailId != null) clearTransactionCategory(detailId);
+        }}
+        onDelete={() => {
+          if (detailId != null) deleteTransaction(detailId);
         }}
       />
 

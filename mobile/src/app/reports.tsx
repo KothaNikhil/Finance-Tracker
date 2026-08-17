@@ -48,7 +48,7 @@ import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { getDb } from '@/services/db/database';
-import { addCategory, addSubcategory, clearTransactionCategory, setTransactionCategory } from '@/services/db/repository';
+import { addCategory, addSubcategory, clearTransactionCategory, deleteTransaction, setTransactionCategory } from '@/services/db/repository';
 import { saveFilteredToFolder, shareFilteredToExcel } from '@/services/export';
 
 const TOP_MERCHANTS = 12;
@@ -331,6 +331,9 @@ export default function ReportsScreen() {
         onChangeCategory={() => setPickerOpen(true)}
         onRemoveCategory={() => {
           if (detailId != null) clearTransactionCategory(detailId);
+        }}
+        onDelete={() => {
+          if (detailId != null) deleteTransaction(detailId);
         }}
       />
 

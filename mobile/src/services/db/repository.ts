@@ -440,6 +440,12 @@ export function clearTransactionCategory(txnId: number): void {
   touchDataUpdatedAt();
 }
 
+/** Delete a single transaction (hard delete). Leaves learned rules and lists intact. */
+export function deleteTransaction(id: number): void {
+  getDb().delete(transactions).where(eq(transactions.id, id)).run();
+  touchDataUpdatedAt();
+}
+
 /** Remove all transactions ("Delete all data" in Manage). Leaves learned rules and lists intact. */
 export function clearAllTransactions(): void {
   getDb().delete(transactions).run();
