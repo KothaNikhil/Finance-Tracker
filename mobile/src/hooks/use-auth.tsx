@@ -9,7 +9,7 @@ import * as Linking from 'expo-linking';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
 import { completeSignInFromUrl, getCurrentSession, onAuthChange } from '@/services/auth/auth';
-import { isSupabaseConfigured } from '@/services/auth/config';
+import { DEV_BYPASS_LOGIN, isSupabaseConfigured } from '@/services/auth/config';
 import { setActiveDbAccount } from '@/services/db/database';
 
 /** Bind the local database to a session's account BEFORE re-rendering, so screens read the right file. */
@@ -27,7 +27,8 @@ interface AuthState {
 const AuthContext = createContext<AuthState>({ session: null, loading: true, configured: false });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const configured = isSupabaseConfigured();
+  // DEV_BYPASS_LOGIN drops the gate entirely (emulator has no Google sign-in). Never true in release.
+  const configured = isSupabaseConfigured() && !DEV_BYPASS_LOGIN;
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(configured);
 

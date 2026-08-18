@@ -7,14 +7,14 @@
  */
 
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheet } from '@/components/bottom-sheet';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { OptionSheet, type Option } from '@/components/option-sheet';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { MONTH_LABELS, type MonthKey, type TxnFilter } from '@/core/analytics';
 import type { Direction } from '@/core/domain/money';
@@ -131,18 +131,17 @@ export function ReportsFilters({
   ];
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <ThemedView style={styles.sheet}>
-          <SafeAreaView edges={['bottom']}>
-            <View style={styles.header}>
-              <ThemedText type="subtitle">Filters</ThemedText>
-              <Pressable onPress={onClose} hitSlop={8}>
-                <ThemedText type="link" themeColor="textSecondary">Close</ThemedText>
-              </Pressable>
-            </View>
+    <>
+      <BottomSheet visible={visible} onClose={onClose}>
+        <SafeAreaView edges={['bottom']} style={styles.flexible}>
+          <View style={styles.header}>
+            <ThemedText type="subtitle">Filters</ThemedText>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <ThemedText type="link" themeColor="textSecondary">Close</ThemedText>
+            </Pressable>
+          </View>
 
-            <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.flexible} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
               {/* Period */}
               <Field label="Period">
                 <View style={styles.chipsRow}>
@@ -199,9 +198,8 @@ export function ReportsFilters({
               <Button label="Reset" variant="secondary" onPress={() => setDraft({})} style={styles.grow} />
               <Button label="Apply" variant="primary" onPress={() => { onApply(draft); onClose(); }} style={styles.grow} />
             </View>
-          </SafeAreaView>
-        </ThemedView>
-      </View>
+        </SafeAreaView>
+      </BottomSheet>
 
       {/* Pickers (one at a time) */}
       <OptionSheet
@@ -256,7 +254,7 @@ export function ReportsFilters({
         onSelect={(v) => { set({ personId: v === 'any' ? undefined : v === 'none' ? null : parseInt(v, 10) }); setPicker(null); }}
         onClose={() => setPicker(null)}
       />
-    </Modal>
+    </>
   );
 }
 
@@ -296,14 +294,7 @@ function PickerButton({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
-  sheet: {
-    maxHeight: '90%',
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three,
-  },
+  flexible: { flexShrink: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.two },
   body: { paddingBottom: Spacing.three, gap: Spacing.three },
   field: { gap: Spacing.one },

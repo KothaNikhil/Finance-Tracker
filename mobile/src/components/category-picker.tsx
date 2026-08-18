@@ -13,7 +13,6 @@
 import { useEffect, useState } from 'react';
 import {
   Keyboard,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -23,8 +22,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheet } from '@/components/bottom-sheet';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import type { CategoryRef } from '@/core/categorize';
 import { useTheme } from '@/hooks/use-theme';
@@ -135,10 +134,8 @@ export function CategoryPicker({
       : 'Choose category';
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onBack}>
-      <View style={[styles.backdrop, { paddingBottom: kbHeight }]}>
-        <ThemedView style={styles.sheet}>
-          <SafeAreaView edges={kbHeight > 0 ? [] : ['bottom']}>
+    <BottomSheet visible={visible} onClose={onClose} backdropPaddingBottom={kbHeight}>
+      <SafeAreaView edges={kbHeight > 0 ? [] : ['bottom']} style={styles.flexible}>
               <View style={styles.header}>
                 <Pressable onPress={onBack} hitSlop={8}>
                   <ThemedText type="link" themeColor="textSecondary">
@@ -241,10 +238,8 @@ export function CategoryPicker({
                   />
                 </ScrollView>
               )}
-          </SafeAreaView>
-        </ThemedView>
-      </View>
-    </Modal>
+      </SafeAreaView>
+    </BottomSheet>
   );
 }
 
@@ -285,19 +280,12 @@ function Row({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
-  sheet: {
-    maxHeight: '80%',
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three,
-  },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   headerTitle: { flex: 1, textAlign: 'center' },
   headerSpacer: { width: 48 },
   subtitle: { textAlign: 'center', marginTop: Spacing.one },
-  list: { marginTop: Spacing.two },
+  flexible: { flexShrink: 1 },
+  list: { marginTop: Spacing.two, flexShrink: 1 },
   listContent: { gap: Spacing.one, paddingBottom: Spacing.two },
   row: {
     flexDirection: 'row',

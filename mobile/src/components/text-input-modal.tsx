@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { Modal, StyleSheet, TextInput, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
@@ -48,6 +48,7 @@ export function TextInputModal({
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
       <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityLabel="Cancel" />
         <ThemedView type="backgroundElement" style={styles.card}>
           <ThemedText type="subtitle">{title}</ThemedText>
           {message && (

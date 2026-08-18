@@ -84,6 +84,7 @@ export default function ManageScreen() {
               items={categoryItems}
               withEmoji
               addLabel="New category"
+              reorderTitle="Categories"
               onAdd={(name, emoji) => {
                 addCategory(name, emoji);
               }}
@@ -101,6 +102,7 @@ export default function ManageScreen() {
             <EditableList
               items={lists.paymentModes}
               addLabel="New payment mode"
+              reorderTitle="Payment modes"
               onAdd={(name) => {
                 addPaymentMode(name);
               }}
@@ -116,6 +118,7 @@ export default function ManageScreen() {
             <EditableList
               items={lists.people}
               addLabel="New person"
+              reorderTitle="People"
               onAdd={(name) => {
                 addPerson(name);
               }}

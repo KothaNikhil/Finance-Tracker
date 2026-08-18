@@ -12,6 +12,13 @@ export const SUPABASE_URL = 'https://utfhnxdhavemxlzagiaf.supabase.co';
 // Publishable key (the new name for the anon/public key) — safe to ship; guarded by RLS.
 export const SUPABASE_ANON_KEY = 'sb_publishable_-_IbeOqe3kahIdvjTv-YVg_HRdkvjF5';
 
+/**
+ * DEV ONLY: skip the login gate. The emulator can't complete Google sign-in, so this lets us
+ * debug the UI there. `__DEV__` is false in every release build, so this can NEVER ship enabled —
+ * flip it to `false` if you want to test the real login flow on a dev device.
+ */
+export const DEV_BYPASS_LOGIN = __DEV__;
+
 /** True once real Supabase credentials have been filled in (not the placeholders). */
 export function isSupabaseConfigured(): boolean {
   return (

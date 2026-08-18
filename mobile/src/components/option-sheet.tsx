@@ -4,11 +4,11 @@
  * the filter UI free of ad-hoc dropdown code.
  */
 
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheet } from '@/components/bottom-sheet';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -31,17 +31,15 @@ export function OptionSheet<T>({ visible, title, options, selected, onSelect, on
   const theme = useTheme();
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <ThemedView style={styles.sheet}>
-          <SafeAreaView edges={['bottom']}>
-            <View style={styles.header}>
-              <ThemedText type="smallBold">{title}</ThemedText>
-              <Pressable onPress={onClose} hitSlop={8}>
-                <ThemedText type="link" themeColor="textSecondary">Close</ThemedText>
-              </Pressable>
-            </View>
-            <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+    <BottomSheet visible={visible} onClose={onClose}>
+      <SafeAreaView edges={['bottom']} style={styles.flexible}>
+        <View style={styles.header}>
+          <ThemedText type="smallBold">{title}</ThemedText>
+          <Pressable onPress={onClose} hitSlop={8}>
+            <ThemedText type="link" themeColor="textSecondary">Close</ThemedText>
+          </Pressable>
+        </View>
+        <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
               {options.map((opt, i) => {
                 const isSel = opt.value === selected;
                 return (
@@ -61,25 +59,16 @@ export function OptionSheet<T>({ visible, title, options, selected, onSelect, on
                   </Pressable>
                 );
               })}
-            </ScrollView>
-          </SafeAreaView>
-        </ThemedView>
-      </View>
-    </Modal>
+        </ScrollView>
+      </SafeAreaView>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
-  sheet: {
-    maxHeight: '80%',
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three,
-  },
+  flexible: { flexShrink: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.two },
-  list: { flexGrow: 0 },
+  list: { flexGrow: 0, flexShrink: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -6,13 +6,13 @@
  * Follows the same bottom-sheet pattern as `TransactionDetail`.
  */
 
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheet } from '@/components/bottom-sheet';
 import { Button } from '@/components/button';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { formatINR } from '@/core/domain/money';
 
@@ -48,20 +48,18 @@ export function CategoryDetail({
   onSubcategoryPress,
 }: CategoryDetailProps) {
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <ThemedView style={styles.sheet}>
-          <SafeAreaView edges={['bottom']}>
-            <View style={styles.header}>
-              <ThemedText type="smallBold">Category</ThemedText>
-              <Pressable onPress={onClose} hitSlop={8}>
-                <ThemedText type="link" themeColor="textSecondary">
-                  Close
-                </ThemedText>
-              </Pressable>
-            </View>
+    <BottomSheet visible={visible} onClose={onClose}>
+      <SafeAreaView edges={['bottom']} style={styles.flexible}>
+        <View style={styles.header}>
+          <ThemedText type="smallBold">Category</ThemedText>
+          <Pressable onPress={onClose} hitSlop={8}>
+            <ThemedText type="link" themeColor="textSecondary">
+              Close
+            </ThemedText>
+          </Pressable>
+        </View>
 
-            <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.flexible} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
               <ThemedText type="subtitle" numberOfLines={2}>
                 {title ?? 'Category'}
               </ThemedText>
@@ -92,23 +90,14 @@ export function CategoryDetail({
                   style={styles.viewBtn}
                 />
               )}
-            </ScrollView>
-          </SafeAreaView>
-        </ThemedView>
-      </View>
-    </Modal>
+        </ScrollView>
+      </SafeAreaView>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
-  sheet: {
-    maxHeight: '90%',
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three,
-  },
+  flexible: { flexShrink: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

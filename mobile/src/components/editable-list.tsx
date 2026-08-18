@@ -1,17 +1,15 @@
 /**
  * A reusable editable list used on the Manage screen for categories, sub-categories, payment
- * modes and the "For" people list. Rows can be reordered by long-press-and-drag, renamed
- * inline, or deleted; a footer row adds a new item. Categories opt into an emoji field
- * (`withEmoji`) and a tap target to drill into their sub-categories (`onOpen`).
+ * modes and the "For" people list. Rows can be renamed inline or deleted, and a footer row adds a
+ * new item. Reordering is done in a dedicated {@link ReorderSheet} (opened from the "Reorder"
+ * button) — not inline — so this list is a plain, freely-scrollable set of rows. Categories opt
+ * into an emoji field (`withEmoji`) and a tap target to drill into their sub-categories (`onOpen`).
  */
 
 import { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import DraggableFlatList, {
-  ScaleDecorator,
-  type RenderItemParams,
-} from 'react-native-draggable-flatlist';
 
+import { ReorderSheet } from '@/components/reorder-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -29,10 +27,12 @@ export interface EditableListProps {
   items: EditableItem[];
   withEmoji?: boolean;
   addLabel: string;
+  /** Shown in the reorder sheet header, e.g. "Categories". Defaults to `addLabel`. */
+  reorderTitle?: string;
   onAdd: (name: string, emoji: string | null) => void;
   onRename: (id: number, name: string, emoji: string | null) => void;
   onDelete: (item: EditableItem) => void;
-  /** New order as the full sequence of ids (from a drag). */
+  /** New order as the full sequence of ids (from the reorder sheet). */
   onReorder: (orderedIds: number[]) => void;
   /** When set, tapping the row label drills in (e.g. to sub-categories). */
   onOpen?: (item: EditableItem) => void;
@@ -42,6 +42,7 @@ export function EditableList({
   items,
   withEmoji,
   addLabel,
+  reorderTitle,
   onAdd,
   onRename,
   onDelete,
@@ -51,51 +52,52 @@ export function EditableList({
   const theme = useTheme();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
-
-  const renderItem = ({ item, drag, isActive }: RenderItemParams<EditableItem>) => {
-    if (editingId === item.id) {
-      return (
-        <ItemEditor
-          withEmoji={withEmoji}
-          initialName={item.name}
-          initialEmoji={item.emoji ?? ''}
-          submitLabel="Save"
-          onCancel={() => setEditingId(null)}
-          onSubmit={(name, emoji) => {
-            onRename(item.id, name, emoji);
-            setEditingId(null);
-          }}
-          theme={theme}
-        />
-      );
-    }
-    return (
-      <ScaleDecorator activeScale={1.03}>
-        <Row
-          item={item}
-          withEmoji={withEmoji}
-          isActive={isActive}
-          onDrag={drag}
-          onStartEdit={() => setEditingId(item.id)}
-          onDelete={() => onDelete(item)}
-          onOpen={onOpen ? () => onOpen(item) : undefined}
-          theme={theme}
-        />
-      </ScaleDecorator>
-    );
-  };
+  const [reordering, setReordering] = useState(false);
 
   return (
     <View style={styles.wrap}>
-      <DraggableFlatList
-        data={items}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={renderItem}
-        onDragEnd={({ data }) => onReorder(data.map((d) => d.id))}
-        scrollEnabled={false}
-        activationDistance={12}
-        containerStyle={styles.listContainer}
-      />
+      {items.length > 1 && (
+        <View style={styles.listHeader}>
+          <Pressable
+            onPress={() => setReordering(true)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Reorder ${reorderTitle ?? addLabel}`}
+          >
+            <ThemedText type="smallBold" style={{ color: theme.accent }}>
+              ⇅ Reorder
+            </ThemedText>
+          </Pressable>
+        </View>
+      )}
+
+      {items.map((item) =>
+        editingId === item.id ? (
+          <ItemEditor
+            key={item.id}
+            withEmoji={withEmoji}
+            initialName={item.name}
+            initialEmoji={item.emoji ?? ''}
+            submitLabel="Save"
+            onCancel={() => setEditingId(null)}
+            onSubmit={(name, emoji) => {
+              onRename(item.id, name, emoji);
+              setEditingId(null);
+            }}
+            theme={theme}
+          />
+        ) : (
+          <Row
+            key={item.id}
+            item={item}
+            withEmoji={withEmoji}
+            onStartEdit={() => setEditingId(item.id)}
+            onDelete={() => onDelete(item)}
+            onOpen={onOpen ? () => onOpen(item) : undefined}
+            theme={theme}
+          />
+        ),
+      )}
 
       {adding ? (
         <ItemEditor
@@ -122,6 +124,15 @@ export function EditableList({
           </ThemedText>
         </Pressable>
       )}
+
+      <ReorderSheet
+        visible={reordering}
+        title={reorderTitle ?? addLabel}
+        items={items}
+        withEmoji={withEmoji}
+        onClose={() => setReordering(false)}
+        onReorder={onReorder}
+      />
     </View>
   );
 }
@@ -129,8 +140,6 @@ export function EditableList({
 function Row({
   item,
   withEmoji,
-  isActive,
-  onDrag,
   onStartEdit,
   onDelete,
   onOpen,
@@ -138,33 +147,14 @@ function Row({
 }: {
   item: EditableItem;
   withEmoji?: boolean;
-  isActive: boolean;
-  onDrag: () => void;
   onStartEdit: () => void;
   onDelete: () => void;
   onOpen?: () => void;
   theme: ReturnType<typeof useTheme>;
 }) {
   return (
-    <ThemedView
-      type="backgroundElement"
-      style={[styles.row, styles.rowSpacing, isActive && { backgroundColor: theme.backgroundSelected }]}
-    >
-      {/* Long-press the grip (or the row) to drag. */}
-      <Pressable
-        onLongPress={onDrag}
-        delayLongPress={200}
-        hitSlop={6}
-        style={styles.grip}
-        accessibilityRole="button"
-        accessibilityLabel={`Drag to reorder ${item.name}`}
-      >
-        <ThemedText type="default" themeColor="textSecondary">
-          ⋮⋮
-        </ThemedText>
-      </Pressable>
-
-      <Pressable style={styles.rowMain} onPress={onOpen} onLongPress={onDrag} delayLongPress={200} disabled={!onOpen}>
+    <ThemedView type="backgroundElement" style={[styles.row, styles.rowSpacing]}>
+      <Pressable style={styles.rowMain} onPress={onOpen} disabled={!onOpen}>
         {withEmoji && <ThemedText type="default">{item.emoji || '🏷️'}</ThemedText>}
         <ThemedText type="default" numberOfLines={1} style={styles.rowName}>
           {item.name}
@@ -277,7 +267,7 @@ function IconBtn({
 
 const styles = StyleSheet.create({
   wrap: { gap: Spacing.one },
-  listContainer: {},
+  listHeader: { flexDirection: 'row', justifyContent: 'flex-end', paddingBottom: Spacing.half },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -289,7 +279,6 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   rowSpacing: { marginBottom: Spacing.one },
-  grip: { paddingRight: Spacing.one, paddingVertical: Spacing.one },
   rowMain: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, flex: 1 },
   rowName: { flex: 1 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
