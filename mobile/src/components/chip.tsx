@@ -20,6 +20,7 @@ export function Chip({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected }}
+      hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
       style={({ pressed }) => [
         styles.chip,
         {

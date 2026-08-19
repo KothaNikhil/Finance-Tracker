@@ -63,7 +63,7 @@ export const TxnRow = React.memo(function TxnRow({
             </ThemedText>
             {showReviewBadge && txn.needsReview && (
               <View style={[styles.badge, { backgroundColor: theme.review }]}>
-                <ThemedText type="small" style={[styles.badgeText, { color: theme.onReview }]}>
+                <ThemedText type="caption" style={{ color: theme.onReview }}>
                   Review
                 </ThemedText>
               </View>
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
   },
-  txnLeft: { flex: 1, gap: 2 },
+  txnLeft: { flex: 1, gap: Spacing.half },
   txnMetaRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one },
   txnMeta: { flexShrink: 1 },
   badge: {
@@ -96,5 +96,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.one,
     paddingVertical: 1,
   },
-  badgeText: { fontSize: 11, lineHeight: 16, fontWeight: '700' },
 });

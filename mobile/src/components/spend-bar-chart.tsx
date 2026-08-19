@@ -64,13 +64,13 @@ export function SpendBarChart({
               key={d.key}
               onPress={() => onSelect(i)}
               style={styles.column}
-              hitSlop={{ top: 8, bottom: 8 }}
+              hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
               accessibilityRole="button"
               accessibilityLabel={`${d.label}: ${formatValue(d.value)}`}
               accessibilityState={{ selected: isSelected }}
             >
               {isSelected && (
-                <ThemedText type="small" style={styles.valueLabel} numberOfLines={1}>
+                <ThemedText type="caption" style={styles.valueLabel} numberOfLines={1}>
                   {formatValue(d.value)}
                 </ThemedText>
               )}
@@ -95,7 +95,7 @@ export function SpendBarChart({
         {data.map((d, i) => (
           <ThemedText
             key={d.key}
-            type="small"
+            type="caption"
             themeColor={selectedIndex === i ? 'text' : 'textSecondary'}
             style={styles.axisLabel}
             numberOfLines={1}
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
   plot: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 2, // 2px surface gap between adjacent bars (marks spec)
+    gap: Spacing.half, // 2px surface gap between adjacent bars (marks spec)
   },
   column: {
     flex: 1,
@@ -128,13 +128,10 @@ const styles = StyleSheet.create({
   valueLabel: {
     position: 'absolute',
     top: -20,
-    fontSize: 11,
-    lineHeight: 16,
-    fontWeight: '700',
     width: 80,
     textAlign: 'center',
   },
-  baseline: { height: 1, marginTop: 2 },
-  labelsRow: { flexDirection: 'row', gap: 2, marginTop: Spacing.one },
-  axisLabel: { flex: 1, textAlign: 'center', fontSize: 11 },
+  baseline: { height: 1, marginTop: Spacing.half },
+  labelsRow: { flexDirection: 'row', gap: Spacing.half, marginTop: Spacing.one },
+  axisLabel: { flex: 1, textAlign: 'center' },
 });

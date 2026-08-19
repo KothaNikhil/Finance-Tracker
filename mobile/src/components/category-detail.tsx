@@ -63,14 +63,14 @@ export function CategoryDetail({
               <ThemedText type="subtitle" numberOfLines={2}>
                 {title ?? 'Category'}
               </ThemedText>
-              <ThemedText type="title" style={{ color, fontSize: 34, lineHeight: 40 }}>
+              <ThemedText type="amountLarge" style={{ color }}>
                 {formatINR(totalPaise)}
               </ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
                 Spent · {periodLabel} · {txnCount} transaction{txnCount === 1 ? '' : 's'}
               </ThemedText>
 
-              <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionTitle}>
+              <ThemedText type="overline" themeColor="textSecondary" style={styles.sectionTitle}>
                 SUB-CATEGORIES
               </ThemedText>
               <CategoryBreakdown
@@ -105,6 +105,6 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.two,
   },
   body: { paddingBottom: Spacing.four, gap: Spacing.one },
-  sectionTitle: { fontSize: 12, letterSpacing: 0.5, marginTop: Spacing.three, marginBottom: Spacing.two },
+  sectionTitle: { marginTop: Spacing.three, marginBottom: Spacing.two },
   viewBtn: { marginTop: Spacing.three },
 });

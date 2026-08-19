@@ -30,7 +30,7 @@ export function StatTile({
       <ThemedText type="small" themeColor="textSecondary">
         {label}
       </ThemedText>
-      <ThemedText type="smallBold" style={{ color: color ?? theme.text, fontSize: 20, lineHeight: 26 }} numberOfLines={1}>
+      <ThemedText type="stat" style={{ color: color ?? theme.text }} numberOfLines={1}>
         {value}
       </ThemedText>
       {onPress && (
@@ -58,6 +58,12 @@ export function StatTile({
 
 const styles = StyleSheet.create({
   wrap: { flex: 1 },
-  tile: { flex: 1, borderRadius: Spacing.three, padding: Spacing.three, gap: 2, borderWidth: StyleSheet.hairlineWidth },
+  tile: {
+    flex: 1,
+    borderRadius: Spacing.three,
+    padding: Spacing.three,
+    gap: Spacing.half,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   chevron: { position: 'absolute', top: Spacing.two, right: Spacing.three, fontSize: 18, lineHeight: 20 },
 });

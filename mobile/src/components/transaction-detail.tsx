@@ -114,7 +114,7 @@ export function TransactionDetail({
               <ThemedText type="subtitle" numberOfLines={2}>
                 {title}
               </ThemedText>
-              <ThemedText type="title" style={{ color: theme[dir.color], fontSize: 34, lineHeight: 40 }}>
+              <ThemedText type="amountLarge" style={{ color: theme[dir.color] }}>
                 {dir.sign} {formatINR(txn.paise)}
               </ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
@@ -153,6 +153,7 @@ export function TransactionDetail({
                   <Pressable
                     onPress={onRemoveCategory}
                     accessibilityRole="button"
+                    hitSlop={8}
                     style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? 0.6 : 1 }]}
                   >
                     <ThemedText type="small" style={{ color: theme.spend }}>
@@ -217,7 +218,7 @@ export function TransactionDetail({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
-      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionTitle}>
+      <ThemedText type="overline" themeColor="textSecondary" style={styles.sectionTitle}>
         {title.toUpperCase()}
       </ThemedText>
       {children}
@@ -271,7 +272,7 @@ const styles = StyleSheet.create({
   },
   body: { paddingBottom: Spacing.four, gap: Spacing.one },
   section: { marginTop: Spacing.three, gap: Spacing.one },
-  sectionTitle: { fontSize: 12, letterSpacing: 0.5, marginBottom: Spacing.half },
+  sectionTitle: { marginBottom: Spacing.half },
   field: { flexDirection: 'row', gap: Spacing.two, paddingVertical: Spacing.half },
   fieldLabel: { width: 130 },
   fieldValue: { flex: 1 },

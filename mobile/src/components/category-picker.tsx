@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     fontSize: 16,
   },
-  emojiInput: { width: 64, textAlign: 'center' },
+  emojiInput: { width: 56, textAlign: 'center' },
   nameInput: { flex: 1 },
   addBtn: {
     paddingVertical: Spacing.three,

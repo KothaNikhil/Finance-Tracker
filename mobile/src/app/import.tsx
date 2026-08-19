@@ -245,7 +245,7 @@ export default function ImportScreen() {
             onPress={onAcceptAll}
             accessibilityRole="button"
             accessibilityLabel="Accept all suggestions"
-            hitSlop={8}
+            hitSlop={12}
             style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
           >
             <ThemedText type="smallBold" style={{ color: theme.review }}>
@@ -300,10 +300,12 @@ export default function ImportScreen() {
           ListFooterComponent={footer}
           ListEmptyComponent={
             <EmptyState
+              style={styles.empty}
+              title="Nothing imported this session"
               message={
                 __DEV__
-                  ? 'Nothing imported this session. Tap “Import file” to load a Paytm statement, or “Add sample” to try it.'
-                  : 'Nothing imported this session. Tap “Import file” to load a Paytm statement.'
+                  ? 'Tap “Import file” to load a Paytm statement, or “Add sample” to try it.'
+                  : 'Tap “Import file” to load a Paytm statement.'
               }
             />
           }
@@ -376,4 +378,5 @@ const styles = StyleSheet.create({
   grow: { flex: 1 },
   tabsWrap: { marginTop: Spacing.two },
   footer: { marginTop: Spacing.three },
+  empty: { marginTop: Spacing.three },
 });

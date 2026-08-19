@@ -99,6 +99,12 @@ export function EditableList({
         ),
       )}
 
+      {items.length === 0 && !adding && (
+        <ThemedText type="small" themeColor="textSecondary" style={styles.emptyHint}>
+          Nothing here yet — add your first below.
+        </ThemedText>
+      )}
+
       {adding ? (
         <ItemEditor
           withEmoji={withEmoji}
@@ -252,7 +258,7 @@ function IconBtn({
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      hitSlop={6}
+      hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
       style={styles.iconBtn}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
@@ -267,6 +273,7 @@ function IconBtn({
 
 const styles = StyleSheet.create({
   wrap: { gap: Spacing.one },
+  emptyHint: { paddingVertical: Spacing.one },
   listHeader: { flexDirection: 'row', justifyContent: 'flex-end', paddingBottom: Spacing.half },
   row: {
     flexDirection: 'row',
@@ -282,9 +289,9 @@ const styles = StyleSheet.create({
   rowMain: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, flex: 1 },
   rowName: { flex: 1 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  iconBtn: { paddingHorizontal: Spacing.half, paddingVertical: 2 },
+  iconBtn: { paddingHorizontal: Spacing.one, paddingVertical: Spacing.one },
   editorInputs: { flexDirection: 'row', gap: Spacing.two, flex: 1 },
-  input: { borderRadius: Spacing.one, paddingHorizontal: Spacing.two, paddingVertical: Spacing.two, fontSize: 15 },
-  emojiInput: { width: 52, textAlign: 'center' },
+  input: { borderRadius: Spacing.two, paddingHorizontal: Spacing.two, paddingVertical: Spacing.two, fontSize: 15 },
+  emojiInput: { width: 56, textAlign: 'center' },
   nameInput: { flex: 1 },
 });

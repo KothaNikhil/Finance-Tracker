@@ -4,7 +4,23 @@ import { Fonts, ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
-  type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'code';
+  type?:
+    | 'default'
+    | 'title'
+    | 'small'
+    | 'smallBold'
+    | 'subtitle'
+    | 'link'
+    | 'code'
+    // Currency figures: `amount` for card/summary headlines, `amountLarge` for the big sheet figure.
+    | 'amount'
+    | 'amountLarge'
+    // The value of a StatTile (e.g. "₹1,234").
+    | 'stat'
+    // An uppercase-ish section label (12px, tracked). Replaces the inline 12/letterSpacing pattern.
+    | 'overline'
+    // The smallest label: badges, chart value/axis labels.
+    | 'caption';
   themeColor?: ThemeColor;
 };
 
@@ -22,6 +38,11 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
         type === 'subtitle' && styles.subtitle,
         type === 'link' && styles.link,
         type === 'code' && styles.code,
+        type === 'amount' && styles.amount,
+        type === 'amountLarge' && styles.amountLarge,
+        type === 'stat' && styles.stat,
+        type === 'overline' && styles.overline,
+        type === 'caption' && styles.caption,
         style,
       ]}
       {...rest}
@@ -56,12 +77,39 @@ const styles = StyleSheet.create({
     fontWeight: 600,
   },
   link: {
-    lineHeight: 30,
     fontSize: 14,
+    lineHeight: 22,
+    fontWeight: 600,
   },
   code: {
     fontFamily: Fonts.mono,
     fontWeight: Platform.select({ android: 700 }) ?? 500,
     fontSize: 12,
+  },
+  amount: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: 700,
+  },
+  amountLarge: {
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: 700,
+  },
+  stat: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: 700,
+  },
+  overline: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+  },
+  caption: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: 700,
   },
 });

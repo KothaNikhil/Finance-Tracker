@@ -202,7 +202,7 @@ export default function ReportsScreen() {
       <View style={styles.filterBar}>
         <Button label="Filters ▾" variant="secondary" onPress={() => setFiltersOpen(true)} />
         {(filter !== null || search !== '') && (
-          <Pressable onPress={clearAll} hitSlop={8} accessibilityRole="button">
+          <Pressable onPress={clearAll} hitSlop={12} accessibilityRole="button">
             <ThemedText type="small" style={{ color: REFUND }}>
               Clear all
             </ThemedText>
@@ -217,7 +217,7 @@ export default function ReportsScreen() {
 
       {/* Summary */}
       <View style={styles.summary}>
-        <ThemedText type="title" style={{ color: SPEND, fontSize: 28, lineHeight: 34 }}>
+        <ThemedText type="amount" style={{ color: SPEND }}>
           {formatINR(totals.spentPaise)}
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
@@ -231,7 +231,12 @@ export default function ReportsScreen() {
   const footer = (
     <View>
       {/* Collapsible breakdowns */}
-      <Pressable onPress={() => setShowBreakdowns((v) => !v)} style={styles.breakdownToggle} accessibilityRole="button">
+      <Pressable
+        onPress={() => setShowBreakdowns((v) => !v)}
+        hitSlop={8}
+        style={styles.breakdownToggle}
+        accessibilityRole="button"
+      >
         <ThemedText type="smallBold" style={{ color: REFUND }}>
           {showBreakdowns ? '▾ Hide breakdowns' : '▸ Show breakdowns (merchant / account / person)'}
         </ThemedText>
@@ -260,7 +265,7 @@ export default function ReportsScreen() {
             />
           </Card>
           <Card title="Cashback & refunds">
-            <ThemedText type="title" style={{ color: REFUND, fontSize: 24, lineHeight: 30 }}>
+            <ThemedText type="amount" style={{ color: REFUND }}>
               {formatINR(cashback.totalPaise)}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
@@ -280,7 +285,8 @@ export default function ReportsScreen() {
             <ThemedText type="subtitle">Reports</ThemedText>
             <EmptyState
               style={styles.empty}
-              message="No transactions yet. Import a Paytm statement on the Import tab, then filter and export them here."
+              title="No transactions yet"
+              message="Import a Paytm statement on the Import tab, then filter and export them here."
             />
           </View>
         ) : (
@@ -293,7 +299,13 @@ export default function ReportsScreen() {
             categoryLabelFor={(t) => rowCategoryLabel(t, index.byId, subNames)}
             ListHeaderComponent={header}
             ListFooterComponent={footer}
-            ListEmptyComponent={<EmptyState style={styles.empty} message="No transactions match these filters." />}
+            ListEmptyComponent={
+              <EmptyState
+                style={styles.empty}
+                title="No matches"
+                message="No transactions match these filters. Try clearing or widening them."
+              />
+            }
             contentContainerStyle={styles.content}
           />
         )}

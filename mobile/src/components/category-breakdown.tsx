@@ -87,6 +87,7 @@ export function CategoryBreakdown({ rows, total, color, onRowPress }: CategoryBr
             onPress={() => onRowPress!(r)}
             accessibilityRole="button"
             accessibilityLabel={`${r.label}, ${formatINR(r.value)}, ${pct}% of spend`}
+            hitSlop={{ top: 6, bottom: 6 }}
             style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
           >
             {body}
@@ -103,7 +104,7 @@ export function CategoryBreakdown({ rows, total, color, onRowPress }: CategoryBr
 
 const styles = StyleSheet.create({
   list: { gap: Spacing.two },
-  row: { gap: Spacing.half },
+  row: { gap: Spacing.half, paddingVertical: Spacing.one },
   rowHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   label: { flex: 1 },
   amount: { flexShrink: 0 },

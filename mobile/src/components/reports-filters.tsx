@@ -261,7 +261,7 @@ export function ReportsFilters({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <View style={styles.field}>
-      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.fieldLabel}>
+      <ThemedText type="overline" themeColor="textSecondary">
         {label.toUpperCase()}
       </ThemedText>
       {children}
@@ -298,7 +298,6 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.two },
   body: { paddingBottom: Spacing.three, gap: Spacing.three },
   field: { gap: Spacing.one },
-  fieldLabel: { fontSize: 12, letterSpacing: 0.5 },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   rangeRow: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
   pickerBtn: {
