@@ -33,12 +33,12 @@ import {
   distinctAccountsQuery,
   distinctMonthsQuery,
   distinctYearsQuery,
-  homeSummaryQuery,
   merchantSpendQuery,
   monthlyForYearQuery,
   periodTotalsQuery,
   personSpendQuery,
   subcategoryBreakdownQuery,
+  summaryQuery,
   yearlyTotalsQuery,
   ymToMonthKey,
 } from '@/services/db/queries/aggregates';
@@ -50,19 +50,20 @@ function withNet(r: { spentPaise: number; receivedPaise: number; refundPaise: nu
   return { ...r, netSpentPaise: r.spentPaise - r.refundPaise };
 }
 
-export interface HomeSummary {
+export interface Summary {
   spentPaise: number;
   receivedPaise: number;
   reviewCount: number;
   savedCount: number;
-  /** True until the first result lands (so Home doesn't flash zeroes / empty on mount). */
+  /** True until the first result lands (so the screen doesn't flash zeroes / empty on mount). */
   loading: boolean;
 }
 
-/** The Home header summary (canonical Spent/Received + review & saved counts). */
-export function useHomeSummary(): HomeSummary {
+/** A live summary (canonical Spent/Received + review & row counts) for the filtered set. */
+export function useSummary(filter: TxnFilter = {}): Summary {
   const db = getDb();
-  const { data, updatedAt } = useLiveQuery(homeSummaryQuery(db), []);
+  const key = JSON.stringify(filter);
+  const { data, updatedAt } = useLiveQuery(summaryQuery(db, filter), [key]);
   const row = data?.[0];
   return {
     spentPaise: row?.spentPaise ?? 0,
@@ -156,12 +157,13 @@ export interface Dimensions {
   accounts: string[];
 }
 
-/** The available filter dimensions (years / months / accounts), derived server-side. */
-export function useDimensions(): Dimensions {
+/** The available filter dimensions (years / months / accounts) within `filter`, derived server-side. */
+export function useDimensions(filter: TxnFilter = {}): Dimensions {
   const db = getDb();
-  const years = useLiveQuery(distinctYearsQuery(db), []);
-  const months = useLiveQuery(distinctMonthsQuery(db), []);
-  const accounts = useLiveQuery(distinctAccountsQuery(db), []);
+  const key = JSON.stringify(filter);
+  const years = useLiveQuery(distinctYearsQuery(db, filter), [key]);
+  const months = useLiveQuery(distinctMonthsQuery(db, filter), [key]);
+  const accounts = useLiveQuery(distinctAccountsQuery(db, filter), [key]);
   return useMemo(
     () => ({
       years: (years.data ?? []).map((r) => r.year),

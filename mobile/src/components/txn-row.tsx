@@ -1,5 +1,5 @@
 /**
- * One transaction row, shared by the Home and Reports lists. Extracted from the two identical
+ * One transaction row, shared by the Import and Reports lists. Extracted from the two identical
  * inline copies so the (virtualized) lists render the exact same cell.
  *
  * `React.memo` matters: FlashList recycles rows, so a memoized cell avoids re-rendering every

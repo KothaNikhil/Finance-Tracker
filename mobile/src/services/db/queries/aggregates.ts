@@ -41,11 +41,11 @@ const YEAR_INT = sql<number>`cast(substr(${t.isoDate}, 1, 4) as integer)`;
 const MONTH_INT = sql<number>`cast(substr(${t.isoDate}, 6, 2) as integer)`;
 
 /**
- * The Home header summary in one row: canonical Spent/Received (self excluded, refunds NOT counted
- * as income — matching the Dashboard), plus the "needs review" count and the total saved count.
- * Live.
+ * A one-row summary for the filtered set: canonical Spent/Received (self excluded, refunds NOT
+ * counted as income), plus the "needs review" count and the total row count. Used for the Import
+ * screen (scoped to this session via a `since` filter) and elsewhere. Live.
  */
-export function homeSummaryQuery(db: DB) {
+export function summaryQuery(db: DB, filter: TxnFilter) {
   return db
     .select({
       spentPaise: SPENT,
@@ -53,7 +53,8 @@ export function homeSummaryQuery(db: DB) {
       reviewCount: sql<number>`coalesce(sum(case when ${t.needsReview} = 1 then 1 else 0 end), 0)`,
       savedCount: sql<number>`count(*)`,
     })
-    .from(t);
+    .from(t)
+    .where(buildTxnConditions(filter));
 }
 
 /** The four period totals in one row. Honours every filter dimension. Live. */
@@ -141,23 +142,23 @@ export function cashbackQuery(db: DB, filter: TxnFilter) {
     .where(and(buildTxnConditions(filter), eq(t.direction, 'in'), eq(t.isRefund, true)));
 }
 
-/** Distinct calendar years present, most-recent first. Live. */
-export function distinctYearsQuery(db: DB) {
-  return db.selectDistinct({ year: YEAR_INT }).from(t).orderBy(desc(YEAR_INT));
+/** Distinct calendar years present in the filtered set, most-recent first. Live. */
+export function distinctYearsQuery(db: DB, filter: TxnFilter = {}) {
+  return db.selectDistinct({ year: YEAR_INT }).from(t).where(buildTxnConditions(filter)).orderBy(desc(YEAR_INT));
 }
 
-/** Distinct 'YYYY-MM' months present, most-recent first. Live. */
-export function distinctMonthsQuery(db: DB) {
+/** Distinct 'YYYY-MM' months present in the filtered set, most-recent first. Live. */
+export function distinctMonthsQuery(db: DB, filter: TxnFilter = {}) {
   const ym = sql<string>`substr(${t.isoDate}, 1, 7)`;
-  return db.selectDistinct({ ym }).from(t).orderBy(desc(ym));
+  return db.selectDistinct({ ym }).from(t).where(buildTxnConditions(filter)).orderBy(desc(ym));
 }
 
-/** Distinct non-null funding account names, alphabetical. Live. */
-export function distinctAccountsQuery(db: DB) {
+/** Distinct non-null funding account names in the filtered set, alphabetical. Live. */
+export function distinctAccountsQuery(db: DB, filter: TxnFilter = {}) {
   return db
     .selectDistinct({ accountName: t.accountName })
     .from(t)
-    .where(isNotNull(t.accountName))
+    .where(and(buildTxnConditions(filter), isNotNull(t.accountName)))
     .orderBy(t.accountName);
 }
 

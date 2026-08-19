@@ -13,6 +13,8 @@ function t(over: Partial<FilterableTxn> & Pick<FilterableTxn, 'isoDate'>): Filte
     remarks: null,
     rawTag: null,
     needsReview: false,
+    isRefund: false,
+    createdAt: '2000-01-01T00:00:00.000Z',
     ...over,
   };
 }
@@ -59,6 +61,22 @@ describe('matchesFilter', () => {
     expect(matchesFilter(review, { needsReview: true })).toBe(true);
     expect(matchesFilter(txn, { needsReview: true })).toBe(false); // txn is not flagged
     expect(matchesFilter(review, {})).toBe(true); // undefined = no constraint
+  });
+
+  it('matches isRefund', () => {
+    const refund = t({ isoDate: '2026-05-01', direction: 'in', isRefund: true });
+    const income = t({ isoDate: '2026-05-01', direction: 'in', isRefund: false });
+    expect(matchesFilter(refund, { isRefund: true })).toBe(true);
+    expect(matchesFilter(income, { isRefund: true })).toBe(false);
+    expect(matchesFilter(income, { direction: 'in', isRefund: false })).toBe(true);
+  });
+
+  it('matches since (createdAt lower bound)', () => {
+    const older = t({ isoDate: '2026-05-01', createdAt: '2026-05-01T10:00:00.000Z' });
+    const newer = t({ isoDate: '2026-05-01', createdAt: '2026-06-01T10:00:00.000Z' });
+    const cutoff = '2026-05-15T00:00:00.000Z';
+    expect(matchesFilter(newer, { since: cutoff })).toBe(true);
+    expect(matchesFilter(older, { since: cutoff })).toBe(false);
   });
 
   it('ANDs multiple constraints together', () => {

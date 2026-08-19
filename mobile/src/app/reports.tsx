@@ -74,8 +74,11 @@ export default function ReportsScreen() {
     categoryId?: string;
     subcategoryId?: string;
     year?: string;
+    month?: string;
     uncategorized?: string;
     review?: string;
+    direction?: string;
+    refund?: string;
   }>();
   const paramFilter = buildParamFilter(params);
   const defaultFilter: TxnFilter = years[0] != null ? { from: { year: years[0], month: 1 }, to: { year: years[0], month: 12 } } : {};
@@ -83,7 +86,15 @@ export default function ReportsScreen() {
   const [filter, setFilter] = useState<TxnFilter | null>(null);
   // Seed from an incoming deep link (once per distinct param set).
   const [paramSig, setParamSig] = useState<string | null>(null);
-  const hasParams = !!(params.categoryId || params.subcategoryId || params.year || params.uncategorized || params.review);
+  const hasParams = !!(
+    params.categoryId ||
+    params.subcategoryId ||
+    params.year ||
+    params.uncategorized ||
+    params.review ||
+    params.direction ||
+    params.refund
+  );
   const sig = hasParams ? JSON.stringify(paramFilter) : '';
   if (sig !== '' && sig !== paramSig) {
     setParamSig(sig);
@@ -269,7 +280,7 @@ export default function ReportsScreen() {
             <ThemedText type="subtitle">Reports</ThemedText>
             <EmptyState
               style={styles.empty}
-              message="No transactions yet. Import a Paytm statement on the Home tab, then filter and export them here."
+              message="No transactions yet. Import a Paytm statement on the Import tab, then filter and export them here."
             />
           </View>
         ) : (
@@ -375,15 +386,24 @@ function buildParamFilter(params: {
   categoryId?: string;
   subcategoryId?: string;
   year?: string;
+  month?: string;
   uncategorized?: string;
   review?: string;
+  direction?: string;
+  refund?: string;
 }): TxnFilter {
   const f: TxnFilter = {};
   if (params.year) {
     const y = parseInt(params.year, 10);
     if (!Number.isNaN(y)) {
-      f.from = { year: y, month: 1 };
-      f.to = { year: y, month: 12 };
+      const m = params.month ? parseInt(params.month, 10) : NaN;
+      if (!Number.isNaN(m)) {
+        f.from = { year: y, month: m };
+        f.to = { year: y, month: m };
+      } else {
+        f.from = { year: y, month: 1 };
+        f.to = { year: y, month: 12 };
+      }
     }
   }
   if (params.uncategorized) {
@@ -396,6 +416,11 @@ function buildParamFilter(params: {
     const s = parseInt(params.subcategoryId, 10);
     if (!Number.isNaN(s)) f.subcategoryId = s;
   }
+  if (params.direction === 'in' || params.direction === 'out' || params.direction === 'self') {
+    f.direction = params.direction;
+  }
+  if (params.refund === '1') f.isRefund = true;
+  else if (params.refund === '0') f.isRefund = false;
   if (params.review) f.needsReview = true;
   return f;
 }
@@ -446,6 +471,9 @@ function buildChips(
   }
   if (f.direction !== undefined) {
     chips.push({ key: 'dir', label: DIRECTION_META[f.direction]?.label ?? f.direction, clear: () => update({ direction: undefined }) });
+  }
+  if (f.isRefund !== undefined) {
+    chips.push({ key: 'refund', label: f.isRefund ? 'Refunds' : 'Excl. refunds', clear: () => update({ isRefund: undefined }) });
   }
   if (f.needsReview !== undefined) {
     chips.push({ key: 'review', label: 'Needs review', clear: () => update({ needsReview: undefined }) });

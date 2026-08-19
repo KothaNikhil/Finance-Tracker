@@ -65,7 +65,9 @@ export function buildTxnConditions(f: TxnFilter): SQL | undefined {
   if (f.personId !== undefined) parts.push(eqOrNull(t.personId, f.personId));
   if (f.account !== undefined) parts.push(eq(t.accountName, f.account));
   if (f.direction !== undefined) parts.push(eq(t.direction, f.direction));
+  if (f.isRefund !== undefined) parts.push(eq(t.isRefund, f.isRefund));
   if (f.needsReview !== undefined) parts.push(eq(t.needsReview, f.needsReview));
+  if (f.since !== undefined) parts.push(gte(t.createdAt, f.since));
 
   const q = f.search?.trim();
   if (q) parts.push(searchCondition(q));

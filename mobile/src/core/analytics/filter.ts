@@ -31,8 +31,15 @@ export interface TxnFilter {
   personId?: number | null;
   /** Money direction (`in`/`out`/`self`); `undefined` for any. */
   direction?: Direction;
+  /** Refund/cashback rows only (`true`) or excluded (`false`); `undefined` for any. */
+  isRefund?: boolean;
   /** Only rows still flagged "needs review" when `true`; `undefined` for any. */
   needsReview?: boolean;
+  /**
+   * Inclusive lower bound on `createdAt` (an ISO timestamp). Used by the Import screen to show only
+   * rows added this session. `undefined` for no constraint.
+   */
+  since?: string;
   /**
    * Free-text search, matched case-insensitively across the counterparty name, the original
    * statement text, the counterparty UPI id, the user's note (remarks) and the Paytm tag.
@@ -61,6 +68,10 @@ export interface FilterableTxn {
   rawTag: string | null;
   /** Whether the row is still flagged "needs review". */
   needsReview: boolean;
+  /** Whether the row is a refund/cashback. */
+  isRefund: boolean;
+  /** ISO timestamp the row was added to this device — for the `since` (this-session) filter. */
+  createdAt: string;
 }
 
 /** A month as a single comparable ordinal (year*12 + month index), so ranges are simple integer compares. */
@@ -83,7 +94,9 @@ export function matchesFilter(txn: FilterableTxn, filter: TxnFilter): boolean {
   if (filter.account !== undefined && txn.accountName !== filter.account) return false;
   if (filter.personId !== undefined && txn.personId !== filter.personId) return false;
   if (filter.direction !== undefined && txn.direction !== filter.direction) return false;
+  if (filter.isRefund !== undefined && txn.isRefund !== filter.isRefund) return false;
   if (filter.needsReview !== undefined && txn.needsReview !== filter.needsReview) return false;
+  if (filter.since !== undefined && txn.createdAt < filter.since) return false;
   if (!matchesSearch(txn, filter.search)) return false;
   return true;
 }
@@ -120,7 +133,9 @@ export function isEmptyFilter(filter: TxnFilter): boolean {
     filter.account === undefined &&
     filter.personId === undefined &&
     filter.direction === undefined &&
+    filter.isRefund === undefined &&
     filter.needsReview === undefined &&
+    filter.since === undefined &&
     (filter.search === undefined || filter.search.trim() === '')
   );
 }
