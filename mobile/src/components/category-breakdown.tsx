@@ -21,10 +21,12 @@ export interface CategoryBreakdownRow {
   /** Spend in paise. */
   value: number;
   /**
-   * Optional id carried back to the caller on press (e.g. a category id). A row is only tappable
-   * when `onRowPress` is set AND this is non-null, so rows like "Uncategorized" stay inert.
+   * Optional id carried back to the caller on press (e.g. a category id). A row is tappable when
+   * `onRowPress` is set AND (this is non-null OR {@link drillable} is true).
    */
   id?: number | null;
+  /** Force a row tappable even when `id` is null (e.g. "Uncategorized" → deep-link to Reports). */
+  drillable?: boolean;
 }
 
 export interface CategoryBreakdownProps {
@@ -53,7 +55,7 @@ export function CategoryBreakdown({ rows, total, color, onRowPress }: CategoryBr
       {rows.map((r) => {
         const pct = total > 0 ? Math.round((r.value / total) * 100) : 0;
         const fill: DimensionValue = `${Math.max(2, (r.value / max) * 100)}%`;
-        const pressable = onRowPress != null && r.id != null;
+        const pressable = onRowPress != null && (r.id != null || r.drillable === true);
         const body = (
           <>
             <View style={styles.rowHeader}>

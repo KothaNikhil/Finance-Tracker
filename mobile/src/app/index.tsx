@@ -1,8 +1,7 @@
-import { desc } from 'drizzle-orm';
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { File } from 'expo-file-system';
+import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -12,6 +11,7 @@ import { StatTile } from '@/components/stat-tile';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { TransactionDetail } from '@/components/transaction-detail';
+import { TransactionList } from '@/components/transaction-list';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { formatINR } from '@/core/domain/money';
 import { paytmAdapter } from '@/core/import/adapters/paytm';
@@ -21,8 +21,9 @@ import { parseXlsxBytes } from '@/core/import/xlsx';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
-import { transactions, type TransactionRow } from '@/core/db/schema';
-import { getDb } from '@/services/db/database';
+import { useHomeSummary } from '@/hooks/use-analytics';
+import { useTransactionList } from '@/hooks/use-transactions';
+import type { TransactionRow } from '@/core/db/schema';
 import {
   acceptAllReviews,
   addCategory,
@@ -33,12 +34,7 @@ import {
   saveTransactions,
   setTransactionCategory,
 } from '@/services/db/repository';
-
-const DIRECTION_META = {
-  out: { sign: '−', color: 'spend' },
-  in: { sign: '+', color: 'income' },
-  self: { sign: '⇄', color: 'review' },
-} as const;
+import { runAnalyticsParityCheck, seedRandomTransactions } from '@/services/db/dev-tools';
 
 // A tiny built-in sample (no personal data) for a one-tap demo of import + auto-categorization.
 // A mix of tagged rows (categorize confidently), a known merchant (Zepto → Groceries), and
@@ -68,18 +64,16 @@ function buildSampleSheet(): SheetLike {
 
 export default function HomeScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const { busy, run } = useBusyAction();
   // The transaction whose detail sheet is open; `pickerOpen` layers the category picker on top.
   const [detailId, setDetailId] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const db = getDb();
-  const query = useMemo(
-    () => db.select().from(transactions).orderBy(desc(transactions.isoDate), desc(transactions.id)),
-    [db],
-  );
-  const { data } = useLiveQuery(query);
-  const txns: TransactionRow[] = data ?? [];
+  // Paged, live transaction list (whole table; no filter on Home).
+  const { rows: txns, loadMore, hasMore, loading } = useTransactionList({});
+  // Header tiles + review/saved counts, from one live SQL aggregate (canonical money rules).
+  const { spentPaise: totalOut, receivedPaise: totalIn, reviewCount, savedCount } = useHomeSummary();
 
   // Category reference data for display + the picker. Categories are seeded once and there's no
   // editing UI yet, so building this once per render from the DB is fine for v1.
@@ -93,14 +87,9 @@ export default function HomeScreen() {
   const pmNames = useMemo(() => new Map(lists.paymentModes.map((p) => [p.id, p.name])), [lists.paymentModes]);
   const personNames = useMemo(() => new Map(lists.people.map((p) => [p.id, p.name])), [lists.people]);
 
-  // Look the open transaction up live so the detail sheet reflects edits immediately.
+  // Look the open transaction up live so the detail sheet reflects edits immediately (the tapped
+  // row is always inside the loaded, live window).
   const detailTxn = detailId != null ? (txns.find((t) => t.id === detailId) ?? null) : null;
-
-  const totalOut = txns
-    .filter((t) => t.direction === 'out' && !t.isRefund)
-    .reduce((s, t) => s + t.paise, 0);
-  const totalIn = txns.filter((t) => t.direction === 'in').reduce((s, t) => s + t.paise, 0);
-  const reviewCount = txns.filter((t) => t.needsReview).length;
 
   const commit = useCallback(
     (sheets: SheetLike[], sourceLabel: string) => {
@@ -131,6 +120,21 @@ export default function HomeScreen() {
   );
 
   const onAddSample = useCallback(() => commit([buildSampleSheet()], 'the sample'), [commit]);
+
+  // DEV-only scale/correctness helpers (compiled out of release via __DEV__).
+  const onSeed = useCallback(
+    () =>
+      run(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0)); // let the spinner paint
+        const n = seedRandomTransactions(20000);
+        Alert.alert('Seeded', `Inserted ${n} synthetic transactions.`);
+      }),
+    [run],
+  );
+  const onParity = useCallback(() => {
+    const r = runAnalyticsParityCheck({});
+    Alert.alert(r.ok ? 'Parity OK ✓' : 'Parity MISMATCH ✗', JSON.stringify(r, null, 2));
+  }, []);
 
   const onImportFile = useCallback(async () => {
     let picked;
@@ -186,61 +190,100 @@ export default function HomeScreen() {
     [],
   );
 
+  // Stable so the memoized (recycled) TxnRow isn't invalidated each render.
+  const openDetail = useCallback((id: number) => {
+    setDetailId(id);
+    setPickerOpen(false);
+  }, []);
+
+  const header = (
+    <View style={styles.header}>
+      <ThemedText type="subtitle">Finance Tracker</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
+        {savedCount} transaction{savedCount === 1 ? '' : 's'} saved on this device
+      </ThemedText>
+
+      {/* Totals (only once there's something to total) */}
+      {savedCount > 0 && (
+        <View style={styles.tiles}>
+          <StatTile label="Spent" value={formatINR(totalOut)} color={theme.spend} />
+          <StatTile label="Received" value={formatINR(totalIn)} color={theme.income} />
+        </View>
+      )}
+
+      {/* Needs-review banner. Tapping it opens Reports filtered to the review queue; "Accept all"
+          is a separate inner action. */}
+      {reviewCount > 0 && (
+        <Pressable
+          onPress={() => router.navigate({ pathname: '/reports', params: { review: '1' } })}
+          accessibilityRole="button"
+          accessibilityLabel={`${reviewCount} transactions need review. Open the review list.`}
+          style={({ pressed }) => [styles.reviewBanner, { borderColor: theme.review, opacity: pressed ? 0.8 : 1 }]}
+        >
+          <View style={{ flex: 1 }}>
+            <ThemedText type="smallBold" style={{ color: theme.review }}>
+              {reviewCount} need{reviewCount === 1 ? 's' : ''} review
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Tap to review them all, or accept the suggestions.
+            </ThemedText>
+          </View>
+          <Pressable
+            onPress={onAcceptAll}
+            accessibilityRole="button"
+            accessibilityLabel="Accept all suggestions"
+            hitSlop={8}
+            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+          >
+            <ThemedText type="smallBold" style={{ color: theme.review }}>
+              Accept all
+            </ThemedText>
+          </Pressable>
+        </Pressable>
+      )}
+
+      {/* Actions. "Add sample" is a dev-only affordance (loads a built-in demo statement); it
+          is compiled out of release builds via __DEV__. "Clear all" moved to Manage. */}
+      <View style={styles.actions}>
+        <Button label="Import file" variant="primary" onPress={onImportFile} disabled={busy} style={styles.grow} />
+        {__DEV__ && <Button label="Add sample" onPress={onAddSample} disabled={busy} style={styles.grow} />}
+      </View>
+      {__DEV__ && (
+        <View style={styles.actions}>
+          <Button label="Seed 20k" onPress={onSeed} disabled={busy} style={styles.grow} />
+          <Button label="Check parity" onPress={onParity} disabled={busy} style={styles.grow} />
+        </View>
+      )}
+      {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
+
+      <ThemedText type="smallBold" style={styles.sectionTitle}>
+        Transactions
+      </ThemedText>
+    </View>
+  );
+
+  const footer = (
+    <ThemedText type="small" themeColor="textSecondary" style={styles.footer}>
+      Categories are auto-picked from your Paytm tags and known merchants. Low-confidence guesses are
+      flagged “Review”. Tap any transaction to change its category — the app remembers your choice for
+      next time.
+    </ThemedText>
+  );
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <ThemedText type="subtitle">Finance Tracker</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {txns.length} transaction{txns.length === 1 ? '' : 's'} saved on this device
-          </ThemedText>
-
-          {/* Totals (only once there's something to total) */}
-          {txns.length > 0 && (
-            <View style={styles.tiles}>
-              <StatTile label="Spent" value={formatINR(totalOut)} color={theme.spend} />
-              <StatTile label="Received" value={formatINR(totalIn)} color={theme.income} />
-            </View>
-          )}
-
-          {/* Needs-review banner */}
-          {reviewCount > 0 && (
-            <Pressable
-              onPress={onAcceptAll}
-              accessibilityRole="button"
-              accessibilityLabel={`${reviewCount} transactions need review. Accept all suggestions.`}
-              style={({ pressed }) => [
-                styles.reviewBanner,
-                { borderColor: theme.review, opacity: pressed ? 0.8 : 1 },
-              ]}
-            >
-              <View style={{ flex: 1 }}>
-                <ThemedText type="smallBold" style={{ color: theme.review }}>
-                  {reviewCount} need{reviewCount === 1 ? 's' : ''} review
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Tap a transaction to fix its category, or accept all suggestions.
-                </ThemedText>
-              </View>
-              <ThemedText type="smallBold" style={{ color: theme.review }}>
-                Accept all
-              </ThemedText>
-            </Pressable>
-          )}
-
-          {/* Actions. "Add sample" is a dev-only affordance (loads a built-in demo statement); it
-              is compiled out of release builds via __DEV__. "Clear all" moved to Manage. */}
-          <View style={styles.actions}>
-            <Button label="Import file" variant="primary" onPress={onImportFile} disabled={busy} style={styles.grow} />
-            {__DEV__ && <Button label="Add sample" onPress={onAddSample} disabled={busy} style={styles.grow} />}
-          </View>
-          {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
-
-          {/* Transactions */}
-          <ThemedText type="smallBold" style={styles.sectionTitle}>
-            Transactions
-          </ThemedText>
-          {txns.length === 0 && (
+        <TransactionList
+          rows={txns}
+          loading={loading}
+          hasMore={hasMore}
+          loadMore={loadMore}
+          onPressRow={openDetail}
+          categoryLabelFor={(t) => categoryLabel(t, index.byId, subNames)}
+          showReviewBadge
+          ListHeaderComponent={header}
+          ListFooterComponent={footer}
+          ListEmptyComponent={
             <EmptyState
               message={
                 __DEV__
@@ -248,25 +291,9 @@ export default function HomeScreen() {
                   : 'None yet. Tap “Import file” to load a Paytm statement.'
               }
             />
-          )}
-          {txns.slice(0, 100).map((t) => (
-            <TxnRow
-              key={t.id}
-              txn={t}
-              categoryLabel={categoryLabel(t, index.byId, subNames)}
-              onPress={() => {
-                setDetailId(t.id);
-                setPickerOpen(false);
-              }}
-            />
-          ))}
-
-          <ThemedText type="small" themeColor="textSecondary" style={styles.footer}>
-            Categories are auto-picked from your Paytm tags and known merchants. Low-confidence
-            guesses are flagged “Review”. Tap any transaction to change its category — the app
-            remembers your choice for next time.
-          </ThemedText>
-        </ScrollView>
+          }
+          contentContainerStyle={styles.content}
+        />
       </SafeAreaView>
 
       <TransactionDetail
@@ -311,51 +338,6 @@ function categoryLabel(
   return `${cat.emoji ? cat.emoji + ' ' : ''}${cat.name}${sub ? ` · ${sub}` : ''}`;
 }
 
-function TxnRow({
-  txn,
-  categoryLabel,
-  onPress,
-}: {
-  txn: TransactionRow;
-  categoryLabel: string | null;
-  onPress: () => void;
-}) {
-  const theme = useTheme();
-  const meta = DIRECTION_META[txn.direction as keyof typeof DIRECTION_META] ?? DIRECTION_META.out;
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-    >
-      <ThemedView type="backgroundElement" style={styles.txnRow}>
-        <View style={styles.txnLeft}>
-          <ThemedText type="default" numberOfLines={1}>
-            {txn.counterpartyName ?? txn.rawDetails ?? '—'}
-          </ThemedText>
-          <View style={styles.txnMetaRow}>
-            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.txnMeta}>
-              {categoryLabel ?? (txn.direction === 'self' || txn.kind === 'received' ? 'Transfer' : 'Uncategorized')}
-              {' · '}
-              {txn.isoDate}
-            </ThemedText>
-            {txn.needsReview && (
-              <View style={[styles.badge, { backgroundColor: theme.review }]}>
-                <ThemedText type="small" style={[styles.badgeText, { color: theme.onReview }]}>
-                  Review
-                </ThemedText>
-              </View>
-            )}
-          </View>
-        </View>
-        <ThemedText type="smallBold" style={{ color: theme[meta.color] }}>
-          {meta.sign} {formatINR(txn.paise)}
-        </ThemedText>
-      </ThemedView>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
@@ -363,8 +345,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingTop: Spacing.three,
     paddingBottom: BottomTabInset + Spacing.four,
-    gap: Spacing.two,
   },
+  header: { gap: Spacing.two, marginBottom: Spacing.two },
   tiles: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
   reviewBanner: {
     flexDirection: 'row',
@@ -378,23 +360,5 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
   grow: { flex: 1 },
   sectionTitle: { marginTop: Spacing.three },
-  txnRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-    borderRadius: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-  },
-  txnLeft: { flex: 1, gap: 2 },
-  txnMetaRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one },
-  txnMeta: { flexShrink: 1 },
-  badge: {
-    borderRadius: Spacing.one,
-    paddingHorizontal: Spacing.one,
-    paddingVertical: 1,
-  },
-  badgeText: { fontSize: 11, lineHeight: 16, fontWeight: '700' },
   footer: { marginTop: Spacing.three },
 });

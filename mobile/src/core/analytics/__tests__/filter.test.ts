@@ -7,6 +7,12 @@ function t(over: Partial<FilterableTxn> & Pick<FilterableTxn, 'isoDate'>): Filte
     subcategoryId: null,
     accountName: null,
     personId: null,
+    rawDetails: null,
+    counterpartyVpa: null,
+    counterpartyName: null,
+    remarks: null,
+    rawTag: null,
+    needsReview: false,
     ...over,
   };
 }
@@ -48,9 +54,41 @@ describe('matchesFilter', () => {
     expect(matchesFilter(txn, { direction: 'in' })).toBe(false);
   });
 
+  it('matches needsReview', () => {
+    const review = t({ isoDate: '2026-05-01', needsReview: true });
+    expect(matchesFilter(review, { needsReview: true })).toBe(true);
+    expect(matchesFilter(txn, { needsReview: true })).toBe(false); // txn is not flagged
+    expect(matchesFilter(review, {})).toBe(true); // undefined = no constraint
+  });
+
   it('ANDs multiple constraints together', () => {
     expect(matchesFilter(txn, { categoryId: 3, account: 'Axis Bank - 15', direction: 'out' })).toBe(true);
     expect(matchesFilter(txn, { categoryId: 3, account: 'KVB' })).toBe(false);
+  });
+
+  it('free-text search matches name / raw details / VPA, case-insensitively', () => {
+    const zomato = t({
+      isoDate: '2026-05-14',
+      counterpartyName: 'Zomato Limited',
+      rawDetails: 'Paid to Zomato Limited',
+      counterpartyVpa: 'zomato@ptys',
+    });
+    expect(matchesFilter(zomato, { search: 'zomato' })).toBe(true); // name
+    expect(matchesFilter(zomato, { search: 'ZOMATO' })).toBe(true); // case-insensitive
+    expect(matchesFilter(zomato, { search: 'paid to' })).toBe(true); // raw details
+    expect(matchesFilter(zomato, { search: '@ptys' })).toBe(true); // vpa
+    expect(matchesFilter(t({ isoDate: '2026-05-14', remarks: 'Team lunch' }), { search: 'lunch' })).toBe(true); // note
+    expect(matchesFilter(t({ isoDate: '2026-05-14', rawTag: '#Food' }), { search: 'food' })).toBe(true); // tag
+    expect(matchesFilter(zomato, { search: 'swiggy' })).toBe(false); // no match
+    expect(matchesFilter(zomato, { search: '   ' })).toBe(true); // blank = no constraint
+    // ANDs with other constraints
+    expect(matchesFilter(zomato, { search: 'zomato', direction: 'in' })).toBe(false);
+  });
+
+  it('search tolerates null text fields', () => {
+    const bare = t({ isoDate: '2026-05-14' }); // name/raw/vpa all null
+    expect(matchesFilter(bare, { search: 'anything' })).toBe(false);
+    expect(matchesFilter(bare, { search: '' })).toBe(true);
   });
 });
 
@@ -72,5 +110,7 @@ describe('isEmptyFilter', () => {
     expect(isEmptyFilter({})).toBe(true);
     expect(isEmptyFilter({ categoryId: null })).toBe(false);
     expect(isEmptyFilter({ from: { year: 2026, month: 1 } })).toBe(false);
+    expect(isEmptyFilter({ search: '  ' })).toBe(true); // blank search is not a constraint
+    expect(isEmptyFilter({ search: 'zomato' })).toBe(false);
   });
 });

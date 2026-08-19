@@ -158,6 +158,16 @@ CREATE TABLE IF NOT EXISTS transactions (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(iso_date);
+-- Scale (tier 2): back the server-side filters + SQL aggregates.
+-- category filter + category breakdown + deep-linked "category in year" list (ordered by date)
+CREATE INDEX IF NOT EXISTS idx_transactions_category_date  ON transactions(category_id, iso_date);
+-- money-rule aggregates: equality on direction + range on date (totals / breakdowns)
+CREATE INDEX IF NOT EXISTS idx_transactions_direction_date ON transactions(direction, iso_date);
+CREATE INDEX IF NOT EXISTS idx_transactions_person         ON transactions(person_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_account        ON transactions(account_name);
+CREATE INDEX IF NOT EXISTS idx_transactions_subcategory    ON transactions(subcategory_id);
+-- Home review count — partial index over the small "needs review" subset only
+CREATE INDEX IF NOT EXISTS idx_transactions_needs_review   ON transactions(needs_review) WHERE needs_review = 1;
 CREATE TABLE IF NOT EXISTS category_rules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   matcher_type TEXT NOT NULL,

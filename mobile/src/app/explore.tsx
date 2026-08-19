@@ -30,7 +30,6 @@ import {
   deleteCategory,
   deletePaymentMode,
   deletePerson,
-  getAllTransactions,
   renameCategory,
   renamePaymentMode,
   renamePerson,
@@ -39,6 +38,8 @@ import {
   reorderPeople,
   setCategoryEmoji,
 } from '@/services/db/repository';
+import { getDb } from '@/services/db/database';
+import { txnCountQuery } from '@/services/db/queries/transactions';
 
 export default function ManageScreen() {
   const [openCategoryId, setOpenCategoryId] = useState<number | null>(null);
@@ -283,7 +284,7 @@ function DangerSection() {
   const [count, setCount] = useState(0);
 
   const onOpen = useCallback(() => {
-    setCount(getAllTransactions().length);
+    setCount(txnCountQuery(getDb(), {}).get()?.n ?? 0);
     setModalVisible(true);
   }, []);
 

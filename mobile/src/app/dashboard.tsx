@@ -9,7 +9,6 @@
  * category breakdown shows gross spend composition (so its bars sum to the "Spent" tile).
  */
 
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -24,58 +23,33 @@ import { StatTile } from '@/components/stat-tile';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import {
-  categoryBreakdown,
-  listYears,
-  monthlyForYear,
-  MONTH_LABELS,
-  subcategoryBreakdown,
-  totalsForPeriod,
-  yearlyTotals,
-  type AnalyticsTxn,
-} from '@/core/analytics';
-import { transactions } from '@/core/db/schema';
+import { MONTH_LABELS, type TxnFilter } from '@/core/analytics';
 import { formatINR } from '@/core/domain/money';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex } from '@/hooks/use-reference-data';
-import { getDb } from '@/services/db/database';
+import {
+  useCategoryBreakdown,
+  useDimensions,
+  useMonthly,
+  usePeriodTotals,
+  useSubcategoryBreakdown,
+  useYearlyTotals,
+} from '@/hooks/use-analytics';
+import { useTransactionCount } from '@/hooks/use-transactions';
 
 export default function DashboardScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const db = getDb();
   // Semantic colours (theme-aware) — each is always paired with a text label, so the red↔green
   // pair is never distinguished by colour alone.
   const SPEND = theme.spend;
   const INCOME = theme.income;
   const REFUND = theme.accent;
 
-  // Only the columns the analytics need; useLiveQuery keeps this in sync with imports/edits.
-  const query = useMemo(
-    () =>
-      db
-        .select({
-          isoDate: transactions.isoDate,
-          paise: transactions.paise,
-          direction: transactions.direction,
-          isRefund: transactions.isRefund,
-          categoryId: transactions.categoryId,
-          subcategoryId: transactions.subcategoryId,
-          counterpartyName: transactions.counterpartyName,
-          counterpartyVpa: transactions.counterpartyVpa,
-          accountName: transactions.accountName,
-          personId: transactions.personId,
-        })
-        .from(transactions),
-    [db],
-  );
-  const { data } = useLiveQuery(query);
-  const txns = (data ?? []) as AnalyticsTxn[];
-
   const index = useCategoryIndex();
-
-  const years = useMemo(() => listYears(txns), [txns]);
-  const yearly = useMemo(() => yearlyTotals(txns), [txns]);
+  const { years } = useDimensions();
+  const yearly = useYearlyTotals();
+  const { count: totalCount, loading } = useTransactionCount();
 
   // Selected period: a year, optionally narrowed to one month (set by tapping a bar).
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -86,12 +60,19 @@ export default function DashboardScreen() {
   // Default to the most recent year that has data (falls back to the current calendar year).
   const activeYear = selectedYear ?? years[0] ?? new Date().getFullYear();
 
-  const monthly = useMemo(() => monthlyForYear(txns, activeYear), [txns, activeYear]);
-  const period = useMemo(
-    () => ({ year: activeYear, month: selectedMonth ?? undefined }),
+  // The active period as a TxnFilter (a whole year, or one month within it) for the SQL aggregates.
+  const periodFilter: TxnFilter = useMemo(
+    () =>
+      selectedMonth != null
+        ? { from: { year: activeYear, month: selectedMonth }, to: { year: activeYear, month: selectedMonth } }
+        : { from: { year: activeYear, month: 1 }, to: { year: activeYear, month: 12 } },
     [activeYear, selectedMonth],
   );
-  const periodTotals = useMemo(() => totalsForPeriod(txns, period), [txns, period]);
+
+  const monthly = useMonthly(activeYear);
+  const periodTotals = usePeriodTotals(periodFilter);
+  const catBreakdown = useCategoryBreakdown(periodFilter);
+  const subBreakdown = useSubcategoryBreakdown(openCategoryId, periodFilter);
 
   const bars: BarDatum[] = monthly.map((m) => ({
     key: m.label,
@@ -99,34 +80,32 @@ export default function DashboardScreen() {
     value: m.totals.netSpentPaise,
   }));
 
-  const catRows: CategoryBreakdownRow[] = useMemo(() => {
-    return categoryBreakdown(txns, period).map((c) => {
-      const cat = c.categoryId != null ? index.byId.get(c.categoryId) : null;
-      const label = cat ? `${cat.emoji ? cat.emoji + ' ' : ''}${cat.name}` : 'Uncategorized';
-      return { key: String(c.categoryId ?? 'none'), label, value: c.spentPaise, id: c.categoryId };
-    });
-  }, [txns, period, index]);
+  const catRows: CategoryBreakdownRow[] = useMemo(
+    () =>
+      catBreakdown.map((c) => {
+        const cat = c.categoryId != null ? index.byId.get(c.categoryId) : null;
+        const label = cat ? `${cat.emoji ? cat.emoji + ' ' : ''}${cat.name}` : 'Uncategorized';
+        // Uncategorized has no sub-categories to drill into, so make it tappable straight through
+        // to the Reports list (filtered to uncategorized) — with the same chevron as real rows.
+        return { key: String(c.categoryId ?? 'none'), label, value: c.spentPaise, id: c.categoryId, drillable: c.categoryId == null };
+      }),
+    [catBreakdown, index],
+  );
 
   // Sub-category split for the open category, within the current period (for the drill-down sheet).
   const openCategory = openCategoryId != null ? index.byId.get(openCategoryId) ?? null : null;
   const subRows: CategoryBreakdownRow[] = useMemo(() => {
     if (openCategoryId == null || !openCategory) return [];
     const subNames = new Map(openCategory.subcategories.map((s) => [s.id, s.name]));
-    return subcategoryBreakdown(txns, openCategoryId, period).map((s) => ({
+    return subBreakdown.map((s) => ({
       key: String(s.subcategoryId ?? 'none'),
       label: s.subcategoryId != null ? (subNames.get(s.subcategoryId) ?? 'Sub-category') : 'No sub-category',
       value: s.spentPaise,
       id: s.subcategoryId, // makes a real sub-category row tappable → deep-link to Reports
     }));
-  }, [txns, openCategoryId, openCategory, period]);
+  }, [subBreakdown, openCategoryId, openCategory]);
   const subTotal = subRows.reduce((sum, r) => sum + r.value, 0);
-  const subCount = useMemo(
-    () =>
-      openCategoryId == null
-        ? 0
-        : subcategoryBreakdown(txns, openCategoryId, period).reduce((n, s) => n + s.txnCount, 0),
-    [txns, openCategoryId, period],
-  );
+  const subCount = subBreakdown.reduce((n, s) => n + s.txnCount, 0);
 
   const yearRows: CategoryBreakdownRow[] = yearly.map((y) => ({
     key: String(y.year),
@@ -153,7 +132,7 @@ export default function DashboardScreen() {
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <ThemedText type="subtitle">Dashboard</ThemedText>
 
-          {txns.length === 0 ? (
+          {loading ? null : totalCount === 0 ? (
             <EmptyState
               style={styles.empty}
               message="No transactions yet. Import a Paytm statement (or add the sample) on the Home tab and your monthly and yearly spend will show up here."
@@ -223,6 +202,7 @@ export default function DashboardScreen() {
                   color={SPEND}
                   onRowPress={(row) => {
                     if (row.id != null) setOpenCategoryId(row.id);
+                    else openInReports(null); // Uncategorized → straight to the Reports list
                   }}
                 />
                 {catRows.length > 0 && (
@@ -269,14 +249,14 @@ export default function DashboardScreen() {
   );
 
   // Deep-link to the Reports tab, pre-filtered to this category (+ optional sub-category) and year.
+  // `categoryId === null` means the Uncategorized bucket.
   function openInReports(categoryId: number | null, subcategoryId?: number) {
-    if (categoryId == null) return;
     setOpenCategoryId(null);
     router.navigate({
       pathname: '/reports',
       params: {
-        categoryId: String(categoryId),
         year: String(activeYear),
+        ...(categoryId != null ? { categoryId: String(categoryId) } : { uncategorized: '1' }),
         ...(subcategoryId != null ? { subcategoryId: String(subcategoryId) } : {}),
       },
     });

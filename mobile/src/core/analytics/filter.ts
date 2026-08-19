@@ -31,6 +31,14 @@ export interface TxnFilter {
   personId?: number | null;
   /** Money direction (`in`/`out`/`self`); `undefined` for any. */
   direction?: Direction;
+  /** Only rows still flagged "needs review" when `true`; `undefined` for any. */
+  needsReview?: boolean;
+  /**
+   * Free-text search, matched case-insensitively across the counterparty name, the original
+   * statement text, the counterparty UPI id, the user's note (remarks) and the Paytm tag.
+   * `undefined`/empty means no constraint.
+   */
+  search?: string;
 }
 
 /** The minimal transaction shape the predicate needs — satisfied by both the stored row and AnalyticsTxn. */
@@ -41,6 +49,18 @@ export interface FilterableTxn {
   subcategoryId: number | null;
   accountName: string | null;
   personId: number | null;
+  /** Original statement text — one of the fields free-text search matches against. */
+  rawDetails: string | null;
+  /** Counterparty UPI id — also matched by free-text search. */
+  counterpartyVpa: string | null;
+  /** Counterparty display name — also matched by free-text search. */
+  counterpartyName: string | null;
+  /** The user's note on the transaction — also matched by free-text search. */
+  remarks: string | null;
+  /** The Paytm tag — also matched by free-text search. */
+  rawTag: string | null;
+  /** Whether the row is still flagged "needs review". */
+  needsReview: boolean;
 }
 
 /** A month as a single comparable ordinal (year*12 + month index), so ranges are simple integer compares. */
@@ -63,7 +83,26 @@ export function matchesFilter(txn: FilterableTxn, filter: TxnFilter): boolean {
   if (filter.account !== undefined && txn.accountName !== filter.account) return false;
   if (filter.personId !== undefined && txn.personId !== filter.personId) return false;
   if (filter.direction !== undefined && txn.direction !== filter.direction) return false;
+  if (filter.needsReview !== undefined && txn.needsReview !== filter.needsReview) return false;
+  if (!matchesSearch(txn, filter.search)) return false;
   return true;
+}
+
+/**
+ * Case-insensitive substring match across the counterparty name, original statement text, and
+ * UPI id. Empty/undefined search matches everything. This is the JS spec the SQL `LIKE` builder
+ * mirrors, so "what you see" and "what you export" agree.
+ */
+function matchesSearch(txn: FilterableTxn, search: string | undefined): boolean {
+  const q = search?.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    (txn.counterpartyName?.toLowerCase().includes(q) ?? false) ||
+    (txn.rawDetails?.toLowerCase().includes(q) ?? false) ||
+    (txn.counterpartyVpa?.toLowerCase().includes(q) ?? false) ||
+    (txn.remarks?.toLowerCase().includes(q) ?? false) ||
+    (txn.rawTag?.toLowerCase().includes(q) ?? false)
+  );
 }
 
 /** Keep only the transactions matching the filter (preserves input order). */
@@ -80,6 +119,8 @@ export function isEmptyFilter(filter: TxnFilter): boolean {
     filter.subcategoryId === undefined &&
     filter.account === undefined &&
     filter.personId === undefined &&
-    filter.direction === undefined
+    filter.direction === undefined &&
+    filter.needsReview === undefined &&
+    (filter.search === undefined || filter.search.trim() === '')
   );
 }

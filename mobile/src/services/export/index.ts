@@ -8,9 +8,11 @@
  */
 
 import { buildFilteredWorkbook, type ExportTxn } from '@/core/export';
-import { matchesFilter, type TxnFilter } from '@/core/analytics';
+import type { TxnFilter } from '@/core/analytics';
 import type { Direction } from '@/core/domain/money';
-import { getAllTransactions, getCategoryIndex, getLists } from '@/services/db/repository';
+import { getDb } from '@/services/db/database';
+import { selectFilteredTxns } from '@/services/db/queries/transactions';
+import { getCategoryIndex, getLists } from '@/services/db/repository';
 import { saveBytesToFolder, shareBytes } from '@/services/file-io';
 import { writeWorkbookBytes } from './xlsx-writer';
 
@@ -25,8 +27,9 @@ function normalizeXlsxName(name: string): string {
 
 /**
  * Load the stored rows that match the filter and map them to export rows with reference ids
- * resolved to display names. Filtering happens on the RAW rows (which still have the ids) so the
- * same {@link TxnFilter} that drives the Reports view drives the export.
+ * resolved to display names. Filtering runs SERVER-SIDE via {@link selectFilteredTxns} using the
+ * SAME `buildTxnConditions` the Reports list uses — so "what you see is what you export", and we
+ * never load the whole table just to filter it in JS.
  */
 function loadExportTxns(filter: TxnFilter): ExportTxn[] {
   const index = getCategoryIndex();
@@ -37,20 +40,7 @@ function loadExportTxns(filter: TxnFilter): ExportTxn[] {
   const pmNames = new Map(lists.paymentModes.map((p) => [p.id, p.name]));
   const personNames = new Map(lists.people.map((p) => [p.id, p.name]));
 
-  return getAllTransactions()
-    .filter((r) =>
-      matchesFilter(
-        {
-          isoDate: r.isoDate,
-          direction: r.direction as Direction,
-          categoryId: r.categoryId,
-          subcategoryId: r.subcategoryId,
-          accountName: r.accountName,
-          personId: r.personId,
-        },
-        filter,
-      ),
-    )
+  return selectFilteredTxns(getDb(), filter)
     .map((r) => ({
       isoDate: r.isoDate,
       time: r.time ?? '',
