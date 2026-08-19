@@ -375,7 +375,7 @@ const SearchBox = React.memo(function SearchBox({ onSearch }: { onSearch: (q: st
       autoCapitalize="none"
       autoCorrect={false}
       returnKeyType="search"
-      style={[styles.search, { color: theme.text, backgroundColor: theme.backgroundElement, borderColor: theme.backgroundSelected }]}
+      style={[styles.search, { color: theme.text, backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
     />
   );
 });
@@ -505,10 +505,13 @@ function rowCategoryLabel(
 }
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  const theme = useTheme();
   return (
     <>
       <ThemedText type="smallBold" style={styles.sectionTitle}>{title}</ThemedText>
-      <ThemedView type="backgroundElement" style={styles.card}>{children}</ThemedView>
+      <ThemedView type="backgroundElement" style={[styles.card, { borderColor: theme.border }]}>
+        {children}
+      </ThemedView>
     </>
   );
 }
@@ -537,5 +540,11 @@ const styles = StyleSheet.create({
   summary: { marginTop: Spacing.one },
   breakdownToggle: { marginTop: Spacing.three, paddingVertical: Spacing.one },
   sectionTitle: { marginTop: Spacing.two },
-  card: { borderRadius: Spacing.three, padding: Spacing.three, marginTop: Spacing.one, gap: Spacing.half },
+  card: {
+    borderRadius: Spacing.three,
+    padding: Spacing.three,
+    marginTop: Spacing.one,
+    gap: Spacing.half,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
 });

@@ -9,33 +9,35 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    text: '#11181C', // near-black — softer than pure #000 on a bright field
+    background: '#FFFFFF',
+    backgroundElement: '#F1F3F5', // cards / tiles / unselected chips
+    backgroundSelected: '#DFE3E8', // pressed / selected fill (darker than element, so it stands out)
+    border: '#E6E8EB', // hairline around cards, chips, dividers
+    textSecondary: '#5B6570',
     // Semantic palette (money direction + UI accents). Every use is text-labeled elsewhere,
     // so colour is reinforcement, not the sole signal (keeps the red/green pair CVD-safe).
-    spend: '#e5484d', // money out
-    income: '#30a46c', // money in
-    accent: '#3c87f7', // primary actions, refunds, links
-    review: '#f5a524', // "needs review" amber
-    onAccent: '#ffffff', // text/icons on top of `accent`
-    onReview: '#1a1200', // text on top of `review` (badge)
+    spend: '#E5484D', // money out
+    income: '#2FA968', // money in
+    accent: '#2E6BF0', // primary actions, refunds, links
+    review: '#E08600', // "needs review" amber (darkened for contrast on light)
+    onAccent: '#FFFFFF', // text/icons on top of `accent`
+    onReview: '#1A1200', // text on top of `review` (badge)
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#ECEDEE',
+    background: '#0C0E12', // near-black with a hint of blue, not a harsh pure black
+    backgroundElement: '#181B21', // raised surface for cards / tiles
+    backgroundSelected: '#262A32', // pressed / selected fill
+    border: '#282C34', // hairline that separates surfaces on dark
+    textSecondary: '#9BA1AC',
     // Brighter variants so they stay legible on the near-black dark background.
-    spend: '#ff6369',
-    income: '#3dd68c',
-    accent: '#5b9dff',
-    review: '#ffca16',
-    onAccent: '#ffffff',
-    onReview: '#1a1200',
+    spend: '#FF6369',
+    income: '#3DD68C',
+    accent: '#6AA1FF',
+    review: '#FFCA16',
+    onAccent: '#0C0E12',
+    onReview: '#1A1200',
   },
 } as const;
 

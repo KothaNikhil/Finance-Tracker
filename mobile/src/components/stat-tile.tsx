@@ -26,7 +26,7 @@ export function StatTile({
 }) {
   const theme = useTheme();
   const inner = (
-    <ThemedView type="backgroundElement" style={styles.tile}>
+    <ThemedView type="backgroundElement" style={[styles.tile, { borderColor: theme.border }]}>
       <ThemedText type="small" themeColor="textSecondary">
         {label}
       </ThemedText>
@@ -58,6 +58,6 @@ export function StatTile({
 
 const styles = StyleSheet.create({
   wrap: { flex: 1 },
-  tile: { flex: 1, borderRadius: Spacing.three, padding: Spacing.three, gap: 2 },
+  tile: { flex: 1, borderRadius: Spacing.three, padding: Spacing.three, gap: 2, borderWidth: StyleSheet.hairlineWidth },
   chevron: { position: 'absolute', top: Spacing.two, right: Spacing.three, fontSize: 18, lineHeight: 20 },
 });

@@ -1,7 +1,8 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
-import { Platform, StyleSheet, useColorScheme } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Platform, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
@@ -10,6 +11,8 @@ import { LockScreen } from '@/components/lock-screen';
 import { LoginScreen } from '@/components/login-screen';
 import { AppLockProvider, useAppLock } from '@/hooks/use-app-lock';
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ThemePreferenceProvider } from '@/hooks/use-theme-preference';
 import { warmUpDatabaseAsync } from '@/services/db/database';
 
 SplashScreen.preventAutoHideAsync();
@@ -58,19 +61,36 @@ function Gate() {
   return <AppTabs key={accountKey ?? 'default'} />;
 }
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+/**
+ * Reads the resolved colour scheme (which honours the user's Light/Dark/System choice) and applies
+ * it to the navigation theme + status bar. Lives BELOW `ThemePreferenceProvider` so it can consume
+ * the preference context.
+ */
+function Themed({ children }: { children: ReactNode }) {
+  const scheme = useColorScheme();
+  const navTheme = scheme === 'dark' ? DarkTheme : DefaultTheme;
   return (
-    // Required for react-native-gesture-handler (drag-to-reorder on the Manage screen).
+    <ThemeProvider value={navTheme}>
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      {children}
+    </ThemeProvider>
+  );
+}
+
+export default function TabLayout() {
+  return (
+    // Required for react-native-gesture-handler (drag-to-reorder + sheet drag-to-dismiss).
     <GestureHandlerRootView style={styles.root}>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <AuthProvider>
-          <AppLockProvider>
-            <AnimatedSplashOverlay />
-            <Gate />
-          </AppLockProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <ThemePreferenceProvider>
+        <Themed>
+          <AuthProvider>
+            <AppLockProvider>
+              <AnimatedSplashOverlay />
+              <Gate />
+            </AppLockProvider>
+          </AuthProvider>
+        </Themed>
+      </ThemePreferenceProvider>
     </GestureHandlerRootView>
   );
 }

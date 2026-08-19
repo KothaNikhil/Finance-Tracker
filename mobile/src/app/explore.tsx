@@ -12,11 +12,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/button';
 import { ConfirmDeleteModal } from '@/components/confirm-delete-modal';
 import { EditableList, type EditableItem } from '@/components/editable-list';
+import { SegmentedControl } from '@/components/segmented-control';
 import { SubcategoryManager } from '@/components/subcategory-manager';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { useThemePreference, type ThemeMode } from '@/hooks/use-theme-preference';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { signOut } from '@/services/auth/auth';
@@ -131,6 +133,7 @@ export default function ManageScreen() {
             />
           </Section>
 
+          <AppearanceSection />
           <BackupSection />
           <DangerSection />
           <AccountSection />
@@ -160,6 +163,26 @@ function Section({
         </ThemedText>
       )}
       {children}
+    </View>
+  );
+}
+
+const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
+
+/** Light / Dark / System theme picker. "System" follows the phone's setting. */
+function AppearanceSection() {
+  const { mode, setMode } = useThemePreference();
+  return (
+    <View style={styles.section}>
+      <ThemedText type="smallBold">Appearance</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.sectionSubtitle}>
+        Choose a light or dark look, or follow your phone&apos;s system setting.
+      </ThemedText>
+      <SegmentedControl options={THEME_OPTIONS} value={mode} onChange={setMode} />
     </View>
   );
 }
