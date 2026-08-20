@@ -192,6 +192,15 @@ export function ReportsFilters({
                   ))}
                 </View>
               </Field>
+
+              {/* Status — the review queue lives here so it's reachable any time (not just from the
+                  Import banner). Stays flagged until you categorize each row or accept the guesses. */}
+              <Field label="Status">
+                <View style={styles.chipsRow}>
+                  <Chip label="Any" selected={draft.needsReview === undefined} onPress={() => set({ needsReview: undefined })} />
+                  <Chip label="Needs review" selected={draft.needsReview === true} onPress={() => set({ needsReview: true })} />
+                </View>
+              </Field>
             </ScrollView>
 
             <View style={styles.footer}>

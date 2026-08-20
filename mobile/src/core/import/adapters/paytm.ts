@@ -9,7 +9,7 @@
 import { parsePaytmAmount } from '../../domain/money';
 import { parsePaytmDate } from '../../domain/date';
 import { buildDedupeKey } from '../dedupe';
-import type { NormalizedTxn, RawRow, SheetLike, SourceAdapter, TxnKind } from '../types';
+import type { LedgerSide, NormalizedTxn, RawRow, SheetLike, SourceAdapter, TxnKind } from '../types';
 
 const TXN_SHEET = 'Passbook Payment History';
 
@@ -63,8 +63,8 @@ function cleanVpa(raw: string): string | null {
 export const paytmAdapter: SourceAdapter = {
   source: 'paytm',
 
-  detect(sheetNames: string[]): boolean {
-    return sheetNames.some((n) => n.trim().toLowerCase() === TXN_SHEET.toLowerCase());
+  detect(sheets: SheetLike[]): boolean {
+    return sheets.some((s) => s.name.trim().toLowerCase() === TXN_SHEET.toLowerCase());
   },
 
   selectSheet(sheets: SheetLike[]): SheetLike {
@@ -97,6 +97,10 @@ export const paytmAdapter: SourceAdapter = {
     const { paise, direction } = parsePaytmAmount(amountText);
     const { kind, counterpartyName } = parseDetails(details);
 
+    // Statement side for the debit/credit tally: Paytm leaves self-transfers unsigned, so they
+    // count as neither (matching Paytm's own Summary presentation).
+    const ledgerSide: LedgerSide = direction === 'out' ? 'debit' : direction === 'in' ? 'credit' : null;
+
     const base = {
       isoDate,
       time,
@@ -112,6 +116,7 @@ export const paytmAdapter: SourceAdapter = {
       sourceRef: orNull(refText),
       orderId: orNull(orderText),
       source: 'paytm' as const,
+      ledgerSide,
     };
 
     return { ...base, dedupeKey: buildDedupeKey(base) };

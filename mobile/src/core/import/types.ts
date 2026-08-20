@@ -35,6 +35,9 @@ export interface RawRow {
   rowNumber: number;
 }
 
+/** Which column of a bank ledger a row hit — used only for the import debit/credit tally. */
+export type LedgerSide = 'debit' | 'credit' | null;
+
 /** A cleaned-up, typed transaction, before dedupe/categorize/save. */
 export interface NormalizedTxn {
   isoDate: string; // YYYY-MM-DD
@@ -48,9 +51,15 @@ export interface NormalizedTxn {
   rawDetails: string; // original "Transaction Details" text, kept for categorization
   rawTag: string | null; // e.g. "#🥘 Food" (kept as-is for categorization)
   remarks: string | null;
-  sourceRef: string | null; // UPI Ref No.
+  sourceRef: string | null; // UPI Ref No. / bank UTR
   orderId: string | null; // Paytm Order ID
   source: TxnSource;
+  /**
+   * The statement's own debit/credit side for this row (banks: the DR/CR column; Paytm: derived
+   * from direction, with unsigned self-transfers = null). Import-time only — NOT persisted; used
+   * to tally total debit/credit against the statement. `undefined` on sources that don't track it.
+   */
+  ledgerSide?: LedgerSide;
   /** Stable key used to detect duplicates across imports. */
   dedupeKey: string;
 }
@@ -58,19 +67,37 @@ export interface NormalizedTxn {
 /** Minimal shape of a parsed worksheet the adapter works with. */
 export interface SheetLike {
   name: string;
-  /** Header row values, in order. */
+  /** Header row values (row 1), in order. */
   headers: string[];
-  /** Data rows (header excluded). */
+  /** Data rows keyed by the row-1 header (header excluded). */
   rows: RawRow[];
+  /**
+   * The full sheet as raw array-of-arrays, INCLUDING any preamble rows above the header. Bank
+   * statements carry a metadata block before the real header, so those adapters find their own
+   * header row in here rather than trusting row 1.
+   */
+  matrix: string[][];
 }
 
 /** One per money source. Adding a new source = adding one of these. */
 export interface SourceAdapter {
   readonly source: TxnSource;
-  /** True if this adapter recognizes the workbook (e.g. sees the expected sheet/headers). */
-  detect(sheetNames: string[]): boolean;
+  /** True if this adapter recognizes the workbook (by sheet names and/or a header signature). */
+  detect(sheets: SheetLike[]): boolean;
   /** Pick the sheet that holds the transactions. */
   selectSheet(sheets: SheetLike[]): SheetLike;
+  /**
+   * Optional: produce the data rows to normalize. Defaults to the sheet's row-1-keyed `rows`.
+   * Adapters whose header isn't row 1 (a preamble above it) override this to locate the header
+   * in `sheet.matrix` and build header-keyed rows from there.
+   */
+  rows?(sheet: SheetLike): RawRow[];
   /** Turn one raw row into a normalized transaction. Throws on an unparseable row. */
   normalize(row: RawRow): NormalizedTxn;
+  /**
+   * Optional last-resort: when {@link normalize} throws, build a best-effort transaction so the
+   * row is NEVER silently dropped (it lands as uncategorized / needs-review). Return `null` if the
+   * row clearly isn't a transaction (a legend/footer line), so the pipeline records a real error.
+   */
+  salvage?(row: RawRow): NormalizedTxn | null;
 }

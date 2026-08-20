@@ -25,6 +25,8 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import type { MonthKey, TxnFilter } from '@/core/analytics';
 import type { TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
+import { axisAdapter } from '@/core/import/adapters/axis';
+import { kvbAdapter } from '@/core/import/adapters/kvb';
 import { paytmAdapter } from '@/core/import/adapters/paytm';
 import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
@@ -42,6 +44,7 @@ import {
   clearTransactionCategory,
   deleteTransaction,
   getExistingDedupeKeys,
+  reconcileDuplicatesFromImport,
   saveTransactions,
   setTransactionCategory,
 } from '@/services/db/repository';
@@ -70,7 +73,8 @@ function buildSampleSheet(): SheetLike {
     SAMPLE_HEADERS.forEach((h, idx) => (cells[h] = cols[idx] ?? ''));
     return { cells, rowNumber: i + 2 };
   });
-  return { name: 'Passbook Payment History', headers: SAMPLE_HEADERS, rows };
+  const matrix = [SAMPLE_HEADERS, ...SAMPLE_ROWS];
+  return { name: 'Passbook Payment History', headers: SAMPLE_HEADERS, rows, matrix };
 }
 
 export default function ImportScreen() {
@@ -90,8 +94,11 @@ export default function ImportScreen() {
     : sessionFilter;
 
   const { rows: txns, loadMore, hasMore, loading } = useTransactionList(listFilter);
-  // Summary + review/imported counts describe the WHOLE current import (canonical money rules).
-  const { spentPaise: totalOut, receivedPaise: totalIn, reviewCount, savedCount } = useSummary(sessionFilter);
+  // Tiles + imported count describe THIS session's import (canonical money rules).
+  const { spentPaise: totalOut, receivedPaise: totalIn, savedCount } = useSummary(sessionFilter);
+  // Review is an app-wide queue: it persists across restarts and stays until each row is
+  // categorized or the guesses are accepted — so this count spans ALL data, not just this session.
+  const { reviewCount } = useSummary({});
   const { months } = useDimensions(sessionFilter);
 
   const index = useCategoryIndex();
@@ -109,25 +116,41 @@ export default function ImportScreen() {
 
   const commit = useCallback(
     (sheets: SheetLike[], sourceLabel: string) => {
-      const preview = runImport(sheets, [paytmAdapter], getExistingDedupeKeys());
+      const preview = runImport(sheets, [paytmAdapter, axisAdapter, kvbAdapter], getExistingDedupeKeys());
+      // Duplicates (same UPI ref already stored from the other statement) can still be reconciled:
+      // filling a category/tag where they agree, or flagging review where a tag disagrees with our
+      // category. So a Save is worthwhile even with 0 brand-new rows.
       const save = () =>
         run(
           async () => {
             // Yield a frame so the spinner paints before the synchronous DB write blocks the thread.
             await new Promise((resolve) => setTimeout(resolve, 0));
             const n = saveTransactions(preview.newTxns);
-            Alert.alert(
-              'Imported',
-              `${n} new transaction(s) saved from ${sourceLabel} and auto-categorized. ` +
-                `Anything the app was unsure about is flagged “Needs review”.`,
-            );
+            const { updated, flagged } = reconcileDuplicatesFromImport(preview.duplicates);
+            const parts = [`${n} new transaction(s) saved from ${sourceLabel} and auto-categorized.`];
+            if (updated > 0) parts.push(`${updated} matching row(s) already imported were updated.`);
+            if (flagged > 0)
+              parts.push(`${flagged} row(s) were flagged for review — a Paytm tag disagreed with the category, so you decide.`);
+            parts.push('Anything the app was unsure about is flagged “Needs review”.');
+            Alert.alert('Imported', parts.join(' '));
           },
           { errorTitle: 'Could not save import' },
         );
+      // Reconciliation tally so you can check totals against the statement. `errors` are rows that
+      // weren't transactions at all; anything unreadable-but-real was salvaged into `newTxns`.
+      const lines = [
+        `Found ${preview.totalRows} rows`,
+        `New: ${preview.newTxns.length}`,
+        `Duplicates (checked for tag conflicts): ${preview.duplicates.length}`,
+        `Total debit: ${formatINR(preview.totalDebitPaise)}`,
+        `Total credit: ${formatINR(preview.totalCreditPaise)}`,
+      ];
+      if (preview.salvaged.length > 0) lines.push(`Couldn’t fully read (saved for review): ${preview.salvaged.length}`);
+      if (preview.errors.length > 0) lines.push(`Skipped non-transaction rows: ${preview.errors.length}`);
       Alert.alert(
         'Import preview',
-        `Found ${preview.totalRows} rows\nNew: ${preview.newTxns.length}\nDuplicates: ${preview.duplicates.length}\nErrors: ${preview.errors.length}`,
-        preview.newTxns.length > 0
+        lines.join('\n'),
+        preview.newTxns.length > 0 || preview.duplicates.length > 0
           ? [{ text: 'Cancel', style: 'cancel' }, { text: 'Save', onPress: save }]
           : [{ text: 'OK' }],
       );
@@ -157,7 +180,8 @@ export default function ImportScreen() {
     try {
       picked = await File.pickFileAsync({
         mimeTypes: [
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+          'application/vnd.ms-excel', // .xls (older banks, e.g. Axis, export this)
           'application/octet-stream',
         ],
       });
@@ -228,7 +252,7 @@ export default function ImportScreen() {
           is a separate inner action. */}
       {reviewCount > 0 && (
         <Pressable
-          onPress={() => router.navigate({ pathname: '/reports', params: { review: '1' } })}
+          onPress={() => router.navigate({ pathname: '/reports', params: { review: '1', t: String(Date.now()) } })}
           accessibilityRole="button"
           accessibilityLabel={`${reviewCount} transactions need review. Open the review list.`}
           style={({ pressed }) => [styles.reviewBanner, { borderColor: theme.review, opacity: pressed ? 0.8 : 1 }]}

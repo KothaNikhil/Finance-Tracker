@@ -23,6 +23,11 @@ const DIRECTION_META = {
   self: { sign: '⇄', color: 'review' },
 } as const;
 
+/** "#🥘 Food" → "🥘 Food" for a compact on-row chip. */
+function formatTag(tag: string): string {
+  return tag.replace(/^#/, '').trim();
+}
+
 export interface TxnRowProps {
   txn: TransactionRow;
   /** Resolved "🍽️ Food & Dining · Restaurant", or null when uncategorized. */
@@ -68,6 +73,15 @@ export const TxnRow = React.memo(function TxnRow({
                 </ThemedText>
               </View>
             )}
+            {/* Show the Paytm tag on rows awaiting a decision, so the tag is visible when the app's
+                category disagrees with it and you're choosing which to keep. */}
+            {txn.needsReview && txn.rawTag ? (
+              <View style={[styles.tagChip, { borderColor: theme.border }]}>
+                <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
+                  {formatTag(txn.rawTag)}
+                </ThemedText>
+              </View>
+            ) : null}
           </View>
         </View>
         <ThemedText type="smallBold" style={{ color: theme[meta.color] }}>
@@ -95,5 +109,12 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.one,
     paddingHorizontal: Spacing.one,
     paddingVertical: 1,
+  },
+  tagChip: {
+    borderRadius: Spacing.one,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: Spacing.one,
+    paddingVertical: 1,
+    flexShrink: 1,
   },
 });

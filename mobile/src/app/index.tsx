@@ -301,9 +301,10 @@ export default function DashboardScreen() {
     return p;
   }
 
-  // Navigate to Reports with the current period plus the given extra filter params.
+  // Navigate to Reports with the current period plus the given extra filter params. `t` is a
+  // per-tap nonce so re-tapping the same tile (even after a Clear all in Reports) re-applies it.
   function goToReports(extra: Record<string, string>) {
-    router.navigate({ pathname: '/reports', params: { ...periodParams(), ...extra } });
+    router.navigate({ pathname: '/reports', params: { ...periodParams(), ...extra, t: String(Date.now()) } });
   }
 
   // Deep-link to Reports pre-filtered to this category (+ optional sub-category) and the period.

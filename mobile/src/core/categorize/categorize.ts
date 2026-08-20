@@ -1,18 +1,26 @@
 /**
- * The auto-categorizer. One pure function, `categorize`, decides a category for a transaction
- * by trying rules from strongest to weakest:
+ * The auto-categorizer. One pure function, `categorize`, decides a category + sub-category for a
+ * transaction. It resolves the two independently and then composes them:
  *
- *   1. Learned rules   — what the user's past edits taught us (by VPA, then merchant, then tag)
- *   2. Paytm tag       — the tag the user put on it in Paytm (their own label; very reliable)
- *   3. Merchant brand  — a known brand keyword in the counterparty / details text
- *   4. Statement kind  — a last-resort guess from the wording ("Paid to", "Gold Coin…", …)
+ *   CATEGORY — strongest to weakest:
+ *     1. Learned payee   — what the user's past edits taught us (by VPA, then merchant name)
+ *     2. Paytm tag       — the tag Paytm/the user put on it (auto-filled from merchant+note)
+ *     3. Merchant brand  — a known brand keyword in the counterparty / narration text
+ *     4. Statement kind  — a last-resort guess from the wording ("Paid to", "Gold Coin…", …)
+ *
+ *   SUB-CATEGORY — the user's NOTE wins when it fits the chosen category (people mostly describe
+ *   *what* they bought in the note). When the payee is unknown and nothing above matched, the note
+ *   also supplies the category. But we never silently override a stronger signal: if the note
+ *   implies a DIFFERENT category than the one chosen above, we keep the stronger category and flag
+ *   the row for review.
  *
  * Anything weak or unmatched comes back with `needsReview: true` so the UI can flag it.
  */
 
+import { fuzzyEqual } from './fuzzy';
 import {
+  KEYWORD_RULES,
   KIND_DEFAULTS,
-  MERCHANT_RULES,
   TAG_ALIASES,
   TAG_NEEDS_REVIEW,
   TAG_TRANSFERS,
@@ -86,18 +94,17 @@ function resolveByName(
   return { categoryId: cat.id, subcategoryId: findSubcategory(cat, subName)?.id ?? null };
 }
 
-/** Try to match a learned rule, checking the most specific matcher (VPA) first. */
-function matchLearned(input: CategorizeInput, index: CategoryIndex, learned: LearnedRule[]): CategorySuggestion | null {
+/** Try to match a learned PAYEE rule (VPA then merchant name) — these teach the category. */
+function matchLearnedPayee(input: CategorizeInput, index: CategoryIndex, learned: LearnedRule[]): CategorySuggestion | null {
   if (learned.length === 0) return null;
 
   const keys: Record<string, string> = {
     vpa: normalizeText(input.counterpartyVpa),
     merchant: normalizeText(input.counterpartyName),
-    tag: normalizeTag(input.rawTag),
   };
 
-  // VPA is the most precise (same payee), tag the broadest — prefer in that order.
-  for (const matcherType of ['vpa', 'merchant', 'tag'] as const) {
+  // VPA is the most precise (same payee) → prefer it over the merchant name.
+  for (const matcherType of ['vpa', 'merchant'] as const) {
     const key = keys[matcherType];
     if (!key) continue;
     const rule = learned.find((r) => r.matcherType === matcherType && r.matcherKey === key);
@@ -189,22 +196,66 @@ function matchTag(input: CategorizeInput, index: CategoryIndex): CategorySuggest
   return null; // tag present but unrecognized — fall through to merchant / kind
 }
 
-/** Try a known brand keyword against the counterparty name and the raw details. */
-function matchMerchant(input: CategorizeInput, index: CategoryIndex): CategorySuggestion | null {
-  const haystack = `${normalizeText(input.counterpartyName)} ${normalizeText(input.rawDetails)}`;
-  for (const rule of MERCHANT_RULES) {
+/** Try a known brand keyword as a substring of the payee text: name, narration, and VPA. */
+function matchBrand(input: CategorizeInput, index: CategoryIndex): CategorySuggestion | null {
+  const haystack = [
+    normalizeText(input.counterpartyName),
+    normalizeText(input.rawDetails),
+    normalizeText(input.counterpartyVpa),
+  ].join(' ');
+  for (const rule of KEYWORD_RULES) {
+    if (rule.on !== 'brand') continue;
     if (haystack.includes(rule.keyword)) {
       const resolved = resolveByName(index, rule.category, rule.subcategory);
       if (resolved) {
         return {
           ...resolved,
-          confidence: 'medium',
-          needsReview: false,
+          confidence: rule.ambiguous ? 'low' : 'medium',
+          needsReview: !!rule.ambiguous,
           via: 'merchant',
           reason: `Merchant "${rule.keyword}"`,
         };
       }
     }
+  }
+  return null;
+}
+
+/** What the note tells us: a category + optional sub, plus whether that guess is ambiguous. */
+interface NoteMatch {
+  categoryId: number;
+  subcategoryId: number | null;
+  ambiguous: boolean;
+}
+
+/**
+ * Read the user's note (Paytm remarks / bank UPI note). First honour anything the user has taught
+ * us about a note (learned `note` rules, matched fuzzily to tolerate typos like "biriani"), then
+ * fall back to the static note purpose-words (whole-word match so "tea" doesn't hit "steam").
+ */
+function matchNote(input: CategorizeInput, index: CategoryIndex, learned: LearnedRule[]): NoteMatch | null {
+  const note = normalizeText(input.remarks);
+  if (!note) return null;
+  const tokens = note.split(' ').filter(Boolean);
+
+  // 1. Learned note rules — fuzzy against the whole note or any single token.
+  for (const rule of learned) {
+    if (rule.matcherType !== 'note' || !rule.matcherKey) continue;
+    const hit = fuzzyEqual(note, rule.matcherKey) || tokens.some((t) => fuzzyEqual(t, rule.matcherKey));
+    if (!hit) continue;
+    const cat = index.byId.get(rule.categoryId);
+    if (!cat) continue; // category deleted since it was learned
+    const subValid = rule.subcategoryId != null && cat.subcategories.some((s) => s.id === rule.subcategoryId);
+    return { categoryId: cat.id, subcategoryId: subValid ? rule.subcategoryId : null, ambiguous: false };
+  }
+
+  // 2. Static note keywords — whole-word match (pad so we match whole tokens only).
+  const padded = ` ${note} `;
+  for (const rule of KEYWORD_RULES) {
+    if (rule.on !== 'note') continue;
+    if (!padded.includes(` ${rule.keyword} `)) continue;
+    const resolved = resolveByName(index, rule.category, rule.subcategory);
+    if (resolved) return { ...resolved, ambiguous: !!rule.ambiguous };
   }
   return null;
 }
@@ -227,18 +278,49 @@ function matchKind(input: CategorizeInput, index: CategoryIndex, tagWasPresent: 
 }
 
 /**
- * Decide a category for one transaction. Pure: same inputs → same output, no side effects.
- * `learned` may be empty (a fresh install with no edits yet).
+ * Decide a category + sub-category for one transaction. Pure: same inputs → same output, no side
+ * effects. `learned` may be empty (a fresh install with no edits yet).
+ *
+ * We resolve a `base` category from the priority chain, then let the note refine (or, for an
+ * unknown payee, supply) it — see the file header for the rules.
  */
 export function categorize(
   input: CategorizeInput,
   index: CategoryIndex,
   learned: LearnedRule[] = [],
 ): CategorySuggestion {
-  return (
-    matchLearned(input, index, learned) ??
+  const base =
+    matchLearnedPayee(input, index, learned) ??
     matchTag(input, index) ??
-    matchMerchant(input, index) ??
-    matchKind(input, index, normalizeTag(input.rawTag) !== '')
-  );
+    matchBrand(input, index) ??
+    matchKind(input, index, normalizeTag(input.rawTag) !== '');
+
+  const note = matchNote(input, index, learned);
+
+  // Base already has a category: the note only touches the sub-category.
+  if (base.categoryId != null) {
+    if (!note) return base;
+    if (note.categoryId === base.categoryId) {
+      // Note describes the same category → it wins on the sub-category (that's the whole point).
+      return { ...base, subcategoryId: note.subcategoryId ?? base.subcategoryId };
+    }
+    // Note implies a DIFFERENT category than the stronger signal — keep the stronger one, but ask.
+    return { ...base, needsReview: true, reason: `${base.reason} — note differs, confirm` };
+  }
+
+  // No category yet. Never override an intentional transfer (self-transfer / "Money Received").
+  if (base.via === 'transfer') return base;
+
+  // Unknown payee, no tag: the note is our best (and only) category signal.
+  if (note) {
+    return {
+      categoryId: note.categoryId,
+      subcategoryId: note.subcategoryId,
+      confidence: note.ambiguous ? 'low' : 'medium',
+      needsReview: note.ambiguous,
+      via: 'note',
+      reason: 'From note',
+    };
+  }
+  return base;
 }

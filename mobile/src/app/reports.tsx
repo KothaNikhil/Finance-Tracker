@@ -79,12 +79,17 @@ export default function ReportsScreen() {
     review?: string;
     direction?: string;
     refund?: string;
+    // A per-tap nonce so every deep link is a fresh one-shot command — even when it repeats the
+    // exact same filter (e.g. tapping "Needs review" again after a Clear all). Without it, an
+    // identical param set is deduped and the filter silently isn't re-applied.
+    t?: string;
   }>();
   const paramFilter = buildParamFilter(params);
   const defaultFilter: TxnFilter = years[0] != null ? { from: { year: years[0], month: 1 }, to: { year: years[0], month: 12 } } : {};
 
   const [filter, setFilter] = useState<TxnFilter | null>(null);
-  // Seed from an incoming deep link (once per distinct param set).
+  // Seed from an incoming deep link (once per distinct navigation — keyed on the nonce, so a
+  // repeated identical filter still re-applies).
   const [paramSig, setParamSig] = useState<string | null>(null);
   const hasParams = !!(
     params.categoryId ||
@@ -95,7 +100,7 @@ export default function ReportsScreen() {
     params.direction ||
     params.refund
   );
-  const sig = hasParams ? JSON.stringify(paramFilter) : '';
+  const sig = hasParams ? `${JSON.stringify(paramFilter)}|${params.t ?? ''}` : '';
   if (sig !== '' && sig !== paramSig) {
     setParamSig(sig);
     setFilter(paramFilter);
@@ -297,6 +302,7 @@ export default function ReportsScreen() {
             loadMore={loadMore}
             onPressRow={openDetail}
             categoryLabelFor={(t) => rowCategoryLabel(t, index.byId, subNames)}
+            showReviewBadge
             ListHeaderComponent={header}
             ListFooterComponent={footer}
             ListEmptyComponent={

@@ -53,6 +53,16 @@ export function decimalStringToPaise(value: string): number {
   return intPaise + parseInt(frac, 10);
 }
 
+/**
+ * Parse a bank statement amount cell (plain magnitude, no sign) to paise — tolerant of the
+ * commas, spaces, and ₹ signs banks pad their DR/CR columns with, e.g. "  12,218.40 " → 1221840.
+ * Throws on a genuinely non-numeric cell.
+ */
+export function parseBankAmount(raw: string): number {
+  const cleaned = String(raw ?? '').replace(NON_AMOUNT_CHARS, '').replace(/[+\-]/g, '');
+  return decimalStringToPaise(cleaned);
+}
+
 /** Convert a rupee number (e.g. from manual entry) to paise, rounding safely. */
 export function rupeesToPaise(rupees: number): number {
   return Math.round(rupees * 100);

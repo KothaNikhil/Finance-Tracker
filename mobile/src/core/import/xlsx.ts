@@ -21,6 +21,7 @@ export function workbookToSheets(workbook: XLSX.WorkBook): SheetLike[] {
       blankrows: false,
     });
 
+    const matrix = aoa.map((cols) => (cols as unknown[]).map((c) => String(c ?? '')));
     const headers = (aoa[0] ?? []).map((h) => String(h ?? '').trim());
     const rows: RawRow[] = aoa.slice(1).map((cols, i) => {
       const cells: Record<string, string> = {};
@@ -30,7 +31,7 @@ export function workbookToSheets(workbook: XLSX.WorkBook): SheetLike[] {
       return { cells, rowNumber: i + 2 }; // +2: row 1 is the header, data starts at row 2
     });
 
-    return { name, headers, rows };
+    return { name, headers, rows, matrix };
   });
 }
 

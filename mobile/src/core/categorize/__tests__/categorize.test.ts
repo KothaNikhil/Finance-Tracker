@@ -2,7 +2,7 @@ import { SEED_CATEGORIES } from '../../db/seed';
 import type { Direction } from '../../domain/money';
 import type { TxnKind } from '../../import/types';
 import { buildCategoryIndex, categorize, normalizeTag, normalizeText } from '../categorize';
-import { MERCHANT_RULES, TAG_ALIASES } from '../rules';
+import { KEYWORD_RULES, TAG_ALIASES } from '../rules';
 import type { CategorizeInput, CategoryIndex, LearnedRule } from '../types';
 
 /**
@@ -222,19 +222,78 @@ describe('rule tables stay consistent with the seed categories', () => {
     expect(problems).toEqual([]);
   });
 
-  it('every merchant rule points at a real seed category (and sub-category, if named)', () => {
+  it('every keyword rule points at a real seed category (and sub-category, if named)', () => {
     const problems: string[] = [];
-    for (const rule of MERCHANT_RULES) {
+    for (const rule of KEYWORD_RULES) {
       const cat = INDEX.byName.get(normalizeText(rule.category));
       if (!cat) {
-        problems.push(`merchant "${rule.keyword}" → missing category "${rule.category}"`);
+        problems.push(`keyword "${rule.keyword}" → missing category "${rule.category}"`);
         continue;
       }
       if (rule.subcategory) {
         const found = cat.subcategories.some((s) => normalizeText(s.name) === normalizeText(rule.subcategory!));
-        if (!found) problems.push(`merchant "${rule.keyword}" → missing sub "${rule.subcategory}"`);
+        if (!found) problems.push(`keyword "${rule.keyword}" → missing sub "${rule.subcategory}"`);
       }
     }
     expect(problems).toEqual([]);
+  });
+});
+
+describe('categorize — notes drive the sub-category', () => {
+  const food = () => INDEX.byName.get(normalizeText('Food & Dining'))!;
+  const groceries = () => INDEX.byName.get(normalizeText('Groceries'))!;
+  const subId = (cat: ReturnType<typeof food>, name: string) =>
+    cat.subcategories.find((s) => s.name === name)!.id;
+
+  it('refines the sub-category from the note when it fits the tag category', () => {
+    // Tag = Food (category), note "biriyani" → Food/Biriyani sub, still high confidence, no review.
+    const s = categorize(input({ rawTag: '#🥘 Food', remarks: 'biriyani' }), INDEX);
+    expect(s.categoryId).toBe(food().id);
+    expect(s.subcategoryId).toBe(subId(food(), 'Biriyani'));
+    expect(s.needsReview).toBe(false);
+  });
+
+  it('tolerates a typo in the note via conservative fuzzy matching (biriani ≈ biriyani)', () => {
+    // "biriani" is not a static keyword, but a LEARNED note rule matches it fuzzily.
+    const learned: LearnedRule[] = [
+      { matcherType: 'note', matcherKey: 'biriyani', categoryId: food().id, subcategoryId: subId(food(), 'Biriyani') },
+    ];
+    const s = categorize(input({ rawTag: '#🥘 Food', remarks: 'biriani' }), INDEX, learned);
+    expect(s.subcategoryId).toBe(subId(food(), 'Biriyani'));
+  });
+
+  it('keeps the stronger category but flags review when the note implies a different one', () => {
+    // Learned payee = Groceries, but the note says "uthappam" (a static keyword? no) → use a static
+    // Food note-word to force the conflict: note "dosa" (Food) vs learned Groceries.
+    const learned: LearnedRule[] = [
+      { matcherType: 'merchant', matcherKey: 'linga reddy', categoryId: groceries().id, subcategoryId: null },
+    ];
+    const s = categorize(input({ counterpartyName: 'Linga Reddy', remarks: 'dosa' }), INDEX, learned);
+    expect(s.categoryId).toBe(groceries().id); // stronger signal kept
+    expect(s.needsReview).toBe(true); // but surfaced for confirmation
+  });
+
+  it('supplies the category from the note when the payee is unknown', () => {
+    // Random merchant, no tag, note "uthappam" learned as Food/Dosa → category comes from the note.
+    const learned: LearnedRule[] = [
+      { matcherType: 'note', matcherKey: 'uthappam', categoryId: food().id, subcategoryId: subId(food(), 'Dosa') },
+    ];
+    const s = categorize(input({ counterpartyName: 'Sri Krishna Tiffins', kind: 'paid', remarks: 'uthappam' }), INDEX, learned);
+    expect(s.categoryId).toBe(food().id);
+    expect(s.subcategoryId).toBe(subId(food(), 'Dosa'));
+    expect(s.via).toBe('note');
+  });
+
+  it('matches note words whole-word only (no false substring hits)', () => {
+    // "tea" must not fire on "steamed" — and with no other signal this stays needs-review.
+    const s = categorize(input({ counterpartyName: 'Some Person', kind: 'paid', remarks: 'steamed momos' }), INDEX);
+    expect(s.via).not.toBe('note');
+  });
+
+  it('never lets a note override an intentional transfer', () => {
+    const s = categorize(input({ rawTag: '#💵 Self Transfer', kind: 'self', remarks: 'rent' }), INDEX);
+    expect(s.categoryId).toBeNull();
+    expect(s.needsReview).toBe(false);
+    expect(s.via).toBe('transfer');
   });
 });

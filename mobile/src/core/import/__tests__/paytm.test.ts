@@ -119,9 +119,12 @@ describe('paytmAdapter.normalize', () => {
 });
 
 describe('detect + selectSheet', () => {
+  const sheetsNamed = (...names: string[]) =>
+    names.map((name) => ({ name, headers: [], rows: [], matrix: [] }));
+
   it('recognizes a Paytm workbook by its transaction sheet name', () => {
-    expect(paytmAdapter.detect(['Summary', 'Passbook Payment History'])).toBe(true);
-    expect(paytmAdapter.detect(['Sheet1', 'Sheet2'])).toBe(false);
+    expect(paytmAdapter.detect(sheetsNamed('Summary', 'Passbook Payment History'))).toBe(true);
+    expect(paytmAdapter.detect(sheetsNamed('Sheet1', 'Sheet2'))).toBe(false);
   });
 });
 
@@ -134,11 +137,12 @@ describe('dedupe', () => {
       direction: 'out' as const,
       counterpartyVpa: 'x@ptys',
       counterpartyName: 'Shop',
+      rawDetails: 'Paid to Shop',
     };
     expect(buildDedupeKey({ ...base, sourceRef: '111', orderId: '999' })).toBe('ref:111');
     expect(buildDedupeKey({ ...base, sourceRef: '', orderId: '999' })).toBe('order:999');
     expect(buildDedupeKey({ ...base, sourceRef: '', orderId: '' })).toBe(
-      'c:2026-05-29|22:32:45|300000|out|x@ptys',
+      'c:2026-05-29|22:32:45|300000|out|x@ptys|paid to shop',
     );
   });
 

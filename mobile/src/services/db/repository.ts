@@ -127,6 +127,23 @@ export function touchDataUpdatedAt(): void {
   setDataUpdatedAt(new Date().toISOString());
 }
 
+/** Run the auto-categorizer over one normalized transaction (shared by save + enrich). */
+function categorizeTxn(t: NormalizedTxn, index: CategoryIndex, learned: LearnedRule[]) {
+  return categorize(
+    {
+      kind: t.kind,
+      direction: t.direction,
+      rawTag: t.rawTag,
+      counterpartyName: t.counterpartyName,
+      counterpartyVpa: t.counterpartyVpa,
+      rawDetails: t.rawDetails,
+      remarks: t.remarks,
+    },
+    index,
+    learned,
+  );
+}
+
 /**
  * Save new transactions, auto-categorizing each one first. Relies on the unique dedupe key as
  * a final safety net against double-inserts.
@@ -139,18 +156,11 @@ export function saveTransactions(txns: NormalizedTxn[]): number {
   const now = new Date().toISOString();
 
   const rows: NewTransactionRow[] = txns.map((t) => {
-    const guess = categorize(
-      {
-        kind: t.kind,
-        direction: t.direction,
-        rawTag: t.rawTag,
-        counterpartyName: t.counterpartyName,
-        counterpartyVpa: t.counterpartyVpa,
-        rawDetails: t.rawDetails,
-      },
-      index,
-      learned,
-    );
+    const guess = categorizeTxn(t, index, learned);
+
+    // Transfers (to your own accounts, or money sent to a person) are always surfaced for review —
+    // they're the "money lent?" bucket the user decides on. Applies to every source, incl. Paytm.
+    const needsReview = guess.needsReview || t.kind === 'self' || t.kind === 'sent';
 
     return {
       isoDate: t.isoDate,
@@ -172,7 +182,7 @@ export function saveTransactions(txns: NormalizedTxn[]): number {
       orderId: t.orderId,
       dedupeKey: t.dedupeKey,
       autoCategorized: guess.categoryId != null,
-      needsReview: guess.needsReview,
+      needsReview,
       createdAt: now,
     };
   });
@@ -184,6 +194,104 @@ export function saveTransactions(txns: NormalizedTxn[]): number {
     .run();
   touchDataUpdatedAt();
   return rows.length;
+}
+
+/** Outcome of reconciling an import's duplicates against already-stored rows. */
+export interface ReconcileResult {
+  /** Rows whose category/tag/note was filled in from the other source (they agreed or we had none). */
+  updated: number;
+  /** Rows flagged "Needs review" because our category disagreed with the Paytm tag — user decides. */
+  flagged: number;
+}
+
+/**
+ * Reconcile shared UPI rows across statements, independent of import order. A payment made through
+ * Paytm also lands on the bank statement with the same RRN, so whichever is imported first "owns"
+ * the stored row and the later one is a duplicate.
+ *
+ * We never silently let the Paytm tag win over a category we computed ourselves. For each duplicate:
+ *  - If a Paytm tag and our category DISAGREE → flag the row "Needs review" (keep our category, show
+ *    the tag) and let the user decide. Their pick is learned via {@link setTransactionCategory}.
+ *  - If they agree, or the stored row had no category yet → fill in the category/tag/note.
+ * This runs in both directions (bank→Paytm and Paytm→bank). Rows the user has already decided on
+ * (category manually set OR cleared) are never touched.
+ */
+export function reconcileDuplicatesFromImport(dupes: NormalizedTxn[]): ReconcileResult {
+  if (dupes.length === 0) return { updated: 0, flagged: 0 };
+
+  const db = getDb();
+  const index = getCategoryIndex();
+  const learned = getLearnedRules();
+  let updated = 0;
+  let flagged = 0;
+
+  for (const d of dupes) {
+    const s = db
+      .select({
+        id: transactions.id,
+        categoryId: transactions.categoryId,
+        rawTag: transactions.rawTag,
+        remarks: transactions.remarks,
+        autoCategorized: transactions.autoCategorized,
+        needsReview: transactions.needsReview,
+      })
+      .from(transactions)
+      .where(eq(transactions.dedupeKey, d.dedupeKey))
+      .get();
+    if (!s) continue;
+    // A definite user decision (category set OR cleared) is sacred — never override it.
+    if (s.autoCategorized === false && s.needsReview === false) continue;
+
+    const incomingTagged = !!(d.rawTag && d.rawTag.trim() !== '');
+    const storedTagged = !!(s.rawTag && s.rawTag.trim() !== '');
+    const fillRemarks = s.remarks && s.remarks.trim() !== '' ? s.remarks : d.remarks;
+
+    if (incomingTagged) {
+      // Both Paytm (an overlapping re-import) — same tag, nothing to reconcile.
+      if (storedTagged) continue;
+
+      // Stored row is an untagged bank row; the incoming Paytm row brings the tag.
+      const withTag = categorizeTxn(d, index, learned);
+      if (withTag.categoryId == null) {
+        // Tag is a transfer / unrecognised — no category to compare; just attach it for context.
+        db.update(transactions).set({ rawTag: d.rawTag, remarks: fillRemarks }).where(eq(transactions.id, s.id)).run();
+        updated++;
+      } else if (s.categoryId != null && s.categoryId !== withTag.categoryId) {
+        // Disagreement → keep OUR category, surface the tag, and let the user decide.
+        db.update(transactions).set({ rawTag: d.rawTag, remarks: fillRemarks, needsReview: true }).where(eq(transactions.id, s.id)).run();
+        flagged++;
+      } else {
+        // Agreement, or we had no category yet → adopt the tag's category.
+        const needsReview = withTag.needsReview || d.kind === 'self' || d.kind === 'sent';
+        db.update(transactions)
+          .set({
+            categoryId: withTag.categoryId,
+            subcategoryId: withTag.subcategoryId,
+            rawTag: d.rawTag,
+            remarks: fillRemarks,
+            autoCategorized: true,
+            needsReview,
+          })
+          .where(eq(transactions.id, s.id))
+          .run();
+        updated++;
+      }
+      continue;
+    }
+
+    // Incoming row has no tag (a bank row). Only meaningful if the STORED row is a Paytm-tagged one
+    // whose tag-category could disagree with what the richer bank narration independently implies.
+    if (storedTagged && s.categoryId != null) {
+      const our = categorizeTxn({ ...d, rawTag: null }, index, learned);
+      if (our.categoryId != null && our.categoryId !== s.categoryId) {
+        db.update(transactions).set({ needsReview: true }).where(eq(transactions.id, s.id)).run();
+        flagged++;
+      }
+    }
+  }
+
+  if (updated > 0 || flagged > 0) touchDataUpdatedAt();
+  return { updated, flagged };
 }
 
 /** Upsert a single learned rule (increments hit count when the mapping is reinforced). */
@@ -234,6 +342,7 @@ export function setTransactionCategory(
     .select({
       vpa: transactions.counterpartyVpa,
       name: transactions.counterpartyName,
+      remarks: transactions.remarks,
     })
     .from(transactions)
     .where(eq(transactions.id, txnId))
@@ -241,9 +350,16 @@ export function setTransactionCategory(
   if (!row) return;
 
   const now = new Date().toISOString();
-  // Learn by the most specific identifiers we have for this payee.
+  // Learn by the most specific identifiers we have for this payee (teaches the category).
   upsertRule('vpa', normalizeText(row.vpa), categoryId, subcategoryId, now);
   upsertRule('merchant', normalizeText(row.name), categoryId, subcategoryId, now);
+
+  // Learn from a CONCISE note (1–2 words, e.g. "uthappam", "biriyani") so the same note auto-fills
+  // its sub-category next time. Long free-text notes are skipped to avoid noisy rules.
+  const note = normalizeText(row.remarks);
+  if (note && note.split(' ').length <= 2) {
+    upsertRule('note', note, categoryId, subcategoryId, now);
+  }
 }
 
 /** Accept every auto-categorized guess still awaiting review; returns how many were cleared. */

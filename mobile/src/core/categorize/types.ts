@@ -14,7 +14,7 @@ import type { TxnKind } from '../import/types';
 export type Confidence = 'high' | 'medium' | 'low' | 'none';
 
 /** Where a guess came from — shown to the user as the "why". */
-export type SuggestionVia = 'learned' | 'tag' | 'merchant' | 'kind' | 'transfer' | 'none';
+export type SuggestionVia = 'learned' | 'tag' | 'merchant' | 'note' | 'kind' | 'transfer' | 'none';
 
 /** A sub-category as held in the index (id + display name). */
 export interface SubcategoryRef {
@@ -42,8 +42,14 @@ export interface CategoryIndex {
   byId: Map<number, CategoryRef>;
 }
 
-/** What kind of value a learned rule matches on. VPA is the most specific, tag the least. */
-export type MatcherType = 'vpa' | 'merchant' | 'tag';
+/**
+ * What kind of value a learned rule matches on:
+ *  - `vpa` / `merchant` — the payee; these teach the CATEGORY (a payee is ~always one category).
+ *  - `note` — the user's hand-typed note; teaches the SUB-CATEGORY (and category when the payee is
+ *    unknown). Matched fuzzily to tolerate typos.
+ *  - `tag` — a Paytm tag.
+ */
+export type MatcherType = 'vpa' | 'merchant' | 'note' | 'tag';
 
 /**
  * A mapping the user taught us by editing a transaction's category, e.g.
@@ -65,6 +71,8 @@ export interface CategorizeInput {
   counterpartyName: string | null;
   counterpartyVpa: string | null;
   rawDetails: string;
+  /** The user-typed note (Paytm remarks, or the bank UPI narration's note segment). */
+  remarks?: string | null;
 }
 
 /** The categorizer's verdict for one transaction. */

@@ -36,6 +36,37 @@ export function parsePaytmDate(dateStr: string, timeStr?: string | null): Parsed
   return { isoDate: `${pad4(year)}-${pad2(month)}-${pad2(day)}`, time: normalizeTime(timeStr) };
 }
 
+// Axis: "19-02-2026" (DD-MM-YYYY). KVB: "01-MAR-2026 16:36:46" (DD-MMM-YYYY, optional time).
+const DMY_DASH = /^(\d{1,2})-(\d{1,2})-(\d{4})$/;
+const D_MON_Y = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?$/;
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+function buildDate(day: number, month: number, year: number, label: string): string {
+  if (month < 1 || month > 12) throw new Error(`Invalid month in date: "${label}"`);
+  if (day < 1 || day > daysInMonth(year, month)) throw new Error(`Invalid day in date: "${label}"`);
+  return `${pad4(year)}-${pad2(month)}-${pad2(day)}`;
+}
+
+/** Parse a bank `DD-MM-YYYY` date (e.g. Axis) into a `YYYY-MM-DD` ISO string. */
+export function parseDashDate(dateStr: string): string {
+  const s = String(dateStr).trim();
+  const m = DMY_DASH.exec(s);
+  if (!m) throw new Error(`Invalid date (expected DD-MM-YYYY): "${dateStr}"`);
+  return buildDate(parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), s);
+}
+
+/** Parse a `DD-MMM-YYYY` date with an optional trailing `HH:MM[:SS]` time (e.g. KVB). */
+export function parseTextMonthDateTime(dateStr: string): ParsedDateTime {
+  const s = String(dateStr).trim();
+  const m = D_MON_Y.exec(s);
+  if (!m) throw new Error(`Invalid date (expected DD-MMM-YYYY): "${dateStr}"`);
+  const month = MONTHS[m[2].toLowerCase()];
+  if (!month) throw new Error(`Invalid month name in date: "${dateStr}"`);
+  return { isoDate: buildDate(parseInt(m[1], 10), month, parseInt(m[3], 10), s), time: normalizeTime(m[4] ?? null) };
+}
+
 /** Normalize a `HH:MM[:SS]` time string; returns null for empty/missing input. */
 export function normalizeTime(timeStr?: string | null): string | null {
   if (timeStr == null) return null;

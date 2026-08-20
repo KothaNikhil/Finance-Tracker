@@ -19,6 +19,7 @@ export type DedupeInput = Pick<
   | 'direction'
   | 'counterpartyVpa'
   | 'counterpartyName'
+  | 'rawDetails'
 >;
 
 /** Build the stable key used to tell whether two rows are the same transaction. */
@@ -29,8 +30,13 @@ export function buildDedupeKey(txn: DedupeInput): string {
   if (txn.orderId && txn.orderId.trim() !== '') {
     return `order:${txn.orderId.trim()}`;
   }
+  // No reference number (bank charges/interest/ACH, or a Paytm row without a ref). Fall back to a
+  // composite. The full narration is included so two same-day, same-amount rows to the same payee
+  // (which banks CAN have, with no time to separate them) aren't wrongly merged into one. Within a
+  // single source the narration is byte-identical across re-exports, so this never blocks dedupe.
   const who = (txn.counterpartyVpa || txn.counterpartyName || '').trim().toLowerCase();
-  return `c:${txn.isoDate}|${txn.time ?? ''}|${txn.paise}|${txn.direction}|${who}`;
+  const details = (txn.rawDetails ?? '').trim().toLowerCase();
+  return `c:${txn.isoDate}|${txn.time ?? ''}|${txn.paise}|${txn.direction}|${who}|${details}`;
 }
 
 export interface PartitionResult {
