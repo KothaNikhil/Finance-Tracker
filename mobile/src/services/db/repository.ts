@@ -122,6 +122,46 @@ export function setDataUpdatedAt(iso: string): void {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Pending file import that must survive an app reload. Some devices (Samsung Knox App Lock)
+// re-authenticate and RELOAD the app when it returns from the file picker, wiping in-memory state
+// mid-import. We persist the picked file's cache URI so the Import screen can resume on relaunch.
+// ---------------------------------------------------------------------------
+
+const PENDING_IMPORT_KEY = 'pending_import';
+
+export interface PendingImport {
+  uri: string;
+  label: string;
+}
+
+export function setPendingImport(uri: string, label: string): void {
+  getSqlite().runSync(
+    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    PENDING_IMPORT_KEY,
+    JSON.stringify({ uri, label }),
+  );
+}
+
+export function getPendingImport(): PendingImport | null {
+  try {
+    const row = getSqlite().getFirstSync<{ value: string }>('SELECT value FROM meta WHERE key = ?', PENDING_IMPORT_KEY);
+    if (!row?.value) return null;
+    const p = JSON.parse(row.value) as Partial<PendingImport>;
+    return typeof p.uri === 'string' ? { uri: p.uri, label: p.label ?? 'statement' } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingImport(): void {
+  try {
+    getSqlite().runSync('DELETE FROM meta WHERE key = ?', PENDING_IMPORT_KEY);
+  } catch {
+    // best-effort; a stale marker is cleared on the next successful import
+  }
+}
+
 /** Mark the local data as changed right now. Call after any user-initiated data mutation. */
 export function touchDataUpdatedAt(): void {
   setDataUpdatedAt(new Date().toISOString());
@@ -337,8 +377,12 @@ export function setTransactionCategory(
   touchDataUpdatedAt();
 
   if (opts.learn === false) return;
+  learnFromTxn(txnId, categoryId, subcategoryId);
+}
 
-  const row = db
+/** Teach the categorizer from a confirmed row: payee (VPA + merchant) → category, concise note → sub. */
+function learnFromTxn(txnId: number, categoryId: number, subcategoryId: number | null): void {
+  const row = getDb()
     .select({
       vpa: transactions.counterpartyVpa,
       name: transactions.counterpartyName,
@@ -360,6 +404,27 @@ export function setTransactionCategory(
   if (note && note.split(' ').length <= 2) {
     upsertRule('note', note, categoryId, subcategoryId, now);
   }
+}
+
+/**
+ * Accept ONE row's current auto-categorization: clear its review flag, mark it as a deliberate
+ * decision (so cross-source reconciliation won't re-flag it), and learn from the confirmed category.
+ * For an uncategorized row (e.g. a transfer) it simply stops flagging it for review.
+ */
+export function acceptTransactionReview(txnId: number): void {
+  const db = getDb();
+  const row = db
+    .select({ categoryId: transactions.categoryId, subcategoryId: transactions.subcategoryId })
+    .from(transactions)
+    .where(eq(transactions.id, txnId))
+    .get();
+  if (!row) return;
+  db.update(transactions)
+    .set({ needsReview: false, autoCategorized: false })
+    .where(eq(transactions.id, txnId))
+    .run();
+  touchDataUpdatedAt();
+  if (row.categoryId != null) learnFromTxn(txnId, row.categoryId, row.subcategoryId);
 }
 
 /** Accept every auto-categorized guess still awaiting review; returns how many were cleared. */

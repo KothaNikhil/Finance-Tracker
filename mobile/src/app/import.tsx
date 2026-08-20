@@ -6,10 +6,11 @@
  * the whole current import.
  */
 
+import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -28,6 +29,7 @@ import { formatINR } from '@/core/domain/money';
 import { axisAdapter } from '@/core/import/adapters/axis';
 import { kvbAdapter } from '@/core/import/adapters/kvb';
 import { paytmAdapter } from '@/core/import/adapters/paytm';
+import { decryptWorkbook, isEncryptedWorkbook, WrongPasswordError } from '@/core/import/decrypt';
 import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
 import { parseXlsxBytes } from '@/core/import/xlsx';
@@ -39,13 +41,17 @@ import { useTransactionList } from '@/hooks/use-transactions';
 import { runAnalyticsParityCheck, seedRandomTransactions } from '@/services/db/dev-tools';
 import {
   acceptAllReviews,
+  acceptTransactionReview,
   addCategory,
   addSubcategory,
+  clearPendingImport,
   clearTransactionCategory,
   deleteTransaction,
   getExistingDedupeKeys,
+  getPendingImport,
   reconcileDuplicatesFromImport,
   saveTransactions,
+  setPendingImport,
   setTransactionCategory,
 } from '@/services/db/repository';
 import { SESSION_START } from '@/services/session';
@@ -53,6 +59,9 @@ import { SESSION_START } from '@/services/session';
 // A tiny built-in sample (no personal data) for a one-tap demo of import + auto-categorization.
 // A mix of tagged rows (categorize confidently), a known merchant (Zepto → Groceries), and
 // untagged rows (flagged "Needs review") so the review + Accept-all flow is visible.
+// Bumped on each build the user verifies on-device; shown in the Import footer.
+const APP_VERSION = '1.0.5';
+
 const SAMPLE_HEADERS = [
   'Date', 'Time', 'Transaction Details', 'Other Transaction Details (UPI ID or A/c No)',
   'Your Account', 'Amount', 'UPI Ref No.', 'Order ID', 'Remarks', 'Tags', 'Comment',
@@ -86,6 +95,9 @@ export default function ImportScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   // Which month of the current import is shown; null = the whole import.
   const [selectedMonth, setSelectedMonth] = useState<MonthKey | null>(null);
+  // A picked, password-protected .xlsx waiting for its password. We hold the file's cache URI (not
+  // its bytes) so it survives an app-lock reload — the URI is also persisted (see setPendingImport).
+  const [locked, setLocked] = useState<{ uri: string; label: string } | null>(null);
 
   // Everything on this screen is scoped to THIS session's imports.
   const sessionFilter: TxnFilter = { since: SESSION_START };
@@ -175,33 +187,113 @@ export default function ImportScreen() {
     Alert.alert(r.ok ? 'Parity OK ✓' : 'Parity MISMATCH ✗', JSON.stringify(r, null, 2));
   }, []);
 
+  // Process a picked file from its cache URI: read it, and either import it or (if it's a
+  // password-protected .xlsx) show the unlock prompt. Runs both for a fresh pick and when resuming
+  // after an app-lock reload — so it must be idempotent and read from the persisted URI.
+  const processPending = useCallback(
+    (uri: string, label: string) => {
+      run(
+        async () => {
+          // Yield a frame so the spinner paints before the synchronous parse blocks the thread.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          let bytes: Uint8Array;
+          try {
+            bytes = new Uint8Array(await new File(uri).arrayBuffer());
+          } catch (err) {
+            clearPendingImport(); // the cache file is gone — drop the marker so we don't loop
+            throw err;
+          }
+          if (isEncryptedWorkbook(bytes)) {
+            // Keep the marker set: if the app is reloaded by the lock, we resume this prompt.
+            setLocked({ uri, label });
+            return;
+          }
+          clearPendingImport();
+          commit(parseXlsxBytes(bytes), label);
+        },
+        { errorTitle: 'Could not import' },
+      );
+    },
+    [commit, run],
+  );
+
   const onImportFile = useCallback(async () => {
-    let picked;
+    let res: DocumentPicker.DocumentPickerResult;
     try {
-      picked = await File.pickFileAsync({
-        mimeTypes: [
+      // expo-document-picker copies the file to our cache and gives a stable URI we can re-read.
+      res = await DocumentPicker.getDocumentAsync({
+        type: [
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
           'application/vnd.ms-excel', // .xls (older banks, e.g. Axis, export this)
           'application/octet-stream',
         ],
+        copyToCacheDirectory: true,
+        multiple: false,
       });
     } catch (err) {
       Alert.alert('Could not import', err instanceof Error ? err.message : String(err));
       return;
     }
-    if (picked.canceled || !picked.result) return;
-    const file = picked.result;
-    run(
-      async () => {
-        // Yield a frame so the spinner paints before the synchronous parse blocks the thread.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        const buffer = await file.arrayBuffer();
-        const sheets = parseXlsxBytes(new Uint8Array(buffer));
-        commit(sheets, file.name);
-      },
-      { errorTitle: 'Could not import' },
-    );
-  }, [commit, run]);
+    if (res.canceled || !res.assets?.length) return;
+    const asset = res.assets[0];
+    const label = asset.name ?? 'statement';
+    // Persist BEFORE we might lose focus: a Samsung Knox app-lock re-auth can reload the app on
+    // return from the picker, wiping memory. The marker lets us resume from the cached file.
+    setPendingImport(asset.uri, label);
+    processPending(asset.uri, label);
+  }, [processPending]);
+
+  // Resume a pending import left over from an app-lock reload (runs once on mount).
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    const pending = getPendingImport();
+    if (pending) processPending(pending.uri, pending.label);
+  }, [processPending]);
+
+  // Unlock a password-protected file, then import it. Wrong password reopens the prompt.
+  const onUnlock = useCallback(
+    (password: string) => {
+      if (!locked) return;
+      const { uri, label } = locked;
+      setLocked(null);
+      run(
+        async () => {
+          // Yield a frame so the spinner paints — decryption (spin-count key derivation) is heavy.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          let bytes: Uint8Array;
+          try {
+            bytes = new Uint8Array(await new File(uri).arrayBuffer());
+          } catch {
+            clearPendingImport();
+            Alert.alert('Couldn’t unlock', 'The file is no longer available — please pick it again.');
+            return;
+          }
+          try {
+            const decrypted = decryptWorkbook(bytes, password);
+            clearPendingImport();
+            commit(parseXlsxBytes(decrypted), label);
+          } catch (err) {
+            if (err instanceof WrongPasswordError) {
+              setLocked({ uri, label }); // reopen so they can retry (marker still set)
+              Alert.alert('Incorrect password', 'That password didn’t unlock the file. Please try again.');
+            } else {
+              clearPendingImport();
+              Alert.alert('Couldn’t unlock', err instanceof Error ? err.message : String(err));
+            }
+          }
+        },
+        { errorTitle: 'Could not unlock' },
+      );
+    },
+    [locked, run, commit],
+  );
+
+  const onCancelUnlock = useCallback(() => {
+    clearPendingImport();
+    setLocked(null);
+  }, []);
 
   const onAcceptAll = useCallback(() => {
     if (reviewCount === 0) return;
@@ -305,7 +397,7 @@ export default function ImportScreen() {
     <ThemedText type="small" themeColor="textSecondary" style={styles.footer}>
       Showing this session’s import — your full history is on the Reports tab. Categories are
       auto-picked from your Paytm tags and known merchants; low-confidence guesses are flagged
-      “Review”. Tap any transaction to change its category.
+      “Review”. Tap any transaction to change its category.{'\n'}Finance Tracker v{APP_VERSION}
     </ThemedText>
   );
 
@@ -348,10 +440,18 @@ export default function ImportScreen() {
         onRemoveCategory={() => {
           if (detailId != null) clearTransactionCategory(detailId);
         }}
+        onAccept={() => {
+          if (detailId != null) acceptTransactionReview(detailId);
+        }}
         onDelete={() => {
           if (detailId != null) deleteTransaction(detailId);
         }}
       />
+
+      {/* Inline overlay (NOT a React Native <Modal>): a separate-window Modal can be dropped when
+          Samsung Knox App Lock re-authenticates and recreates the activity after the file picker.
+          Rendering in the screen's own view tree keeps the prompt reliably on screen. */}
+      {locked && <PasswordPrompt label={locked.label} onCancel={onCancelUnlock} onSubmit={onUnlock} />}
 
       <CategoryPicker
         visible={detailTxn !== null && pickerOpen}
@@ -363,6 +463,50 @@ export default function ImportScreen() {
         onAddSubcategory={onAddSubcategory}
       />
     </ThemedView>
+  );
+}
+
+/**
+ * Password entry for a locked statement, rendered inline (an absolutely-positioned overlay in the
+ * screen's own view tree) rather than a React Native <Modal>. A <Modal> is a separate OS window
+ * that can be dropped when Samsung Knox App Lock re-authenticates and recreates the activity right
+ * after the file picker; an inline overlay stays put. Holds its own text state.
+ */
+function PasswordPrompt({
+  label,
+  onCancel,
+  onSubmit,
+}: {
+  label: string;
+  onCancel: () => void;
+  onSubmit: (password: string) => void;
+}) {
+  const theme = useTheme();
+  const [pw, setPw] = useState('');
+  return (
+    <View style={styles.overlay}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityLabel="Cancel" />
+      <ThemedView type="backgroundElement" style={styles.pwCard}>
+        <ThemedText type="subtitle">Unlock statement</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          “{label}” is password-protected. Enter the password to import it. This can take a few seconds.
+        </ThemedText>
+        <TextInput
+          value={pw}
+          onChangeText={setPw}
+          autoFocus
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+          onSubmitEditing={() => pw !== '' && onSubmit(pw)}
+          style={[styles.pwInput, { color: theme.text, backgroundColor: theme.background, borderColor: theme.border }]}
+        />
+        <View style={styles.actions}>
+          <Button label="Cancel" variant="secondary" onPress={onCancel} style={styles.grow} />
+          <Button label="Unlock" variant="primary" onPress={() => onSubmit(pw)} disabled={pw === ''} style={styles.grow} />
+        </View>
+      </ThemedView>
+    </View>
   );
 }
 
@@ -403,4 +547,24 @@ const styles = StyleSheet.create({
   tabsWrap: { marginTop: Spacing.two },
   footer: { marginTop: Spacing.three },
   empty: { marginTop: Spacing.three },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.four,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  pwCard: { width: '100%', maxWidth: 420, borderRadius: Spacing.four, padding: Spacing.four, gap: Spacing.two },
+  pwInput: {
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+    fontSize: 16,
+    marginTop: Spacing.one,
+  },
 });

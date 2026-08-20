@@ -40,7 +40,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { useDimensions, usePeriodTotals, useReportsBreakdowns } from '@/hooks/use-analytics';
 import { useTransactionCount, useTransactionList } from '@/hooks/use-transactions';
-import { addCategory, addSubcategory, clearTransactionCategory, deleteTransaction, setTransactionCategory } from '@/services/db/repository';
+import { acceptTransactionReview, addCategory, addSubcategory, clearTransactionCategory, deleteTransaction, setTransactionCategory } from '@/services/db/repository';
 import { saveFilteredToFolder, shareFilteredToExcel } from '@/services/export';
 
 const TOP_MERCHANTS = 12;
@@ -349,6 +349,9 @@ export default function ReportsScreen() {
         onChangeCategory={() => setPickerOpen(true)}
         onRemoveCategory={() => {
           if (detailId != null) clearTransactionCategory(detailId);
+        }}
+        onAccept={() => {
+          if (detailId != null) acceptTransactionReview(detailId);
         }}
         onDelete={() => {
           if (detailId != null) deleteTransaction(detailId);

@@ -54,6 +54,8 @@ export interface TransactionDetailProps {
   onChangeCategory: () => void;
   /** Clear the category (back to uncategorized). */
   onRemoveCategory: () => void;
+  /** Accept the current category as-is, clearing the "needs review" flag. Shown only when in review. */
+  onAccept?: () => void;
   /** Delete this transaction entirely. When provided, a "Delete transaction" action is shown. */
   onDelete?: () => void;
 }
@@ -67,6 +69,7 @@ export function TransactionDetail({
   onClose,
   onChangeCategory,
   onRemoveCategory,
+  onAccept,
   onDelete,
 }: TransactionDetailProps) {
   const theme = useTheme();
@@ -137,6 +140,21 @@ export function TransactionDetail({
                           : '—'
                   }
                 />
+                {txn.needsReview && onAccept && (
+                  <Pressable
+                    onPress={() => {
+                      onAccept();
+                      onClose();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Accept this category as correct"
+                    style={({ pressed }) => [styles.acceptBtn, { borderColor: theme.income, opacity: pressed ? 0.6 : 1 }]}
+                  >
+                    <ThemedText type="smallBold" style={{ color: theme.income }}>
+                      ✓ Looks right — accept
+                    </ThemedText>
+                  </Pressable>
+                )}
                 <Pressable
                   onPress={onChangeCategory}
                   accessibilityRole="button"
@@ -278,6 +296,14 @@ const styles = StyleSheet.create({
   fieldValue: { flex: 1 },
   noteField: { gap: Spacing.half, paddingVertical: Spacing.half },
   noteBox: { borderRadius: Spacing.two, padding: Spacing.two },
+  acceptBtn: {
+    marginTop: Spacing.two,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   changeBtn: {
     marginTop: Spacing.two,
     paddingVertical: Spacing.two,

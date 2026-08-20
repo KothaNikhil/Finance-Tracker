@@ -20,6 +20,8 @@ export interface TextInputModalProps {
   /** The value the field is (re)seeded with each time it opens. */
   initialValue: string;
   confirmLabel?: string;
+  /** Mask the input and don't trim it (for passwords). */
+  secureTextEntry?: boolean;
   onCancel: () => void;
   onConfirm: (value: string) => void;
 }
@@ -30,6 +32,7 @@ export function TextInputModal({
   message,
   initialValue,
   confirmLabel = 'OK',
+  secureTextEntry = false,
   onCancel,
   onConfirm,
 }: TextInputModalProps) {
@@ -43,7 +46,8 @@ export function TextInputModal({
     setValue(initialValue);
   }
 
-  const trimmed = value.trim();
+  // Passwords aren't trimmed (they can contain spaces); everything else is.
+  const submit = secureTextEntry ? value : value.trim();
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
@@ -62,6 +66,8 @@ export function TextInputModal({
             autoFocus
             autoCapitalize="none"
             autoCorrect={false}
+            secureTextEntry={secureTextEntry}
+            onSubmitEditing={() => submit !== '' && onConfirm(submit)}
             style={[styles.input, { color: theme.text, backgroundColor: theme.background, borderColor: theme.backgroundSelected }]}
           />
           <View style={styles.actions}>
@@ -69,8 +75,8 @@ export function TextInputModal({
             <Button
               label={confirmLabel}
               variant="primary"
-              onPress={() => onConfirm(trimmed)}
-              disabled={trimmed === ''}
+              onPress={() => onConfirm(submit)}
+              disabled={submit === ''}
               style={styles.grow}
             />
           </View>
