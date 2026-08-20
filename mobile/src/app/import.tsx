@@ -29,6 +29,7 @@ import { formatINR } from '@/core/domain/money';
 import { axisAdapter } from '@/core/import/adapters/axis';
 import { kvbAdapter } from '@/core/import/adapters/kvb';
 import { paytmAdapter } from '@/core/import/adapters/paytm';
+import { sbiAdapter } from '@/core/import/adapters/sbi';
 import { decryptWorkbook, isEncryptedWorkbook, WrongPasswordError } from '@/core/import/decrypt';
 import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
@@ -128,7 +129,11 @@ export default function ImportScreen() {
 
   const commit = useCallback(
     (sheets: SheetLike[], sourceLabel: string) => {
-      const preview = runImport(sheets, [paytmAdapter, axisAdapter, kvbAdapter], getExistingDedupeKeys());
+      const preview = runImport(
+        sheets,
+        [paytmAdapter, axisAdapter, kvbAdapter, sbiAdapter],
+        getExistingDedupeKeys(),
+      );
       // Duplicates (same UPI ref already stored from the other statement) can still be reconciled:
       // filling a category/tag where they agree, or flagging review where a tag disagrees with our
       // category. So a Save is worthwhile even with 0 brand-new rows.

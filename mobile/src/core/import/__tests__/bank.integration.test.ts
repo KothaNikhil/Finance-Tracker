@@ -16,6 +16,7 @@ import { parseBankAmount } from '../../domain/money';
 import { axisAdapter } from '../adapters/axis';
 import { field } from '../adapters/bank-common';
 import { kvbAdapter } from '../adapters/kvb';
+import { sbiAdapter } from '../adapters/sbi';
 import { runImport } from '../pipeline';
 import type { SourceAdapter } from '../types';
 import { workbookToSheets } from '../xlsx';
@@ -23,6 +24,7 @@ import { workbookToSheets } from '../xlsx';
 const DATA_DIR = path.resolve(__dirname, '../../../../..', 'Refernce sample data');
 const AXIS = path.join(DATA_DIR, 'AcctStatement_XXX0815_19082026.xls');
 const KVB = path.join(DATA_DIR, '4879XXXXXX0050_19082026200156.xlsx');
+const SBI = path.join(DATA_DIR, 'AccountStatement_20082026_16426.xlsx');
 
 const readSheets = (f: string) => workbookToSheets(XLSX.readFile(f));
 
@@ -73,5 +75,35 @@ suite('bank real-file import', () => {
     // The Axis↔KVB self-transfer (IMPS 606038652798) appears in both → recognised as a duplicate.
     expect(kvb.duplicates.length).toBeGreaterThan(0);
     expect(kvb.newTxns.length + kvb.duplicates.length).toBe(kvb.parsed.length);
+  });
+});
+
+const sbiSuite = fs.existsSync(SBI) && fs.existsSync(AXIS) ? describe : describe.skip;
+
+sbiSuite('SBI real-file import', () => {
+  it('running balance reconciles for every row', () => {
+    const { preview, mismatches } = reconcileRunningBalance(SBI, sbiAdapter, 'balance');
+    expect(mismatches).toBe(0);
+    expect(preview.totalDebitPaise).toBeGreaterThan(0);
+    expect(preview.totalCreditPaise).toBeGreaterThan(0);
+  });
+
+  it('guard: a DIRECT DR naming the holder is a real debit, not a self-transfer', () => {
+    const preview = runImport(readSheets(SBI), [sbiAdapter]);
+    const directDr = preview.parsed.find((t) => t.rawDetails.toUpperCase().includes('DIRECT DR'));
+    expect(directDr).toBeDefined();
+    expect(directDr!.direction).toBe('out');
+    expect(directDr!.counterpartyName).toBeNull();
+  });
+
+  it('cross-source dedupe: the shared UPI ref collapses the Axis + SBI legs of one transfer', () => {
+    const axis = runImport(readSheets(AXIS), [axisAdapter]);
+    const keys = new Set(axis.newTxns.map((t) => t.dedupeKey));
+    const sbi = runImport(readSheets(SBI), [sbiAdapter], keys);
+    // RRN 618411469877 (Axis→SBI "Car" transfer) is in both files → the SBI leg is a duplicate,
+    // and both legs are self-transfers, so the ₹27,000 never counts as spend or income.
+    expect(sbi.duplicates.some((t) => t.sourceRef === '618411469877')).toBe(true);
+    expect(sbi.parsed.find((t) => t.sourceRef === '618411469877')!.direction).toBe('self');
+    expect(axis.newTxns.find((t) => t.sourceRef === '618411469877')!.direction).toBe('self');
   });
 });

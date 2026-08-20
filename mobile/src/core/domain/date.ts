@@ -57,6 +57,14 @@ export function parseDashDate(dateStr: string): string {
   return buildDate(parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), s);
 }
 
+/** Parse a bank `DD/MM/YYYY` slash date (e.g. SBI) into a `YYYY-MM-DD` ISO string. */
+export function parseSlashDate(dateStr: string): string {
+  const s = String(dateStr).trim();
+  const m = DMY.exec(s);
+  if (!m) throw new Error(`Invalid date (expected DD/MM/YYYY): "${dateStr}"`);
+  return buildDate(parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), s);
+}
+
 /** Parse a `DD-MMM-YYYY` date with an optional trailing `HH:MM[:SS]` time (e.g. KVB). */
 export function parseTextMonthDateTime(dateStr: string): ParsedDateTime {
   const s = String(dateStr).trim();
