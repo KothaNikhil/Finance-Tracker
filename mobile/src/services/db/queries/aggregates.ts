@@ -6,7 +6,9 @@
  *
  * The two money rules are encoded ONCE here as reusable `sql` fragments and mirror the pure
  * `core/analytics` functions (the tested spec) exactly:
- *  - self-transfers (`direction = 'self'`) never contribute to any total or count, and
+ *  - self-transfers (`direction = 'self'`) never contribute to any total or count,
+ *  - lending PRINCIPAL (`transfer_role` in the lend/borrow/repay set) is likewise excluded — it's a
+ *    transfer, not spend/income (interest + gifts/donations DO count), and
  *  - refunds (`direction = 'in'` AND `is_refund = 1`) are tallied separately, never as income.
  * `netSpentPaise = spentPaise − refundPaise` is computed in JS by the caller (keeps the SQL flat).
  */
@@ -22,11 +24,14 @@ import { buildTxnConditions } from './filter-sql';
 type DB = ExpoSQLiteDatabase<typeof schema>;
 
 // --- Money-rule fragments (single source of truth for the SQL side) ---------
-const SPENT = sql<number>`coalesce(sum(case when ${t.direction} = 'out' then ${t.paise} else 0 end), 0)`;
-const RECEIVED = sql<number>`coalesce(sum(case when ${t.direction} = 'in' and ${t.isRefund} = 0 then ${t.paise} else 0 end), 0)`;
+// Lending principal (lend/borrow/repay) is a transfer, not spend/income — excluded everywhere below,
+// mirroring `isPrincipal` in core/lending. Interest + gifts/donations are NOT principal, so they count.
+const NOT_PRINCIPAL = sql`(${t.transferRole} is null or ${t.transferRole} not in ('lent', 'lent_interest', 'borrowed', 'repaid_to_me', 'repaid_by_me'))`;
+const SPENT = sql<number>`coalesce(sum(case when ${t.direction} = 'out' and ${NOT_PRINCIPAL} then ${t.paise} else 0 end), 0)`;
+const RECEIVED = sql<number>`coalesce(sum(case when ${t.direction} = 'in' and ${t.isRefund} = 0 and ${NOT_PRINCIPAL} then ${t.paise} else 0 end), 0)`;
 const REFUND = sql<number>`coalesce(sum(case when ${t.direction} = 'in' and ${t.isRefund} = 1 then ${t.paise} else 0 end), 0)`;
-// self excluded — only 'out'/'in' rows are counted, matching addTxn in analytics.ts
-const CNT = sql<number>`coalesce(sum(case when ${t.direction} in ('out', 'in') then 1 else 0 end), 0)`;
+// self + principal excluded — only ordinary 'out'/'in' rows are counted, matching addTxn in analytics.ts
+const CNT = sql<number>`coalesce(sum(case when ${t.direction} in ('out', 'in') and ${NOT_PRINCIPAL} then 1 else 0 end), 0)`;
 
 /** Gross money-out for a "spend" grouping, and how many rows. */
 const OUT_SPENT = sql<number>`coalesce(sum(${t.paise}), 0)`;
@@ -89,7 +94,7 @@ export function categoryBreakdownQuery(db: DB, filter: TxnFilter) {
   return db
     .select({ categoryId: t.categoryId, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out')))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), NOT_PRINCIPAL))
     .groupBy(t.categoryId)
     .orderBy(desc(OUT_SPENT));
 }
@@ -99,7 +104,7 @@ export function subcategoryBreakdownQuery(db: DB, categoryId: number, filter: Tx
   return db
     .select({ subcategoryId: t.subcategoryId, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), eq(t.categoryId, categoryId)))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), eq(t.categoryId, categoryId), NOT_PRINCIPAL))
     .groupBy(t.subcategoryId)
     .orderBy(desc(OUT_SPENT));
 }
@@ -109,7 +114,7 @@ export function merchantSpendQuery(db: DB, filter: TxnFilter) {
   return db
     .select({ key: MERCHANT_KEY, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out')))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), NOT_PRINCIPAL))
     .groupBy(MERCHANT_KEY)
     .orderBy(desc(OUT_SPENT));
 }
@@ -119,7 +124,7 @@ export function accountSpendQuery(db: DB, filter: TxnFilter) {
   return db
     .select({ key: ACCOUNT_KEY, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out')))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), NOT_PRINCIPAL))
     .groupBy(ACCOUNT_KEY)
     .orderBy(desc(OUT_SPENT));
 }
@@ -129,7 +134,7 @@ export function personSpendQuery(db: DB, filter: TxnFilter) {
   return db
     .select({ personId: t.personId, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out')))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), NOT_PRINCIPAL))
     .groupBy(t.personId)
     .orderBy(desc(OUT_SPENT));
 }

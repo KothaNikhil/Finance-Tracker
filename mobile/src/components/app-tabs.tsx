@@ -28,6 +28,11 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Icon sf="list.bullet.rectangle" md="receipt_long" />
       </NativeTabs.Trigger>
 
+      <NativeTabs.Trigger name="lending">
+        <NativeTabs.Trigger.Label>Lent</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="arrow.left.arrow.right.circle.fill" md="swap_horiz" />
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="explore">
         <NativeTabs.Trigger.Label>Manage</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon

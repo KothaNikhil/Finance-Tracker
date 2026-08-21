@@ -79,6 +79,7 @@ export function getDb(): ExpoSQLiteDatabase<typeof schema> {
   const sqlite = SQLite.openDatabaseSync(targetName, { enableChangeListener: true });
   sqlite.execSync('PRAGMA foreign_keys = ON;');
   sqlite.execSync(schema.CREATE_TABLES_SQL);
+  migrate(sqlite);
 
   const db = drizzle(sqlite, { schema });
   seedIfEmpty(db);
@@ -97,6 +98,27 @@ export function getDb(): ExpoSQLiteDatabase<typeof schema> {
 export function getSqlite(): SQLite.SQLiteDatabase {
   if (!cachedSqlite) getDb();
   return cachedSqlite!;
+}
+
+/**
+ * Additive schema migrations for databases created before a column existed. `CREATE_TABLES_SQL` uses
+ * `CREATE TABLE IF NOT EXISTS`, so it never alters an existing table — new columns are added here.
+ * Each step is guarded (checks `PRAGMA table_info` / uses `IF NOT EXISTS`), so this is idempotent and
+ * safe to run on every open. Fresh installs already have the column via `CREATE_TABLES_SQL`.
+ */
+function migrate(sqlite: SQLite.SQLiteDatabase): void {
+  const txnCols = sqlite.getAllSync<{ name: string }>('PRAGMA table_info(transactions);');
+  // Money-lent / interest tracker: the transfer_role annotation column.
+  if (!txnCols.some((c) => c.name === 'transfer_role')) {
+    sqlite.execSync('ALTER TABLE transactions ADD COLUMN transfer_role TEXT;');
+  }
+  // Link a transaction to the loan (grouping) it's attached to.
+  if (!txnCols.some((c) => c.name === 'loan_id')) {
+    sqlite.execSync('ALTER TABLE transactions ADD COLUMN loan_id INTEGER;');
+  }
+  // Index created here (not in CREATE_TABLES_SQL) so it never references a column an ALTER above
+  // just added; IF NOT EXISTS keeps it idempotent for fresh installs too.
+  sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_loan ON transactions(loan_id);');
 }
 
 /** Insert the starter categories/sub-categories/payment modes/people if the DB is empty. */

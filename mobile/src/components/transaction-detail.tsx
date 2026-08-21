@@ -50,12 +50,16 @@ export interface TransactionDetailProps {
   categoryLabel: string | null;
   paymentModeName: string | null;
   personName: string | null;
+  /** Loan this transaction belongs to (e.g. "abc · lent"), or null when it isn't in Money Lent. */
+  moneyLentLabel?: string | null;
   onClose: () => void;
   onChangeCategory: () => void;
   /** Clear the category (back to uncategorized). */
   onRemoveCategory: () => void;
   /** Accept the current category as-is, clearing the "needs review" flag. Shown only when in review. */
   onAccept?: () => void;
+  /** Open the single "Add to / Manage in Money Lent" flow. When provided, that action is shown. */
+  onManageMoneyLent?: () => void;
   /** Delete this transaction entirely. When provided, a "Delete transaction" action is shown. */
   onDelete?: () => void;
 }
@@ -70,6 +74,8 @@ export function TransactionDetail({
   onChangeCategory,
   onRemoveCategory,
   onAccept,
+  moneyLentLabel,
+  onManageMoneyLent,
   onDelete,
 }: TransactionDetailProps) {
   const theme = useTheme();
@@ -188,6 +194,22 @@ export function TransactionDetail({
                     <NoteField label="Remarks / note" value={txn.remarks} theme={theme} />
                   ) : null}
                   {txn.rawTag ? <Field label="Tag (from Paytm)" value={txn.rawTag} /> : null}
+                </Section>
+              )}
+
+              {/* Money lent — one button to add to / manage in the Lent tab. */}
+              {onManageMoneyLent && (
+                <Section title="Money lent">
+                  <Field label="Loan" value={moneyLentLabel ?? 'Not in Money Lent'} />
+                  <Pressable
+                    onPress={onManageMoneyLent}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.changeBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
+                      {moneyLentLabel ? 'Manage in Money Lent' : 'Add to Money Lent'}
+                    </ThemedText>
+                  </Pressable>
                 </Section>
               )}
 

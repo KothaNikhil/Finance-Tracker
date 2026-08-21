@@ -11,6 +11,7 @@ import {
   categories,
   categoryRules,
   DATA_UPDATED_AT_KEY,
+  loans,
   paymentModes,
   people,
   subcategories,
@@ -27,6 +28,7 @@ import {
   type MatcherType,
 } from '@/core/categorize';
 import type { NormalizedTxn } from '@/core/import/types';
+import { roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@/core/lending/roles';
 
 /** All dedupe keys already stored — passed to the import pipeline to skip duplicates. */
 export function getExistingDedupeKeys(): Set<string> {
@@ -380,6 +382,113 @@ export function setTransactionCategory(
   learnFromTxn(txnId, categoryId, subcategoryId);
 }
 
+// --- Money-lent loans (groupings) ---------------------------------------------
+
+/** Read a loan's kind + person (used to derive a transaction's role when attaching). */
+function getLoanMeta(loanId: number): { kind: LoanKind; personId: number } | null {
+  const row = getDb().select({ kind: loans.kind, personId: loans.personId }).from(loans).where(eq(loans.id, loanId)).get();
+  return row ? { kind: row.kind as LoanKind, personId: row.personId } : null;
+}
+
+/** Create a loan (grouping) for a person and return its id. */
+export function createLoan(input: { name?: string; personId: number; kind: LoanKind }): number {
+  const now = new Date().toISOString();
+  const inserted = getDb()
+    .insert(loans)
+    .values({ name: (input.name ?? '').trim(), personId: input.personId, kind: input.kind, createdAt: now, updatedAt: now })
+    .returning({ id: loans.id })
+    .all();
+  touchDataUpdatedAt();
+  return inserted[0].id;
+}
+
+/** Update a loan's editable fields (name / person / kind). */
+export function updateLoan(loanId: number, patch: { name?: string; personId?: number; kind?: LoanKind }): void {
+  const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  if (patch.name !== undefined) set.name = patch.name.trim();
+  if (patch.personId !== undefined) set.personId = patch.personId;
+  if (patch.kind !== undefined) set.kind = patch.kind;
+  getDb().update(loans).set(set).where(eq(loans.id, loanId)).run();
+  touchDataUpdatedAt();
+}
+
+/** Mark a loan closed (collapsed on the Lent tab, out of totals) or reopen it. */
+export function setLoanClosed(loanId: number, closed: boolean): void {
+  getDb().update(loans).set({ closed, updatedAt: new Date().toISOString() }).where(eq(loans.id, loanId)).run();
+  touchDataUpdatedAt();
+}
+
+/** Delete a loan — its transactions are detached (kept as ordinary rows), then the loan is removed. */
+export function deleteLoan(loanId: number): void {
+  const db = getDb();
+  db.update(transactions).set({ loanId: null, transferRole: null }).where(eq(transactions.loanId, loanId)).run();
+  db.delete(loans).where(eq(loans.id, loanId)).run();
+  touchDataUpdatedAt();
+}
+
+/**
+ * Attach a transaction to a loan as the given part (principal / repayment / interest). Sets the
+ * derived transfer role + the loan's person, clears the review flag, and — for a manual entry —
+ * syncs `direction` to the part (an imported row keeps its real statement direction).
+ */
+export function attachTransactionToLoan(txnId: number, loanId: number, part: LoanPart): void {
+  const meta = getLoanMeta(loanId);
+  if (!meta) return;
+  const role = roleForLoanPart(meta.kind, part);
+  const db = getDb();
+  const patch: Partial<NewTransactionRow> = {
+    loanId,
+    transferRole: role,
+    personId: meta.personId,
+    needsReview: false,
+  };
+  const row = db.select({ source: transactions.source }).from(transactions).where(eq(transactions.id, txnId)).get();
+  if (row?.source === 'manual') patch.direction = roleDirection(role);
+  db.update(transactions).set(patch).where(eq(transactions.id, txnId)).run();
+  touchDataUpdatedAt();
+}
+
+/** Detach a transaction from its loan (back to an ordinary, untagged transaction). */
+export function detachTransactionFromLoan(txnId: number): void {
+  getDb().update(transactions).set({ loanId: null, transferRole: null }).where(eq(transactions.id, txnId)).run();
+  touchDataUpdatedAt();
+}
+
+/** A hand-entered transaction added directly into a loan (e.g. a cash repayment). */
+export interface LoanTxnInput {
+  loanId: number;
+  part: LoanPart;
+  paise: number;
+  isoDate: string; // YYYY-MM-DD
+  remarks?: string | null;
+}
+
+/** Add a manual transaction into a loan. Returns the new row id. */
+export function addLoanTransaction(input: LoanTxnInput): number {
+  const meta = getLoanMeta(input.loanId);
+  if (!meta) throw new Error('Loan not found');
+  const role = roleForLoanPart(meta.kind, input.part);
+  const now = new Date().toISOString();
+  const row: NewTransactionRow = {
+    isoDate: input.isoDate,
+    time: null,
+    paise: input.paise,
+    direction: roleDirection(role),
+    kind: 'other',
+    personId: meta.personId,
+    transferRole: role,
+    loanId: input.loanId,
+    remarks: input.remarks ?? null,
+    source: 'manual',
+    dedupeKey: `manual:${now}:${Math.random().toString(36).slice(2, 10)}`,
+    needsReview: false,
+    createdAt: now,
+  };
+  const inserted = getDb().insert(transactions).values(row).returning({ id: transactions.id }).all();
+  touchDataUpdatedAt();
+  return inserted[0].id;
+}
+
 /** Teach the categorizer from a confirmed row: payee (VPA + merchant) → category, concise note → sub. */
 function learnFromTxn(txnId: number, categoryId: number, subcategoryId: number | null): void {
   const row = getDb()
@@ -604,11 +713,15 @@ export const renamePerson = (id: number, name: string): void => renameRow(people
 export const reorderPeople = (orderedIds: number[]): void => applyOrder(people, orderedIds);
 export function deletePerson(id: number): void {
   touchDataUpdatedAt();
-  if (txnCount(eq(transactions.personId, id)) > 0) {
-    getDb().update(people).set({ isArchived: true }).where(eq(people.id, id)).run();
+  const db = getDb();
+  const loanRefs = db.select({ n: sql<number>`count(*)` }).from(loans).where(eq(loans.personId, id)).get()?.n ?? 0;
+  // Archive (soft-delete) if the person is still referenced by any transaction OR loan — a hard delete
+  // would orphan history or violate the loans→people foreign key.
+  if (txnCount(eq(transactions.personId, id)) > 0 || loanRefs > 0) {
+    db.update(people).set({ isArchived: true }).where(eq(people.id, id)).run();
     return;
   }
-  getDb().delete(people).where(eq(people.id, id)).run();
+  db.delete(people).where(eq(people.id, id)).run();
 }
 
 /** Remove a transaction's category (back to uncategorized) and clear its review flag. */
@@ -627,8 +740,10 @@ export function deleteTransaction(id: number): void {
   touchDataUpdatedAt();
 }
 
-/** Remove all transactions ("Delete all data" in Manage). Leaves learned rules and lists intact. */
+/** Remove all transactions + loans ("Delete all data" in Manage). Leaves learned rules and lists intact. */
 export function clearAllTransactions(): void {
-  getDb().delete(transactions).run();
+  const db = getDb();
+  db.delete(transactions).run(); // children first
+  db.delete(loans).run();
   touchDataUpdatedAt();
 }

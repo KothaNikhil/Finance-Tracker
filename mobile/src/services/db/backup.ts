@@ -9,7 +9,7 @@
 
 import { deserializeDatabaseAsync } from 'expo-sqlite';
 
-import { hasRequiredTables, REQUIRED_TABLES } from '@/core/backup';
+import { BACKUP_TABLES, hasRequiredTables } from '@/core/backup';
 import { getSqlite } from './database';
 import { setDataUpdatedAt } from './repository';
 
@@ -36,22 +36,35 @@ export async function restoreFromBytes(bytes: Uint8Array): Promise<void> {
       throw new Error('This file isn’t a Finance Tracker backup.');
     }
 
-    // Pull every row out of the backup first (so a read error can't leave us half-wiped).
+    // Copy every backup table PRESENT in the source (a newer table like `loans` may be absent from an
+    // older backup — that's fine, it just stays empty). Pull all rows first so a read error can't
+    // leave us half-wiped.
+    const present = BACKUP_TABLES.filter((t) => tables.includes(t));
     const snapshot = new Map<string, any[]>();
-    for (const t of REQUIRED_TABLES) {
+    for (const t of present) {
       snapshot.set(t, src.getAllSync<any>(`SELECT * FROM "${t}"`));
     }
 
     const live = getSqlite();
+    // The live schema's columns per table — a backup may carry extra columns this build's schema has
+    // since dropped (older dev builds added columns we later removed); inserting those would throw, so
+    // we copy only the intersection.
+    const liveCols = new Map<string, Set<string>>();
+    for (const t of present) {
+      const info = live.getAllSync<{ name: string }>(`PRAGMA table_info("${t}")`);
+      liveCols.set(t, new Set(info.map((c) => c.name)));
+    }
+
     // FK checks off around the bulk copy (can't toggle inside a transaction).
     live.execSync('PRAGMA foreign_keys = OFF;');
     try {
       live.withTransactionSync(() => {
-        // Wipe children-first, refill parents-first.
-        for (const t of [...REQUIRED_TABLES].reverse()) live.runSync(`DELETE FROM "${t}"`);
-        for (const t of REQUIRED_TABLES) {
+        // Wipe children-first (all backup tables), refill parents-first (only those in the source).
+        for (const t of [...BACKUP_TABLES].reverse()) live.runSync(`DELETE FROM "${t}"`);
+        for (const t of present) {
+          const allowed = liveCols.get(t)!;
           for (const row of snapshot.get(t)!) {
-            const cols = Object.keys(row);
+            const cols = Object.keys(row).filter((c) => allowed.has(c));
             if (cols.length === 0) continue;
             const colList = cols.map((c) => `"${c}"`).join(', ');
             const placeholders = cols.map(() => '?').join(', ');

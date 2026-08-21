@@ -75,6 +75,34 @@ describe('totalsFor', () => {
     expect(t).toEqual({ spentPaise: 0, receivedPaise: 0, refundPaise: 0, netSpentPaise: 0, txnCount: 0 });
   });
 
+  it('excludes lending PRINCIPAL from totals but keeps interest and gifts', () => {
+    const t = totalsFor([
+      txn({ isoDate: '2026-05-01', paise: 500000, direction: 'out', transferRole: 'lent' }), // excluded
+      txn({ isoDate: '2026-05-02', paise: 200000, direction: 'in', transferRole: 'repaid_to_me' }), // excluded
+      txn({ isoDate: '2026-05-03', paise: 300000, direction: 'in', transferRole: 'borrowed' }), // excluded
+      txn({ isoDate: '2026-05-04', paise: 100000, direction: 'out', transferRole: 'repaid_by_me' }), // excluded
+      txn({ isoDate: '2026-05-05', paise: 5000, direction: 'in', transferRole: 'interest_received' }), // income
+      txn({ isoDate: '2026-05-06', paise: 3000, direction: 'out', transferRole: 'interest_paid' }), // spend
+      txn({ isoDate: '2026-05-07', paise: 20000, direction: 'out', transferRole: 'gift_given' }), // spend
+      txn({ isoDate: '2026-05-08', paise: 7000, direction: 'in', transferRole: 'gift_received' }), // income
+    ]);
+    expect(t.spentPaise).toBe(3000 + 20000); // interest paid + gift given only
+    expect(t.receivedPaise).toBe(5000 + 7000); // interest + gift received only
+    expect(t.txnCount).toBe(4); // the 5 principal rows are excluded from the count
+  });
+
+  it('keeps lending principal out of the category breakdown', () => {
+    const bd = categoryBreakdown(
+      [
+        txn({ isoDate: '2026-05-01', paise: 500000, direction: 'out', categoryId: 1, transferRole: 'lent' }),
+        txn({ isoDate: '2026-05-02', paise: 45000, direction: 'out', categoryId: 1 }),
+      ],
+      { year: 2026, month: 5 },
+    );
+    // Only the ordinary ₹450 spend under category 1 — the ₹5000 lent row is not spend.
+    expect(bd).toEqual([{ categoryId: 1, spentPaise: 45000, txnCount: 1 }]);
+  });
+
   it('allows net spent to go negative when refunds exceed spend', () => {
     const t = totalsFor([
       txn({ isoDate: '2026-05-01', paise: 1000, direction: 'out' }),

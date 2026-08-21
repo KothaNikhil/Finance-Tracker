@@ -28,6 +28,23 @@ export const REQUIRED_TABLES = [
   'category_rules',
 ] as const;
 
+/**
+ * All tables copied on backup/restore, in FK-dependency order (parents first — restore inserts
+ * forward and deletes in reverse). A SUPERSET of {@link REQUIRED_TABLES}: newer tables (e.g. `loans`)
+ * are copied when present but are NOT required, so an older backup that predates them still restores
+ * (the missing table just stays empty). `loans` sits after `people` (its FK) and before
+ * `transactions` (which references it).
+ */
+export const BACKUP_TABLES = [
+  'categories',
+  'subcategories',
+  'payment_modes',
+  'people',
+  'loans',
+  'transactions',
+  'category_rules',
+] as const;
+
 /** True if every required table is present in the given list of table names. */
 export function hasRequiredTables(tableNames: string[]): boolean {
   const present = new Set(tableNames);

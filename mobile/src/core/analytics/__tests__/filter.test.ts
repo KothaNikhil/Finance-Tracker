@@ -2,6 +2,7 @@ import { filterTxns, isEmptyFilter, matchesFilter, monthKeyOf, type FilterableTx
 
 function t(over: Partial<FilterableTxn> & Pick<FilterableTxn, 'isoDate'>): FilterableTxn {
   return {
+    paise: 10000,
     direction: 'out',
     categoryId: null,
     subcategoryId: null,
@@ -30,6 +31,14 @@ describe('matchesFilter', () => {
 
   it('empty filter matches everything', () => {
     expect(matchesFilter(txn, {})).toBe(true);
+  });
+
+  it('applies an inclusive amount (paise) range', () => {
+    const mid = t({ isoDate: '2026-05-14', paise: 500000 }); // ₹5,000
+    expect(matchesFilter(mid, { minPaise: 500000, maxPaise: 500000 })).toBe(true);
+    expect(matchesFilter(mid, { minPaise: 500001 })).toBe(false); // below min
+    expect(matchesFilter(mid, { maxPaise: 499999 })).toBe(false); // above max
+    expect(matchesFilter(mid, { minPaise: 100000, maxPaise: 1000000 })).toBe(true); // within
   });
 
   it('applies an inclusive month range', () => {

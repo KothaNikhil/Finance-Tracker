@@ -35,6 +35,10 @@ export interface TxnFilter {
   isRefund?: boolean;
   /** Only rows still flagged "needs review" when `true`; `undefined` for any. */
   needsReview?: boolean;
+  /** Inclusive lower bound on the amount magnitude, in paise; `undefined` for no minimum. */
+  minPaise?: number;
+  /** Inclusive upper bound on the amount magnitude, in paise; `undefined` for no maximum. */
+  maxPaise?: number;
   /**
    * Inclusive lower bound on `createdAt` (an ISO timestamp). Used by the Import screen to show only
    * rows added this session. `undefined` for no constraint.
@@ -51,6 +55,8 @@ export interface TxnFilter {
 /** The minimal transaction shape the predicate needs — satisfied by both the stored row and AnalyticsTxn. */
 export interface FilterableTxn {
   isoDate: string;
+  /** Amount magnitude in paise — for the amount-range filter. */
+  paise: number;
   direction: Direction;
   categoryId: number | null;
   subcategoryId: number | null;
@@ -96,6 +102,8 @@ export function matchesFilter(txn: FilterableTxn, filter: TxnFilter): boolean {
   if (filter.direction !== undefined && txn.direction !== filter.direction) return false;
   if (filter.isRefund !== undefined && txn.isRefund !== filter.isRefund) return false;
   if (filter.needsReview !== undefined && txn.needsReview !== filter.needsReview) return false;
+  if (filter.minPaise !== undefined && txn.paise < filter.minPaise) return false;
+  if (filter.maxPaise !== undefined && txn.paise > filter.maxPaise) return false;
   if (filter.since !== undefined && txn.createdAt < filter.since) return false;
   if (!matchesSearch(txn, filter.search)) return false;
   return true;
@@ -135,6 +143,8 @@ export function isEmptyFilter(filter: TxnFilter): boolean {
     filter.direction === undefined &&
     filter.isRefund === undefined &&
     filter.needsReview === undefined &&
+    filter.minPaise === undefined &&
+    filter.maxPaise === undefined &&
     filter.since === undefined &&
     (filter.search === undefined || filter.search.trim() === '')
   );

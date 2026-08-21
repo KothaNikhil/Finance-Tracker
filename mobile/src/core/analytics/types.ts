@@ -13,6 +13,7 @@
  */
 
 import type { Direction } from '../domain/money';
+import type { TransferRole } from '../lending/roles';
 
 /** The minimal shape of a transaction the dashboards need (a subset of the stored row). */
 export interface AnalyticsTxn {
@@ -36,6 +37,11 @@ export interface AnalyticsTxn {
   accountName: string | null;
   /** The "For" person this is assigned to, or null when unassigned. */
   personId: number | null;
+  /**
+   * Money-lent / interest role, or null/undefined for an ordinary transaction. PRINCIPAL roles
+   * (lend / borrow / repay) are excluded from every total — they're transfers, not spend/income.
+   */
+  transferRole?: TransferRole | null;
 }
 
 /**

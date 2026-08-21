@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
+import { AddToMoneyLentSheet, type LoanChoice } from '@/components/add-to-money-lent-sheet';
 import { CategoryPicker } from '@/components/category-picker';
 import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
@@ -35,12 +36,25 @@ import {
 } from '@/core/analytics';
 import type { TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
+import { loanPartOf } from '@/core/lending/roles';
+import { useLoans } from '@/hooks/use-lending';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { useDimensions, usePeriodTotals, useReportsBreakdowns } from '@/hooks/use-analytics';
 import { useTransactionCount, useTransactionList } from '@/hooks/use-transactions';
-import { acceptTransactionReview, addCategory, addSubcategory, clearTransactionCategory, deleteTransaction, setTransactionCategory } from '@/services/db/repository';
+import {
+  acceptTransactionReview,
+  addCategory,
+  addPerson,
+  addSubcategory,
+  attachTransactionToLoan,
+  clearTransactionCategory,
+  createLoan,
+  deleteTransaction,
+  detachTransactionFromLoan,
+  setTransactionCategory,
+} from '@/services/db/repository';
 import { saveFilteredToFolder, shareFilteredToExcel } from '@/services/export';
 
 const TOP_MERCHANTS = 12;
@@ -142,10 +156,19 @@ export default function ReportsScreen() {
   // Transaction detail + category editing (same flow as Home).
   const [detailId, setDetailId] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [moneyLentOpen, setMoneyLentOpen] = useState(false);
   const detailTxn = detailId != null ? (filtered.find((t) => t.id === detailId) ?? null) : null;
+  const { active: activeLoans, closed: closedLoans, byId: loanById } = useLoans();
+  const loanChoices: LoanChoice[] = useMemo(
+    () => [...activeLoans, ...closedLoans].map((l) => ({ id: l.id, name: l.name, personName: l.personName, kind: l.kind })),
+    [activeLoans, closedLoans],
+  );
+  const detailLoan = detailTxn?.loanId != null ? loanById(detailTxn.loanId) : null;
+  const detailLoanLabel = detailLoan ? `${detailLoan.personName}${detailLoan.name ? ` · ${detailLoan.name}` : ''}` : null;
   const openDetail = (id: number) => {
     setDetailId(id);
     setPickerOpen(false);
+    setMoneyLentOpen(false);
   };
 
   // Collapsible breakdowns.
@@ -227,7 +250,7 @@ export default function ReportsScreen() {
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
           spent · {formatINR(totals.receivedPaise)} received · {filteredCount} transaction
-          {filteredCount === 1 ? '' : 's'} · self-transfers excluded from totals
+          {filteredCount === 1 ? '' : 's'} · self-transfers & loans excluded from totals
         </ThemedText>
       </View>
     </View>
@@ -340,11 +363,12 @@ export default function ReportsScreen() {
       />
 
       <TransactionDetail
-        visible={detailTxn !== null && !pickerOpen}
+        visible={detailTxn !== null && !pickerOpen && !moneyLentOpen}
         txn={detailTxn}
         categoryLabel={detailTxn ? rowCategoryLabel(detailTxn, index.byId, subNames) : null}
         paymentModeName={detailTxn?.paymentModeId != null ? (pmNames.get(detailTxn.paymentModeId) ?? null) : null}
         personName={detailTxn?.personId != null ? (personNames.get(detailTxn.personId) ?? null) : null}
+        moneyLentLabel={detailLoanLabel}
         onClose={() => setDetailId(null)}
         onChangeCategory={() => setPickerOpen(true)}
         onRemoveCategory={() => {
@@ -353,9 +377,31 @@ export default function ReportsScreen() {
         onAccept={() => {
           if (detailId != null) acceptTransactionReview(detailId);
         }}
+        onManageMoneyLent={() => setMoneyLentOpen(true)}
         onDelete={() => {
           if (detailId != null) deleteTransaction(detailId);
         }}
+      />
+
+      <AddToMoneyLentSheet
+        visible={detailTxn !== null && moneyLentOpen}
+        txn={detailTxn}
+        loans={loanChoices}
+        people={lists.people}
+        currentLoanId={detailTxn?.loanId ?? null}
+        currentLoanName={detailLoanLabel ?? undefined}
+        currentPart={detailTxn ? loanPartOf(detailTxn.transferRole) : null}
+        onAddPerson={(name) => addPerson(name)}
+        onCreateLoan={(input) => createLoan(input)}
+        onAttach={(loanId, part) => {
+          if (detailId != null) attachTransactionToLoan(detailId, loanId, part);
+          setMoneyLentOpen(false);
+        }}
+        onDetach={() => {
+          if (detailId != null) detachTransactionFromLoan(detailId);
+          setMoneyLentOpen(false);
+        }}
+        onClose={() => setMoneyLentOpen(false)}
       />
 
       <CategoryPicker
@@ -499,7 +545,17 @@ function buildChips(
   if (f.needsReview !== undefined) {
     chips.push({ key: 'review', label: 'Needs review', clear: () => update({ needsReview: undefined }) });
   }
+  if (f.minPaise !== undefined || f.maxPaise !== undefined) {
+    chips.push({ key: 'amount', label: amountRangeLabel(f.minPaise, f.maxPaise), clear: () => update({ minPaise: undefined, maxPaise: undefined }) });
+  }
   return chips;
+}
+
+/** A short label for the amount range chip, e.g. "₹50,000–₹10,00,000" / "≥ ₹50,000" / "≤ ₹1,000". */
+function amountRangeLabel(minPaise: number | undefined, maxPaise: number | undefined): string {
+  if (minPaise !== undefined && maxPaise !== undefined) return `${formatINR(minPaise)}–${formatINR(maxPaise)}`;
+  if (minPaise !== undefined) return `≥ ${formatINR(minPaise)}`;
+  return `≤ ${formatINR(maxPaise ?? 0)}`;
 }
 
 function defaultFileName(f: TxnFilter, catLabel: string): string {

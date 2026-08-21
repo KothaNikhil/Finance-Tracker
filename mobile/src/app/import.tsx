@@ -14,6 +14,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, TextInput, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { AddToMoneyLentSheet, type LoanChoice } from '@/components/add-to-money-lent-sheet';
 import { CategoryPicker } from '@/components/category-picker';
 import { EmptyState } from '@/components/empty-state';
 import { PeriodTabs } from '@/components/period-tabs';
@@ -34,6 +35,8 @@ import { decryptWorkbook, isEncryptedWorkbook, WrongPasswordError } from '@/core
 import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
 import { parseXlsxBytes } from '@/core/import/xlsx';
+import { loanPartOf } from '@/core/lending/roles';
+import { useLoans } from '@/hooks/use-lending';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
@@ -44,10 +47,14 @@ import {
   acceptAllReviews,
   acceptTransactionReview,
   addCategory,
+  addPerson,
   addSubcategory,
+  attachTransactionToLoan,
   clearPendingImport,
   clearTransactionCategory,
+  createLoan,
   deleteTransaction,
+  detachTransactionFromLoan,
   getExistingDedupeKeys,
   getPendingImport,
   reconcileDuplicatesFromImport,
@@ -94,6 +101,7 @@ export default function ImportScreen() {
   // The transaction whose detail sheet is open; `pickerOpen` layers the category picker on top.
   const [detailId, setDetailId] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [moneyLentOpen, setMoneyLentOpen] = useState(false);
   // Which month of the current import is shown; null = the whole import.
   const [selectedMonth, setSelectedMonth] = useState<MonthKey | null>(null);
   // A picked, password-protected .xlsx waiting for its password. We hold the file's cache URI (not
@@ -126,6 +134,13 @@ export default function ImportScreen() {
 
   // Look the open transaction up live (the tapped row is always inside the loaded, live window).
   const detailTxn = detailId != null ? (txns.find((t) => t.id === detailId) ?? null) : null;
+  const { active: activeLoans, closed: closedLoans, byId: loanById } = useLoans();
+  const loanChoices: LoanChoice[] = useMemo(
+    () => [...activeLoans, ...closedLoans].map((l) => ({ id: l.id, name: l.name, personName: l.personName, kind: l.kind })),
+    [activeLoans, closedLoans],
+  );
+  const detailLoan = detailTxn?.loanId != null ? loanById(detailTxn.loanId) : null;
+  const detailLoanLabel = detailLoan ? `${detailLoan.personName}${detailLoan.name ? ` · ${detailLoan.name}` : ''}` : null;
 
   const commit = useCallback(
     (sheets: SheetLike[], sourceLabel: string) => {
@@ -327,6 +342,7 @@ export default function ImportScreen() {
   const openDetail = useCallback((id: number) => {
     setDetailId(id);
     setPickerOpen(false);
+    setMoneyLentOpen(false);
   }, []);
 
   const header = (
@@ -435,11 +451,12 @@ export default function ImportScreen() {
       </SafeAreaView>
 
       <TransactionDetail
-        visible={detailTxn !== null && !pickerOpen}
+        visible={detailTxn !== null && !pickerOpen && !moneyLentOpen}
         txn={detailTxn}
         categoryLabel={detailTxn ? categoryLabel(detailTxn, index.byId, subNames) : null}
         paymentModeName={detailTxn?.paymentModeId != null ? (pmNames.get(detailTxn.paymentModeId) ?? null) : null}
         personName={detailTxn?.personId != null ? (personNames.get(detailTxn.personId) ?? null) : null}
+        moneyLentLabel={detailLoanLabel}
         onClose={() => setDetailId(null)}
         onChangeCategory={() => setPickerOpen(true)}
         onRemoveCategory={() => {
@@ -448,9 +465,31 @@ export default function ImportScreen() {
         onAccept={() => {
           if (detailId != null) acceptTransactionReview(detailId);
         }}
+        onManageMoneyLent={() => setMoneyLentOpen(true)}
         onDelete={() => {
           if (detailId != null) deleteTransaction(detailId);
         }}
+      />
+
+      <AddToMoneyLentSheet
+        visible={detailTxn !== null && moneyLentOpen}
+        txn={detailTxn}
+        loans={loanChoices}
+        people={lists.people}
+        currentLoanId={detailTxn?.loanId ?? null}
+        currentLoanName={detailLoanLabel ?? undefined}
+        currentPart={detailTxn ? loanPartOf(detailTxn.transferRole) : null}
+        onAddPerson={(name) => addPerson(name)}
+        onCreateLoan={(input) => createLoan(input)}
+        onAttach={(loanId, part) => {
+          if (detailId != null) attachTransactionToLoan(detailId, loanId, part);
+          setMoneyLentOpen(false);
+        }}
+        onDetach={() => {
+          if (detailId != null) detachTransactionFromLoan(detailId);
+          setMoneyLentOpen(false);
+        }}
+        onClose={() => setMoneyLentOpen(false)}
       />
 
       {/* Inline overlay (NOT a React Native <Modal>): a separate-window Modal can be dropped when

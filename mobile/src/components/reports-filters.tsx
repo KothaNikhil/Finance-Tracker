@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
@@ -44,6 +44,16 @@ export interface ReportsFiltersProps {
 
 type Picker = null | 'from' | 'to' | 'category' | 'subcategory' | 'account' | 'person';
 
+/** Paise → a plain rupee string for an input (5000000 → "50000"), or '' for undefined. */
+const paiseToText = (paise: number | undefined): string => (paise == null ? '' : String(paise / 100));
+/** A rupee-string input → paise, or undefined when empty / not a number. */
+const textToPaise = (text: string): number | undefined => {
+  const t = text.trim().replace(/[,\s₹]/g, '');
+  if (t === '') return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : undefined;
+};
+
 const monthLabel = (m: MonthKey): string => `${MONTH_LABELS[m.month - 1]} ${m.year}`;
 const monthToken = (m: MonthKey): string => `${m.year}-${m.month}`;
 const tokenToMonth = (t: string): MonthKey => {
@@ -65,12 +75,17 @@ export function ReportsFilters({
   const theme = useTheme();
   const [draft, setDraft] = useState<TxnFilter>(initial);
   const [picker, setPicker] = useState<Picker>(null);
+  // Amount inputs hold their own rupee text (so partial typing like "50" isn't reformatted).
+  const [minText, setMinText] = useState(paiseToText(initial.minPaise));
+  const [maxText, setMaxText] = useState(paiseToText(initial.maxPaise));
 
   // Re-seed the draft from `initial` each time the sheet (re)opens.
   const [seedKey, setSeedKey] = useState<boolean | null>(null);
   if (visible !== (seedKey ?? false) && visible) {
     setSeedKey(true);
     setDraft(initial);
+    setMinText(paiseToText(initial.minPaise));
+    setMaxText(paiseToText(initial.maxPaise));
   } else if (!visible && seedKey) {
     setSeedKey(false);
   }
@@ -193,6 +208,34 @@ export function ReportsFilters({
                 </View>
               </Field>
 
+              {/* Amount range (in rupees) */}
+              <Field label="Amount (₹)">
+                <View style={styles.rangeRow}>
+                  <TextInput
+                    value={minText}
+                    onChangeText={(v) => {
+                      setMinText(v);
+                      set({ minPaise: textToPaise(v) });
+                    }}
+                    placeholder="Min"
+                    placeholderTextColor={theme.textSecondary}
+                    keyboardType="decimal-pad"
+                    style={[styles.amountInput, { color: theme.text, backgroundColor: theme.backgroundElement }]}
+                  />
+                  <TextInput
+                    value={maxText}
+                    onChangeText={(v) => {
+                      setMaxText(v);
+                      set({ maxPaise: textToPaise(v) });
+                    }}
+                    placeholder="Max"
+                    placeholderTextColor={theme.textSecondary}
+                    keyboardType="decimal-pad"
+                    style={[styles.amountInput, { color: theme.text, backgroundColor: theme.backgroundElement }]}
+                  />
+                </View>
+              </Field>
+
               {/* Status — the review queue lives here so it's reachable any time (not just from the
                   Import banner). Stays flagged until you categorize each row or accept the guesses. */}
               <Field label="Status">
@@ -204,7 +247,16 @@ export function ReportsFilters({
             </ScrollView>
 
             <View style={styles.footer}>
-              <Button label="Reset" variant="secondary" onPress={() => setDraft({})} style={styles.grow} />
+              <Button
+                label="Reset"
+                variant="secondary"
+                onPress={() => {
+                  setDraft({});
+                  setMinText('');
+                  setMaxText('');
+                }}
+                style={styles.grow}
+              />
               <Button label="Apply" variant="primary" onPress={() => { onApply(draft); onClose(); }} style={styles.grow} />
             </View>
         </SafeAreaView>
@@ -309,6 +361,7 @@ const styles = StyleSheet.create({
   field: { gap: Spacing.one },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   rangeRow: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
+  amountInput: { flex: 1, borderRadius: Spacing.two, paddingHorizontal: Spacing.three, paddingVertical: Spacing.three, fontSize: 15 },
   pickerBtn: {
     flex: 1,
     flexDirection: 'row',

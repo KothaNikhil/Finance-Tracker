@@ -26,6 +26,16 @@ describe('buildTxnConditions', () => {
     expect(q.params).toEqual(['2026-01-01', '2026-12-31']);
   });
 
+  it('maps an amount range to inclusive paise >= / <= bounds', () => {
+    const q = compile({ minPaise: 5000000, maxPaise: 100000000 })!;
+    expect(q.sql).toContain('"paise"');
+    expect(q.sql).toContain('>=');
+    expect(q.sql).toContain('<=');
+    expect(q.params).toEqual([5000000, 100000000]);
+    expect(compile({ minPaise: 5000000 })!.params).toEqual([5000000]);
+    expect(compile({ maxPaise: 100000000 })!.params).toEqual([100000000]);
+  });
+
   it('categoryId: value → equality, null → IS NULL, undefined → omitted', () => {
     const val = compile({ categoryId: 3 })!;
     expect(val.sql).toContain('"category_id"');

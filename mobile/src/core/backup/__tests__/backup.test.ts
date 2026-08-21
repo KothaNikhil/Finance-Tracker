@@ -1,4 +1,4 @@
-import { backupFileName, hasRequiredTables, isSqliteFile, REQUIRED_TABLES } from '../backup';
+import { BACKUP_TABLES, backupFileName, hasRequiredTables, isSqliteFile, REQUIRED_TABLES } from '../backup';
 
 /** Build bytes that start with the real SQLite header "SQLite format 3\0". */
 function sqliteHeaderBytes(extra = 0): Uint8Array {
@@ -32,6 +32,17 @@ describe('hasRequiredTables', () => {
     expect(hasRequiredTables([...REQUIRED_TABLES, 'sqlite_sequence', 'android_metadata'])).toBe(true);
     expect(hasRequiredTables(['categories', 'transactions'])).toBe(false);
     expect(hasRequiredTables([])).toBe(false);
+  });
+});
+
+describe('BACKUP_TABLES', () => {
+  it('is a superset of REQUIRED_TABLES (so older backups still validate)', () => {
+    for (const t of REQUIRED_TABLES) expect(BACKUP_TABLES).toContain(t);
+  });
+
+  it('orders loans after its people FK and before transactions (its dependent)', () => {
+    expect(BACKUP_TABLES.indexOf('people')).toBeLessThan(BACKUP_TABLES.indexOf('loans'));
+    expect(BACKUP_TABLES.indexOf('loans')).toBeLessThan(BACKUP_TABLES.indexOf('transactions'));
   });
 });
 

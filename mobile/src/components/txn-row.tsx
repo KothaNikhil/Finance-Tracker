@@ -15,6 +15,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import type { TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
+import { isTransferRole, ROLE_META } from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
 
 const DIRECTION_META = {
@@ -46,10 +47,14 @@ export const TxnRow = React.memo(function TxnRow({
 }: TxnRowProps) {
   const theme = useTheme();
   const meta = DIRECTION_META[txn.direction as keyof typeof DIRECTION_META] ?? DIRECTION_META.out;
-  const secondary =
-    (categoryLabel ?? (txn.direction === 'self' || txn.kind === 'received' ? 'Transfer' : 'Uncategorized')) +
-    ' · ' +
-    txn.isoDate;
+  // A tagged money-lent row shows its role (e.g. "💸 Lent"); otherwise the category; otherwise a
+  // direction-based fallback. Only `self` is called "Transfer" — money-in is "Received" — so the
+  // label matches the Reports direction filters (self→Transfer, in→Received).
+  const roleLbl = isTransferRole(txn.transferRole)
+    ? `${ROLE_META[txn.transferRole].emoji} ${ROLE_META[txn.transferRole].label}`
+    : null;
+  const fallback = txn.direction === 'self' ? 'Transfer' : txn.direction === 'in' ? 'Received' : 'Uncategorized';
+  const secondary = (categoryLabel ?? roleLbl ?? fallback) + ' · ' + txn.isoDate;
 
   return (
     <Pressable

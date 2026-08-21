@@ -34,12 +34,29 @@ export const paymentModes = sqliteTable('payment_modes', {
   isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
 });
 
-/** The configurable "For" (who it's for) list. */
+/** The configurable "For" (who it's for) list — also the counterparty list for the lending ledger. */
 export const people = sqliteTable('people', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
   sortOrder: integer('sort_order').notNull().default(0),
   isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
+});
+
+/**
+ * A money-lent "loan" — a named grouping (a deal with one person) that transactions attach to. It is
+ * NOT a transaction: one loan can span several principal / repayment / interest transactions. `kind`
+ * is the loan's direction ('lent' = they owe me, 'borrowed' = I owe them).
+ */
+export const loans = sqliteTable('loans', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull().default(''),
+  personId: integer('person_id')
+    .notNull()
+    .references(() => people.id),
+  kind: text('kind').notNull(), // 'lent' | 'borrowed'
+  closed: integer('closed', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
 });
 
 export const transactions = sqliteTable('transactions', {
@@ -56,6 +73,11 @@ export const transactions = sqliteTable('transactions', {
   counterpartyName: text('counterparty_name'),
   counterpartyVpa: text('counterparty_vpa'),
   accountName: text('account_name'),
+  // Money-lent / interest tracker: this transaction's PART in a loan (lent / repaid_to_me /
+  // interest_received / …), or null when it isn't part of a loan.
+  transferRole: text('transfer_role'),
+  // Money-lent tracker: the loan this transaction is attached to, or null when unattached.
+  loanId: integer('loan_id'),
   rawDetails: text('raw_details').notNull().default(''),
   rawTag: text('raw_tag'),
   remarks: text('remarks'),
@@ -95,6 +117,7 @@ export const categoryRules = sqliteTable(
 
 export type TransactionRow = typeof transactions.$inferSelect;
 export type NewTransactionRow = typeof transactions.$inferInsert;
+export type LoanRow = typeof loans.$inferSelect;
 export type CategoryRow = typeof categories.$inferSelect;
 export type SubcategoryRow = typeof subcategories.$inferSelect;
 export type CategoryRuleRow = typeof categoryRules.$inferSelect;
@@ -131,6 +154,15 @@ CREATE TABLE IF NOT EXISTS people (
   sort_order INTEGER NOT NULL DEFAULT 0,
   is_archived INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS loans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL DEFAULT '',
+  person_id INTEGER NOT NULL REFERENCES people(id),
+  kind TEXT NOT NULL,
+  closed INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   iso_date TEXT NOT NULL,
@@ -145,6 +177,8 @@ CREATE TABLE IF NOT EXISTS transactions (
   counterparty_name TEXT,
   counterparty_vpa TEXT,
   account_name TEXT,
+  transfer_role TEXT,
+  loan_id INTEGER,
   raw_details TEXT NOT NULL DEFAULT '',
   raw_tag TEXT,
   remarks TEXT,
