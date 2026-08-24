@@ -116,9 +116,14 @@ function migrate(sqlite: SQLite.SQLiteDatabase): void {
   if (!txnCols.some((c) => c.name === 'loan_id')) {
     sqlite.execSync('ALTER TABLE transactions ADD COLUMN loan_id INTEGER;');
   }
-  // Index created here (not in CREATE_TABLES_SQL) so it never references a column an ALTER above
-  // just added; IF NOT EXISTS keeps it idempotent for fresh installs too.
+  // The import run that added a transaction (so a whole import can be reverted).
+  if (!txnCols.some((c) => c.name === 'import_id')) {
+    sqlite.execSync('ALTER TABLE transactions ADD COLUMN import_id INTEGER;');
+  }
+  // Indexes created here (not in CREATE_TABLES_SQL) so they never reference a column an ALTER above
+  // just added; IF NOT EXISTS keeps them idempotent for fresh installs too.
   sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_loan ON transactions(loan_id);');
+  sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_import ON transactions(import_id);');
 }
 
 /** Insert the starter categories/sub-categories/payment modes/people if the DB is empty. */

@@ -12,7 +12,7 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 
 import type { TxnFilter } from '@/core/analytics';
 import * as schema from '@/core/db/schema';
-import { transactions } from '@/core/db/schema';
+import { imports, transactions } from '@/core/db/schema';
 import { buildTxnConditions } from './filter-sql';
 
 type DB = ExpoSQLiteDatabase<typeof schema>;
@@ -45,6 +45,11 @@ export function txnCountQuery(db: DB, filter: TxnFilter) {
     .select({ n: sql<number>`count(*)` })
     .from(transactions)
     .where(buildTxnConditions(filter));
+}
+
+/** The most recent import batch (0 or 1 rows). Live on the `imports` table — refreshes on revert. */
+export function lastImportQuery(db: DB) {
+  return db.select().from(imports).orderBy(desc(imports.id)).limit(1);
 }
 
 /** One-shot read of every row matching the filter (for the Excel export — NOT live). */

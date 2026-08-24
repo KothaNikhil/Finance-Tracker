@@ -4,13 +4,14 @@
  * user's edits. Keeps SQL/Drizzle details in one place so screens stay simple.
  */
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { getDb, getSqlite } from './database';
 import {
   categories,
   categoryRules,
   DATA_UPDATED_AT_KEY,
+  imports,
   loanAllocations,
   loans,
   paymentModes,
@@ -189,14 +190,29 @@ function categorizeTxn(t: NormalizedTxn, index: CategoryIndex, learned: LearnedR
 
 /**
  * Save new transactions, auto-categorizing each one first. Relies on the unique dedupe key as
- * a final safety net against double-inserts.
+ * a final safety net against double-inserts. When `sourceLabel` is given, the batch is recorded as
+ * an `imports` row and every inserted transaction is stamped with its `import_id`, so the whole
+ * import can be reverted later ({@link revertImport}).
  */
-export function saveTransactions(txns: NormalizedTxn[]): number {
+export function saveTransactions(txns: NormalizedTxn[], sourceLabel: string | null = null): number {
   if (txns.length === 0) return 0;
 
   const index = getCategoryIndex();
   const learned = getLearnedRules();
   const now = new Date().toISOString();
+  const db = getDb();
+
+  // Record the import batch first so its id can stamp the rows (only when this came from a real
+  // import — a null label means "don't track", e.g. an internal insert).
+  let importId: number | null = null;
+  if (sourceLabel !== null) {
+    const ins = db
+      .insert(imports)
+      .values({ sourceLabel: sourceLabel.trim(), importedAt: now, addedCount: txns.length, updatedCount: 0 })
+      .returning({ id: imports.id })
+      .all();
+    importId = ins[0].id;
+  }
 
   const rows: NewTransactionRow[] = txns.map((t) => {
     const guess = categorizeTxn(t, index, learned);
@@ -224,19 +240,45 @@ export function saveTransactions(txns: NormalizedTxn[]): number {
       sourceRef: t.sourceRef,
       orderId: t.orderId,
       dedupeKey: t.dedupeKey,
+      importId,
       autoCategorized: guess.categoryId != null,
       needsReview,
       createdAt: now,
     };
   });
 
-  getDb()
-    .insert(transactions)
-    .values(rows)
-    .onConflictDoNothing({ target: transactions.dedupeKey })
-    .run();
+  db.insert(transactions).values(rows).onConflictDoNothing({ target: transactions.dedupeKey }).run();
   touchDataUpdatedAt();
   return rows.length;
+}
+
+/** The most recent import batch (for the "revert last import" affordance), or null when none. */
+export function getLastImport(): { id: number; sourceLabel: string; importedAt: string; addedCount: number } | null {
+  const row = getDb()
+    .select({ id: imports.id, sourceLabel: imports.sourceLabel, importedAt: imports.importedAt, addedCount: imports.addedCount })
+    .from(imports)
+    .orderBy(desc(imports.id))
+    .limit(1)
+    .get();
+  return row ?? null;
+}
+
+/**
+ * Revert a whole import: delete every transaction it added (including any the user has since edited
+ * or attached to a loan — their loan links / split allocations are cleaned up), then drop the import
+ * record. Duplicates it merely reconciled belong to earlier imports and are left untouched. Returns
+ * how many transactions were removed.
+ */
+export function revertImport(importId: number): number {
+  const db = getDb();
+  const ids = db.select({ id: transactions.id }).from(transactions).where(eq(transactions.importId, importId)).all().map((r) => r.id);
+  if (ids.length > 0) {
+    db.delete(loanAllocations).where(inArray(loanAllocations.txnId, ids)).run(); // FK children first
+    db.delete(transactions).where(inArray(transactions.id, ids)).run();
+  }
+  db.delete(imports).where(eq(imports.id, importId)).run();
+  touchDataUpdatedAt();
+  return ids.length;
 }
 
 /** Outcome of reconciling an import's duplicates against already-stored rows. */

@@ -59,6 +59,20 @@ export const loans = sqliteTable('loans', {
   updatedAt: text('updated_at').notNull(),
 });
 
+/**
+ * One import run (a statement file loaded and saved). Recorded so the whole batch can be reverted
+ * later ("delete last import"). `added_count` is how many NEW rows it inserted (the ones stamped
+ * with this import's id on `transactions.import_id`); `updated_count` is how many already-stored
+ * duplicates it reconciled (those aren't deletable — they belong to earlier imports).
+ */
+export const imports = sqliteTable('imports', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  sourceLabel: text('source_label').notNull().default(''),
+  importedAt: text('imported_at').notNull(),
+  addedCount: integer('added_count').notNull().default(0),
+  updatedCount: integer('updated_count').notNull().default(0),
+});
+
 export const transactions = sqliteTable('transactions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   isoDate: text('iso_date').notNull(), // YYYY-MM-DD
@@ -78,6 +92,8 @@ export const transactions = sqliteTable('transactions', {
   transferRole: text('transfer_role'),
   // Money-lent tracker: the loan this transaction is attached to, or null when unattached.
   loanId: integer('loan_id'),
+  // The import run that added this row (null for manual entries). Lets a whole import be reverted.
+  importId: integer('import_id'),
   rawDetails: text('raw_details').notNull().default(''),
   rawTag: text('raw_tag'),
   remarks: text('remarks'),
@@ -139,6 +155,7 @@ export type TransactionRow = typeof transactions.$inferSelect;
 export type NewTransactionRow = typeof transactions.$inferInsert;
 export type LoanRow = typeof loans.$inferSelect;
 export type LoanAllocationRow = typeof loanAllocations.$inferSelect;
+export type ImportRow = typeof imports.$inferSelect;
 export type CategoryRow = typeof categories.$inferSelect;
 export type SubcategoryRow = typeof subcategories.$inferSelect;
 export type CategoryRuleRow = typeof categoryRules.$inferSelect;
@@ -184,6 +201,13 @@ CREATE TABLE IF NOT EXISTS loans (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS imports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_label TEXT NOT NULL DEFAULT '',
+  imported_at TEXT NOT NULL,
+  added_count INTEGER NOT NULL DEFAULT 0,
+  updated_count INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   iso_date TEXT NOT NULL,
@@ -200,6 +224,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   account_name TEXT,
   transfer_role TEXT,
   loan_id INTEGER,
+  import_id INTEGER,
   raw_details TEXT NOT NULL DEFAULT '',
   raw_tag TEXT,
   remarks TEXT,

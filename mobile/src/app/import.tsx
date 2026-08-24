@@ -37,7 +37,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useTransactionDetail } from '@/hooks/use-transaction-detail';
 import { useCategoryIndex } from '@/hooks/use-reference-data';
 import { useDimensions, useSummary } from '@/hooks/use-analytics';
-import { useTransactionList } from '@/hooks/use-transactions';
+import { useLastImport, useTransactionList } from '@/hooks/use-transactions';
 import { runAnalyticsParityCheck, seedRandomTransactions } from '@/services/db/dev-tools';
 import {
   acceptAllReviews,
@@ -45,6 +45,7 @@ import {
   getExistingDedupeKeys,
   getPendingImport,
   reconcileDuplicatesFromImport,
+  revertImport,
   saveTransactions,
   setPendingImport,
 } from '@/services/db/repository';
@@ -105,6 +106,8 @@ export default function ImportScreen() {
   // categorized or the guesses are accepted — so this count spans ALL data, not just this session.
   const { reviewCount } = useSummary({});
   const { months } = useDimensions(sessionFilter);
+  // The last import batch — offered for a one-tap revert (survives restarts, unlike the session).
+  const lastImport = useLastImport();
 
   const index = useCategoryIndex();
   const subNames = useMemo(() => {
@@ -128,7 +131,7 @@ export default function ImportScreen() {
           async () => {
             // Yield a frame so the spinner paints before the synchronous DB write blocks the thread.
             await new Promise((resolve) => setTimeout(resolve, 0));
-            const n = saveTransactions(preview.newTxns);
+            const n = saveTransactions(preview.newTxns, sourceLabel);
             const { updated, flagged } = reconcileDuplicatesFromImport(preview.duplicates);
             const parts = [`${n} new transaction(s) saved from ${sourceLabel} and auto-categorized.`];
             if (updated > 0) parts.push(`${updated} matching row(s) already imported were updated.`);
@@ -298,6 +301,27 @@ export default function ImportScreen() {
     );
   }, [reviewCount]);
 
+  const onRevertLast = useCallback(() => {
+    if (!lastImport) return;
+    const label = lastImport.sourceLabel.trim() || 'the last import';
+    const n = lastImport.addedCount;
+    Alert.alert(
+      'Revert this import?',
+      `Permanently deletes all ${n} transaction${n === 1 ? '' : 's'} added by “${label}” — including any you’ve since edited, categorized, split, or attached to a loan. This can’t be undone. (Duplicates it merely merged into earlier imports are kept.)`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete all',
+          style: 'destructive',
+          onPress: () => {
+            const removed = revertImport(lastImport.id);
+            Alert.alert('Import reverted', `Removed ${removed} transaction${removed === 1 ? '' : 's'}.`);
+          },
+        },
+      ],
+    );
+  }, [lastImport]);
+
   const header = (
     <View style={styles.header}>
       <ThemedText type="subtitle">Import</ThemedText>
@@ -357,6 +381,25 @@ export default function ImportScreen() {
         </View>
       )}
       {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
+
+      {/* Revert the last import — deletes everything that batch added (survives app restarts). */}
+      {lastImport && (
+        <Pressable
+          onPress={onRevertLast}
+          accessibilityRole="button"
+          accessibilityLabel="Revert the last import"
+          style={({ pressed }) => [styles.revertRow, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
+        >
+          <View style={styles.grow}>
+            <ThemedText type="smallBold" style={{ color: theme.spend }}>
+              ↩ Revert last import
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+              {(lastImport.sourceLabel.trim() || 'Last import')} · {lastImport.addedCount} added · {lastImport.importedAt.slice(0, 10)}
+            </ThemedText>
+          </View>
+        </Pressable>
+      )}
 
       {/* Month navigation for the current import (year row appears when it spans multiple years). */}
       {months.length > 0 && (
@@ -491,6 +534,15 @@ const styles = StyleSheet.create({
   },
   actions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
   grow: { flex: 1 },
+  revertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: Spacing.three,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    marginTop: Spacing.two,
+  },
   tabsWrap: { marginTop: Spacing.two },
   footer: { marginTop: Spacing.three },
   empty: { marginTop: Spacing.three },

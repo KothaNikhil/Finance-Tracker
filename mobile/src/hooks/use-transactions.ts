@@ -15,9 +15,9 @@ import { useState } from 'react';
 import { useLiveQuery } from '@/hooks/use-live-query';
 
 import type { TxnFilter } from '@/core/analytics';
-import type { TransactionRow } from '@/core/db/schema';
+import type { ImportRow, TransactionRow } from '@/core/db/schema';
 import { getDb } from '@/services/db/database';
-import { txnCountQuery, txnListQuery } from '@/services/db/queries/transactions';
+import { lastImportQuery, txnCountQuery, txnListQuery } from '@/services/db/queries/transactions';
 
 export interface TransactionListResult {
   /** The loaded window of rows (newest first), grown by `loadMore`. */
@@ -72,4 +72,11 @@ export function useTransactionCount(filter: TxnFilter = {}): { count: number; lo
   const key = JSON.stringify(filter);
   const { data, updatedAt } = useLiveQuery(txnCountQuery(db, filter), [key]);
   return { count: data?.[0]?.n ?? 0, loading: updatedAt === undefined };
+}
+
+/** The most recent import batch, live (null until the first import). Backs "revert last import". */
+export function useLastImport(): ImportRow | null {
+  const db = getDb();
+  const { data } = useLiveQuery(lastImportQuery(db), []);
+  return (data?.[0] as ImportRow | undefined) ?? null;
 }

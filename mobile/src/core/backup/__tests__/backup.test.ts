@@ -46,6 +46,8 @@ describe('BACKUP_TABLES', () => {
     // loan_allocations references both transactions and loans, so it must restore after both.
     expect(BACKUP_TABLES.indexOf('transactions')).toBeLessThan(BACKUP_TABLES.indexOf('loan_allocations'));
     expect(BACKUP_TABLES.indexOf('loans')).toBeLessThan(BACKUP_TABLES.indexOf('loan_allocations'));
+    // transactions carry an import_id, so imports restore before transactions.
+    expect(BACKUP_TABLES.indexOf('imports')).toBeLessThan(BACKUP_TABLES.indexOf('transactions'));
   });
 });
 

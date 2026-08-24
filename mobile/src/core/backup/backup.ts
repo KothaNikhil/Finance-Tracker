@@ -41,6 +41,7 @@ export const BACKUP_TABLES = [
   'payment_modes',
   'people',
   'loans',
+  'imports',
   'transactions',
   'loan_allocations',
   'category_rules',
