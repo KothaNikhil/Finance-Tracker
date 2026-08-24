@@ -91,6 +91,19 @@ describe('totalsFor', () => {
     expect(t.txnCount).toBe(4); // the 5 principal rows are excluded from the count
   });
 
+  it('excludes credit-card bill-payment legs from totals (spends are counted elsewhere)', () => {
+    const t = totalsFor([
+      txn({ isoDate: '2026-05-01', paise: 188290, direction: 'out', transferRole: 'cc_payment' }), // bank→card: excluded
+      txn({ isoDate: '2026-05-02', paise: 188290, direction: 'in', transferRole: 'cc_payment_received' }), // card leg: excluded
+      txn({ isoDate: '2026-05-03', paise: 90600, direction: 'out' }), // a real card spend: counted
+      txn({ isoDate: '2026-05-04', paise: 20100, direction: 'in', isRefund: true }), // cashback: refund
+    ]);
+    expect(t.spentPaise).toBe(90600); // only the real spend
+    expect(t.receivedPaise).toBe(0); // the payment-received leg is NOT income
+    expect(t.refundPaise).toBe(20100);
+    expect(t.txnCount).toBe(2); // the two cc-payment legs are excluded from the count
+  });
+
   it('keeps lending principal out of the category breakdown', () => {
     const bd = categoryBreakdown(
       [

@@ -236,6 +236,7 @@ export function saveTransactions(txns: NormalizedTxn[], sourceLabel: string | nu
       rawTag: t.rawTag,
       remarks: t.remarks,
       isRefund: t.kind === 'refund',
+      transferRole: t.transferRole ?? null,
       source: t.source,
       sourceRef: t.sourceRef,
       orderId: t.orderId,

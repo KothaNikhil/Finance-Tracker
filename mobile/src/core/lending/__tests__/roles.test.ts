@@ -1,5 +1,7 @@
 import {
   ALL_ROLES,
+  EXCLUDED_FROM_TOTALS_ROLES,
+  isExcludedFromTotals,
   isPrincipal,
   isTransferRole,
   loanBalanceFromParts,
@@ -35,6 +37,27 @@ describe('transfer roles', () => {
     expect(isPrincipal('gift_given')).toBe(false);
     expect(isPrincipal(null)).toBe(false);
     expect(isPrincipal(undefined)).toBe(false);
+  });
+
+  it('excludes principal AND both credit-card payment legs from totals', () => {
+    expect([...EXCLUDED_FROM_TOTALS_ROLES].sort()).toEqual(
+      ['borrowed', 'cc_payment', 'cc_payment_received', 'lent', 'lent_interest', 'repaid_by_me', 'repaid_to_me'].sort(),
+    );
+    expect(isExcludedFromTotals('cc_payment')).toBe(true);
+    expect(isExcludedFromTotals('cc_payment_received')).toBe(true);
+    expect(isExcludedFromTotals('lent')).toBe(true); // principal still excluded
+    expect(isExcludedFromTotals('interest_received')).toBe(false); // interest still counts
+    expect(isExcludedFromTotals('gift_given')).toBe(false);
+    expect(isExcludedFromTotals(null)).toBe(false);
+  });
+
+  it('treats the card-payment roles as system roles (recognised, not in the lending picker)', () => {
+    expect(isTransferRole('cc_payment')).toBe(true);
+    expect(isTransferRole('cc_payment_received')).toBe(true);
+    expect(ALL_ROLES).not.toContain('cc_payment'); // not offered as a pickable lending role
+    expect(ALL_ROLES).not.toContain('cc_payment_received');
+    expect(roleDirection('cc_payment')).toBe('out');
+    expect(roleDirection('cc_payment_received')).toBe('in');
   });
 
   it('directions match the taxonomy (out = money leaving)', () => {

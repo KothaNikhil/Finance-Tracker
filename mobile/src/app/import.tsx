@@ -25,10 +25,13 @@ import type { MonthKey, TxnFilter } from '@/core/analytics';
 import type { TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
 import { axisAdapter } from '@/core/import/adapters/axis';
+import { axisCcAdapter } from '@/core/import/adapters/axis-cc';
 import { kvbAdapter } from '@/core/import/adapters/kvb';
 import { paytmAdapter } from '@/core/import/adapters/paytm';
 import { sbiAdapter } from '@/core/import/adapters/sbi';
 import { decryptWorkbook, isEncryptedWorkbook, WrongPasswordError } from '@/core/import/decrypt';
+import { isEncryptedPdf, pdfFileKey } from '@/core/import/pdf/decrypt-pdf';
+import { parsePdfToSheets } from '@/core/import/pdf/pdf-text';
 import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
 import { parseXlsxBytes } from '@/core/import/xlsx';
@@ -50,6 +53,11 @@ import {
   setPendingImport,
 } from '@/services/db/repository';
 import { SESSION_START } from '@/services/session';
+
+/** True when these bytes start with the `%PDF-` magic (a credit-card statement vs an xlsx/xls). */
+function isPdfBytes(bytes: Uint8Array): boolean {
+  return bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+}
 
 // A tiny built-in sample (no personal data) for a one-tap demo of import + auto-categorization.
 // A mix of tagged rows (categorize confidently), a known merchant (Zepto → Groceries), and
@@ -120,7 +128,7 @@ export default function ImportScreen() {
     (sheets: SheetLike[], sourceLabel: string) => {
       const preview = runImport(
         sheets,
-        [paytmAdapter, axisAdapter, kvbAdapter, sbiAdapter],
+        [paytmAdapter, axisAdapter, kvbAdapter, sbiAdapter, axisCcAdapter],
         getExistingDedupeKeys(),
       );
       // Duplicates (same UPI ref already stored from the other statement) can still be reconciled:
@@ -197,6 +205,16 @@ export default function ImportScreen() {
             clearPendingImport(); // the cache file is gone — drop the marker so we don't loop
             throw err;
           }
+          // Credit-card statements are PDFs; bank/Paytm statements are xlsx/xls (CFB when locked).
+          if (isPdfBytes(bytes)) {
+            if (isEncryptedPdf(bytes)) {
+              setLocked({ uri, label });
+              return;
+            }
+            clearPendingImport();
+            commit(parsePdfToSheets(bytes), label);
+            return;
+          }
           if (isEncryptedWorkbook(bytes)) {
             // Keep the marker set: if the app is reloaded by the lock, we resume this prompt.
             setLocked({ uri, label });
@@ -219,6 +237,7 @@ export default function ImportScreen() {
         type: [
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
           'application/vnd.ms-excel', // .xls (older banks, e.g. Axis, export this)
+          'application/pdf', // credit-card statements
           'application/octet-stream',
         ],
         copyToCacheDirectory: true,
@@ -265,9 +284,16 @@ export default function ImportScreen() {
             return;
           }
           try {
-            const decrypted = decryptWorkbook(bytes, password);
-            clearPendingImport();
-            commit(parseXlsxBytes(decrypted), label);
+            if (isPdfBytes(bytes)) {
+              // Verify + derive the key (throws WrongPasswordError on a bad password), then parse.
+              const key = pdfFileKey(bytes, password);
+              clearPendingImport();
+              commit(parsePdfToSheets(bytes, key), label);
+            } else {
+              const decrypted = decryptWorkbook(bytes, password);
+              clearPendingImport();
+              commit(parseXlsxBytes(decrypted), label);
+            }
           } catch (err) {
             if (err instanceof WrongPasswordError) {
               setLocked({ uri, label }); // reopen so they can retry (marker still set)

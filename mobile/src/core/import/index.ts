@@ -5,3 +5,6 @@ export * from './xlsx';
 export { paytmAdapter } from './adapters/paytm';
 export { axisAdapter } from './adapters/axis';
 export { kvbAdapter } from './adapters/kvb';
+export { axisCcAdapter } from './adapters/axis-cc';
+export { isEncryptedPdf, pdfFileKey, decryptPdfData } from './pdf/decrypt-pdf';
+export { parsePdfToSheets, parsePdfPositionedText } from './pdf/pdf-text';

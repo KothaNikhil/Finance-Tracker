@@ -5,7 +5,7 @@
  * every total, and refunds/cashback offset spend rather than counting as income.
  */
 
-import { isPrincipal } from '../lending/roles';
+import { isExcludedFromTotals } from '../lending/roles';
 import type {
   AnalyticsTxn,
   CategorySpend,
@@ -29,12 +29,13 @@ function emptyTotals(): PeriodTotals {
 
 /**
  * Fold one transaction into a totals accumulator.
- * Self-transfers, and lending PRINCIPAL (lend/borrow/repay), contribute nothing — they're transfers,
- * not spend or income. Interest and gifts/donations DO count. `netSpentPaise` = spent − refund.
+ * Self-transfers, lending PRINCIPAL (lend/borrow/repay), and credit-card bill-payment legs contribute
+ * nothing — they're transfers, not spend or income. Interest and gifts/donations DO count.
+ * `netSpentPaise` = spent − refund.
  */
 function addTxn(t: PeriodTotals, txn: AnalyticsTxn): void {
   if (txn.direction === 'self') return;
-  if (isPrincipal(txn.transferRole)) return;
+  if (isExcludedFromTotals(txn.transferRole)) return;
 
   if (txn.direction === 'out') {
     t.spentPaise += txn.paise;
@@ -129,7 +130,7 @@ export function categoryBreakdown(
   const byCat = new Map<number | null, CategorySpend>();
   for (const txn of txns) {
     if (txn.direction !== 'out') continue;
-    if (isPrincipal(txn.transferRole)) continue; // lending principal isn't spend
+    if (isExcludedFromTotals(txn.transferRole)) continue; // lending principal / card bill payment isn't spend
     if (!inPeriod(txn.isoDate, filter)) continue;
     const key = txn.categoryId ?? null;
     let c = byCat.get(key);
@@ -153,7 +154,7 @@ export function subcategoryBreakdown(
   const bySub = new Map<number | null, SubcategorySpend>();
   for (const txn of txns) {
     if (txn.direction !== 'out') continue;
-    if (isPrincipal(txn.transferRole)) continue; // lending principal isn't spend
+    if (isExcludedFromTotals(txn.transferRole)) continue; // lending principal / card bill payment isn't spend
     if (txn.categoryId !== categoryId) continue;
     if (!inPeriod(txn.isoDate, filter)) continue;
     const key = txn.subcategoryId ?? null;

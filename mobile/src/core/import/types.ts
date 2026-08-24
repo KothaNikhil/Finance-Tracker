@@ -7,6 +7,7 @@
  */
 
 import type { Direction } from '../domain/money';
+import type { TransferRole } from '../lending/roles';
 
 /** Where a transaction came from. */
 export type TxnSource = 'paytm' | 'manual' | 'phonepe' | 'gpay' | 'bank' | 'cc';
@@ -60,8 +61,26 @@ export interface NormalizedTxn {
    * to tally total debit/credit against the statement. `undefined` on sources that don't track it.
    */
   ledgerSide?: LedgerSide;
+  /**
+   * Money-lent / transfer role to stamp on the saved row, or null/undefined for an ordinary
+   * transaction. Only the credit-card adapter sets this today (the card's own "payment received" leg
+   * → `cc_payment_received`, which is excluded from totals); every other adapter leaves it null.
+   */
+  transferRole?: TransferRole | null;
   /** Stable key used to detect duplicates across imports. */
   dedupeKey: string;
+}
+
+/** One extracted text run (a word/column cell) at its device x-position within a PDF line. */
+export interface PdfTextSpan {
+  x: number;
+  text: string;
+}
+
+/** A visual line of extracted PDF text: spans left-to-right at a shared baseline `y`. */
+export interface PdfPositionedLine {
+  y: number;
+  spans: PdfTextSpan[];
 }
 
 /** Minimal shape of a parsed worksheet the adapter works with. */
@@ -77,6 +96,11 @@ export interface SheetLike {
    * header row in here rather than trusting row 1.
    */
   matrix: string[][];
+  /**
+   * For sheets sourced from a PDF (not xlsx): the extracted positioned text lines, so a PDF adapter
+   * can band columns by x. Absent on spreadsheet sheets. See {@link ./pdf/pdf-text}.
+   */
+  pdfLines?: PdfPositionedLine[];
 }
 
 /** One per money source. Adding a new source = adding one of these. */

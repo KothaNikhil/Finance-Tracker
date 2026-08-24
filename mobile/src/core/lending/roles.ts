@@ -26,7 +26,10 @@ export type TransferRole =
   | 'gift_given' // pure outflow (real spend), no ledger effect
   | 'gift_received' // pure inflow (real income), no ledger effect
   | 'donation_given' // pure outflow (real spend)
-  | 'donation_received'; // pure inflow (real income)
+  | 'donation_received' // pure inflow (real income)
+  // Credit-card bill payment (NOT lending). Both legs are transfers, excluded from Spent/Received:
+  | 'cc_payment' // bank → card: the bank statement's bill-payment debit (set when linking, Phase B)
+  | 'cc_payment_received'; // the card statement's own incoming payment leg (mirror of `cc_payment`)
 
 /** Every role, in the order the picker shows them (money out first, then money in). */
 export const ALL_ROLES: readonly TransferRole[] = [
@@ -60,6 +63,22 @@ export function isPrincipal(role: TransferRole | null | undefined): boolean {
   return role != null && PRINCIPAL_ROLES.has(role);
 }
 
+/**
+ * Every role that must be pulled OUT of Spent/Received totals: lending principal PLUS the two
+ * credit-card bill-payment legs (a card bill payment is a bank↔card transfer, not spend/income —
+ * the individual card spends are the real expenses). Interest / gifts / donations still count.
+ */
+export const EXCLUDED_FROM_TOTALS_ROLES: ReadonlySet<TransferRole> = new Set<TransferRole>([
+  ...PRINCIPAL_ROLES,
+  'cc_payment',
+  'cc_payment_received',
+]);
+
+/** True when a role must be excluded from spend/income totals (principal or a card-payment leg). */
+export function isExcludedFromTotals(role: TransferRole | null | undefined): boolean {
+  return role != null && EXCLUDED_FROM_TOTALS_ROLES.has(role);
+}
+
 /** Which way the money moves for a role. Used to derive `direction` for a manual entry. */
 export function roleDirection(role: TransferRole): 'in' | 'out' {
   switch (role) {
@@ -70,11 +89,14 @@ export function roleDirection(role: TransferRole): 'in' | 'out' {
     case 'gift_given':
     case 'donation_given':
       return 'out';
+    case 'cc_payment':
+      return 'out';
     case 'borrowed':
     case 'repaid_to_me':
     case 'interest_received':
     case 'gift_received':
     case 'donation_received':
+    case 'cc_payment_received':
       return 'in';
   }
 }
@@ -98,6 +120,8 @@ export const ROLE_META: Record<TransferRole, RoleMeta> = {
   interest_received: { label: 'Interest received', emoji: '📈', group: 'in' },
   gift_received: { label: 'Gift received', emoji: '🎁', group: 'in' },
   donation_received: { label: 'Donation received', emoji: '🙏', group: 'in' },
+  cc_payment: { label: 'Card bill payment', emoji: '💳', group: 'out' },
+  cc_payment_received: { label: 'Card payment received', emoji: '💳', group: 'in' },
 };
 
 /** Short label for a role, e.g. `💸 Lent`. */
@@ -121,18 +145,25 @@ export function roleFavorable(role: TransferRole): boolean {
     case 'gift_received':
     case 'donation_received':
       return true;
+    case 'cc_payment_received':
+      return true;
     case 'borrowed':
     case 'repaid_by_me':
     case 'interest_paid':
     case 'gift_given':
     case 'donation_given':
+    case 'cc_payment':
       return false;
   }
 }
 
-/** True for a string that is one of our known roles (guards values read back from the DB). */
+/**
+ * True for a string that is one of our known roles (guards values read back from the DB). Validates
+ * against {@link ROLE_META} rather than {@link ALL_ROLES} so system-assigned roles kept out of the
+ * lending picker (the credit-card legs) still resolve for display.
+ */
 export function isTransferRole(value: string | null | undefined): value is TransferRole {
-  return value != null && (ALL_ROLES as readonly string[]).includes(value);
+  return value != null && Object.prototype.hasOwnProperty.call(ROLE_META, value);
 }
 
 /** A loan's direction: `lent` = they owe me; `borrowed` = I owe them. */
