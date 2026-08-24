@@ -4,7 +4,7 @@
  * live query, so edits here re-render the list automatically — no manual refresh needed.
  */
 
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EditableList, type EditableItem } from '@/components/editable-list';
@@ -43,7 +43,14 @@ export function SubcategoryManager({ category, onClose }: SubcategoryManagerProp
             <View style={styles.headerSpacer} />
           </View>
 
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          {/* iOS uses the ScrollView's own keyboard insets; Android is edge-to-edge (no window
+              resize), so shrink the scroll area to keep the edited sub-category visible. */}
+          <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'android' ? 'height' : undefined}>
+            <ScrollView
+              contentContainerStyle={styles.content}
+              keyboardShouldPersistTaps="handled"
+              automaticallyAdjustKeyboardInsets
+            >
             <ThemedText type="smallBold">Sub-categories</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               Suggestions shown when you categorize a transaction in this category.
@@ -68,7 +75,8 @@ export function SubcategoryManager({ category, onClose }: SubcategoryManagerProp
                 onReorder={(ids) => reorderSubcategories(ids)}
               />
             )}
-          </ScrollView>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </ThemedView>
     </Modal>
@@ -77,6 +85,7 @@ export function SubcategoryManager({ category, onClose }: SubcategoryManagerProp
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  fill: { flex: 1 },
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
   header: {
     flexDirection: 'row',

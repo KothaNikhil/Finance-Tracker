@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
@@ -51,7 +51,9 @@ export function TextInputModal({
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
-      <View style={styles.backdrop}>
+      {/* Lift the centered card above the keyboard. Both platforms: iOS never resizes for the
+          keyboard, and this app is edge-to-edge so Android's Modal doesn't resize either. */}
+      <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
         <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityLabel="Cancel" />
         <ThemedView type="backgroundElement" style={styles.card}>
           <ThemedText type="subtitle">{title}</ThemedText>
@@ -81,7 +83,7 @@ export function TextInputModal({
             />
           </View>
         </ThemedView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

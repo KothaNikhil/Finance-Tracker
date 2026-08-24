@@ -11,15 +11,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import {
-  Keyboard,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
@@ -55,9 +47,6 @@ export function CategoryPicker({
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftEmoji, setDraftEmoji] = useState('');
-  // Height of the on-screen keyboard, so we can lift the bottom sheet clear of it (Android
-  // doesn't resize a transparent Modal for the keyboard, so we do it ourselves).
-  const [kbHeight, setKbHeight] = useState(0);
 
   // Reset to the category list every time the sheet opens.
   useEffect(() => {
@@ -68,17 +57,6 @@ export function CategoryPicker({
       setDraftEmoji('');
     }
   }, [visible]);
-
-  useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates?.height ?? 0));
-    const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   const startAdding = () => {
     setDraftName('');
@@ -134,8 +112,8 @@ export function CategoryPicker({
       : 'Choose category';
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} backdropPaddingBottom={kbHeight}>
-      <SafeAreaView edges={kbHeight > 0 ? [] : ['bottom']} style={styles.flexible}>
+    <BottomSheet visible={visible} onClose={onClose}>
+      <SafeAreaView edges={['bottom']} style={styles.flexible}>
               <View style={styles.header}>
                 <Pressable onPress={onBack} hitSlop={8}>
                   <ThemedText type="link" themeColor="textSecondary">

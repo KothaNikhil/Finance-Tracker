@@ -87,7 +87,7 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
           <ThemedText type="overline" themeColor="textSecondary" style={styles.sectionTitle}>
             TRANSACTIONS · tap to edit
           </ThemedText>
-          {loan.txns.length === 0 ? (
+          {loan.txns.length === 0 && loan.allocations.length === 0 ? (
             <ThemedText type="small" themeColor="textSecondary">
               No transactions yet — add one or attach existing.
             </ThemedText>
@@ -118,6 +118,33 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
               );
             })
           )}
+
+          {/* Split slices — a portion of a payment that also settles other loans. */}
+          {loan.allocations.map((a) => {
+            const out = a.direction === 'out';
+            const partLabel = a.part === 'principal' ? 'Principal' : a.part === 'repayment' ? 'Repayment' : a.part === 'interest' ? 'Interest' : 'Split';
+            return (
+              <Pressable
+                key={`alloc-${a.id}`}
+                onPress={() => onPressTxn(a.txnId)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.row, { borderBottomColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
+              >
+                <View style={styles.rowLeft}>
+                  <ThemedText type="default" numberOfLines={1}>
+                    🔗 {partLabel} (part of a payment)
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                    {a.isoDate}
+                    {a.label ? ` · ${a.label}` : ''}
+                  </ThemedText>
+                </View>
+                <ThemedText type="smallBold" style={{ color: out ? theme.spend : theme.income }}>
+                  {out ? '−' : '+'} {formatINR(a.paise)}
+                </ThemedText>
+              </Pressable>
+            );
+          })}
 
           <Pressable onPress={confirmDelete} accessibilityRole="button" style={({ pressed }) => [styles.deleteBtn, { borderColor: theme.spend, opacity: pressed ? 0.6 : 1 }]}>
             <ThemedText type="smallBold" style={{ color: theme.spend }}>

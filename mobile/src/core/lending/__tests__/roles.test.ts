@@ -2,6 +2,7 @@ import {
   ALL_ROLES,
   isPrincipal,
   isTransferRole,
+  loanBalanceFromParts,
   loanBalanceFromTxns,
   loanPartOf,
   perPersonBalances,
@@ -151,5 +152,31 @@ describe('loan grouping helpers', () => {
     expect(bal.repaidPaise).toBe(800000_00); // 5L + 3L
     expect(bal.outstandingPaise).toBe(-200000_00); // over-repaid by the interest-ish surplus
     expect(bal.interestPaise).toBe(15200_00);
+  });
+
+  it('loanBalanceFromParts rolls direct txns + split slices into one balance', () => {
+    // The two-reason case: SMR lent ₹6L (one loan) + ₹2L (donation loan); an ₹8L repayment split
+    // ₹6L→loan6 + ₹2L→donation. Loan6 then reads: principal 6L, repaid 6L → settled.
+    const loan6 = loanBalanceFromParts([
+      { part: 'principal', paise: 600000_00 }, // three lent txns collapsed for the test
+      { part: 'repayment', paise: 600000_00 }, // the ₹6L slice of the split repayment
+      { part: 'interest', paise: 15200_00 },
+    ]);
+    expect(loan6.outstandingPaise).toBe(0);
+    expect(loan6.interestPaise).toBe(15200_00);
+
+    const donation = loanBalanceFromParts([
+      { part: 'principal', paise: 200000_00 },
+      { part: 'repayment', paise: 200000_00 }, // the ₹2L slice of the same split repayment
+    ]);
+    expect(donation.outstandingPaise).toBe(0);
+
+    // A null part (gift/donation/untagged) contributes to nothing.
+    expect(loanBalanceFromParts([{ part: null, paise: 999 }])).toEqual({
+      principalPaise: 0,
+      repaidPaise: 0,
+      outstandingPaise: 0,
+      interestPaise: 0,
+    });
   });
 });

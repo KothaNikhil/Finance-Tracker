@@ -42,6 +42,7 @@ export const BACKUP_TABLES = [
   'people',
   'loans',
   'transactions',
+  'loan_allocations',
   'category_rules',
 ] as const;
 

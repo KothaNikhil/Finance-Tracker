@@ -43,6 +43,9 @@ describe('BACKUP_TABLES', () => {
   it('orders loans after its people FK and before transactions (its dependent)', () => {
     expect(BACKUP_TABLES.indexOf('people')).toBeLessThan(BACKUP_TABLES.indexOf('loans'));
     expect(BACKUP_TABLES.indexOf('loans')).toBeLessThan(BACKUP_TABLES.indexOf('transactions'));
+    // loan_allocations references both transactions and loans, so it must restore after both.
+    expect(BACKUP_TABLES.indexOf('transactions')).toBeLessThan(BACKUP_TABLES.indexOf('loan_allocations'));
+    expect(BACKUP_TABLES.indexOf('loans')).toBeLessThan(BACKUP_TABLES.indexOf('loan_allocations'));
   });
 });
 

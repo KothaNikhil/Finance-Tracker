@@ -4,13 +4,14 @@
  * user's edits. Keeps SQL/Drizzle details in one place so screens stay simple.
  */
 
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { getDb, getSqlite } from './database';
 import {
   categories,
   categoryRules,
   DATA_UPDATED_AT_KEY,
+  loanAllocations,
   loans,
   paymentModes,
   people,
@@ -421,7 +422,18 @@ export function setLoanClosed(loanId: number, closed: boolean): void {
 /** Delete a loan — its transactions are detached (kept as ordinary rows), then the loan is removed. */
 export function deleteLoan(loanId: number): void {
   const db = getDb();
+  // Directly-attached transactions → back to ordinary, untagged rows.
   db.update(transactions).set({ loanId: null, transferRole: null }).where(eq(transactions.loanId, loanId)).run();
+  // Split allocations pointing at this loan: remember their txns, drop the slices, then clear the
+  // role on any split txn left with no remaining allocation (it's no longer part of any loan).
+  const affected = db.select({ txnId: loanAllocations.txnId }).from(loanAllocations).where(eq(loanAllocations.loanId, loanId)).all();
+  db.delete(loanAllocations).where(eq(loanAllocations.loanId, loanId)).run();
+  for (const { txnId } of affected) {
+    const remaining = db.select({ n: sql<number>`count(*)` }).from(loanAllocations).where(eq(loanAllocations.txnId, txnId)).get();
+    if ((remaining?.n ?? 0) === 0) {
+      db.update(transactions).set({ transferRole: null }).where(and(eq(transactions.id, txnId), isNull(transactions.loanId))).run();
+    }
+  }
   db.delete(loans).where(eq(loans.id, loanId)).run();
   touchDataUpdatedAt();
 }
@@ -444,13 +456,52 @@ export function attachTransactionToLoan(txnId: number, loanId: number, part: Loa
   };
   const row = db.select({ source: transactions.source }).from(transactions).where(eq(transactions.id, txnId)).get();
   if (row?.source === 'manual') patch.direction = roleDirection(role);
+  // A single-loan attachment and a split are mutually exclusive — drop any prior split.
+  db.delete(loanAllocations).where(eq(loanAllocations.txnId, txnId)).run();
   db.update(transactions).set(patch).where(eq(transactions.id, txnId)).run();
   touchDataUpdatedAt();
 }
 
-/** Detach a transaction from its loan (back to an ordinary, untagged transaction). */
+/**
+ * Split ONE transaction across several loans (e.g. a lump repayment that clears two loans). All
+ * target loans must be the same kind (their role/direction is shared by the one transaction). The
+ * transaction keeps a single `transfer_role` (so analytics still treats it as one transfer); each
+ * slice is recorded as a `loan_allocations` row. Replaces any prior attachment/split on the txn.
+ */
+export function splitTransactionAcrossLoans(
+  txnId: number,
+  part: LoanPart,
+  allocations: { loanId: number; paise: number }[],
+): void {
+  const slices = allocations.filter((a) => a.paise > 0);
+  if (slices.length === 0) return;
+  const metas = slices.map((a) => ({ ...a, meta: getLoanMeta(a.loanId) }));
+  if (metas.some((m) => m.meta == null)) return;
+  const kind = metas[0].meta!.kind;
+  if (metas.some((m) => m.meta!.kind !== kind)) return; // mixed lent/borrowed can't share one role
+  const role = roleForLoanPart(kind, part);
+  const personIds = new Set(metas.map((m) => m.meta!.personId));
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const patch: Partial<NewTransactionRow> = { loanId: null, transferRole: role, needsReview: false };
+  if (personIds.size === 1) patch.personId = metas[0].meta!.personId; // all slices to one person
+  const row = db.select({ source: transactions.source }).from(transactions).where(eq(transactions.id, txnId)).get();
+  if (row?.source === 'manual') patch.direction = roleDirection(role);
+
+  db.delete(loanAllocations).where(eq(loanAllocations.txnId, txnId)).run();
+  db.update(transactions).set(patch).where(eq(transactions.id, txnId)).run();
+  for (const s of slices) {
+    db.insert(loanAllocations).values({ txnId, loanId: s.loanId, paise: s.paise, createdAt: now }).run();
+  }
+  touchDataUpdatedAt();
+}
+
+/** Detach a transaction from its loan / split (back to an ordinary, untagged transaction). */
 export function detachTransactionFromLoan(txnId: number): void {
-  getDb().update(transactions).set({ loanId: null, transferRole: null }).where(eq(transactions.id, txnId)).run();
+  const db = getDb();
+  db.delete(loanAllocations).where(eq(loanAllocations.txnId, txnId)).run();
+  db.update(transactions).set({ loanId: null, transferRole: null }).where(eq(transactions.id, txnId)).run();
   touchDataUpdatedAt();
 }
 
@@ -736,14 +787,17 @@ export function clearTransactionCategory(txnId: number): void {
 
 /** Delete a single transaction (hard delete). Leaves learned rules and lists intact. */
 export function deleteTransaction(id: number): void {
-  getDb().delete(transactions).where(eq(transactions.id, id)).run();
+  const db = getDb();
+  db.delete(loanAllocations).where(eq(loanAllocations.txnId, id)).run(); // FK children first
+  db.delete(transactions).where(eq(transactions.id, id)).run();
   touchDataUpdatedAt();
 }
 
 /** Remove all transactions + loans ("Delete all data" in Manage). Leaves learned rules and lists intact. */
 export function clearAllTransactions(): void {
   const db = getDb();
-  db.delete(transactions).run(); // children first
+  db.delete(loanAllocations).run(); // FK children of transactions + loans first
+  db.delete(transactions).run();
   db.delete(loans).run();
   touchDataUpdatedAt();
 }

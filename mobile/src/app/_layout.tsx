@@ -7,12 +7,15 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
+import { LastEditedPill } from '@/components/last-edited-pill';
 import { LockScreen } from '@/components/lock-screen';
 import { LoginScreen } from '@/components/login-screen';
+import { TransactionDetailController } from '@/components/transaction-detail-controller';
 import { AppLockProvider, useAppLock } from '@/hooks/use-app-lock';
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ThemePreferenceProvider } from '@/hooks/use-theme-preference';
+import { TransactionDetailProvider } from '@/hooks/use-transaction-detail';
 import { warmUpDatabaseAsync } from '@/services/db/database';
 
 SplashScreen.preventAutoHideAsync();
@@ -57,8 +60,17 @@ function Gate() {
   if (lock.locked) return <LockScreen />;
   // Key the DB-backed app on the account id: switching accounts remounts every screen so their
   // live queries re-bind to that account's own database (AuthProvider already pointed the DB at it).
+  // Keying the provider (which wraps the tabs) remounts the whole subtree AND resets the global
+  // detail / last-edited state, so a stale transaction id from another account can't leak across.
   const accountKey = auth.configured ? (auth.session?.user?.id ?? null) : null;
-  return <AppTabs key={accountKey ?? 'default'} />;
+  return (
+    <TransactionDetailProvider key={accountKey ?? 'default'}>
+      <AppTabs />
+      {/* The single, app-wide transaction detail sheet + the "reopen last edited" pill, on every tab. */}
+      <TransactionDetailController />
+      <LastEditedPill />
+    </TransactionDetailProvider>
+  );
 }
 
 /**

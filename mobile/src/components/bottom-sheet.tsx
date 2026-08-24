@@ -13,6 +13,14 @@
  * The body area is a flex column that can shrink, so a ScrollView child (with flexShrink) scrolls
  * within the sheet instead of overflowing/clipping.
  *
+ * Keyboard avoidance is built in ONCE here, so no sheet needs its own listener. We lift the sheet
+ * by the keyboard's height (padding on the dim backdrop, which keeps the dim covering the whole
+ * screen) on BOTH platforms. iOS never resizes a Modal for the keyboard; and although RN hardcodes
+ * `adjustResize` on a Modal's Android window, this app is edge-to-edge (`edgeToEdgeEnabled=true`),
+ * which neutralises that resize on Android 15 — so without our own lift the sheet stays put and the
+ * keyboard covers it. Fixed-height sheets also get `maxHeight: '100%'` so they clamp to the space
+ * above the keyboard (their inner ScrollView then scrolls) instead of overflowing off the top.
+ *
  * The drag-to-dismiss uses react-native-gesture-handler + Reanimated (NOT an RN PanResponder): on
  * the New Architecture, a PanResponder inside a Modal is swallowed and never fires. A Modal is its
  * own view hierarchy, so it needs its OWN `GestureHandlerRootView` here — the app-root one doesn't
@@ -20,8 +28,8 @@
  * `gestureRoot` is no longer needed by callers but is accepted for backwards compatibility.
  */
 
-import { type ReactNode } from 'react';
-import { Dimensions, Modal, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Dimensions, Keyboard, Modal, Platform, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -37,8 +45,6 @@ export interface BottomSheetProps {
   children: ReactNode;
   /** Fixed height as a fraction of the screen (e.g. 0.85). Omit for content height capped at 90%. */
   heightFraction?: number;
-  /** Extra bottom padding on the backdrop, e.g. to lift the sheet above the keyboard. */
-  backdropPaddingBottom?: number;
   /** @deprecated The sheet now always provides its own gesture root; this is ignored. */
   gestureRoot?: boolean;
   /** Optional style overrides for the sheet container. */
@@ -53,13 +59,27 @@ export function BottomSheet({
   onClose,
   children,
   heightFraction,
-  backdropPaddingBottom,
   sheetStyle,
 }: BottomSheetProps) {
   const theme = useTheme();
   const height = heightFraction != null ? Math.round(Dimensions.get('window').height * heightFraction) : undefined;
   const translateY = useSharedValue(0);
   const screenHeight = Dimensions.get('window').height;
+
+  // Lift the sheet above the keyboard (both platforms — see the module comment). Tracked here once
+  // so no individual sheet needs its own listener. iOS gets the `will` events (fire before the
+  // animation, so the lift is in step); Android only emits the `did` events.
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates?.height ?? 0));
+    const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   // Reset the sheet to its resting position whenever it (re)opens. Done in the Modal's `onShow`
   // (an event, not an effect) so the compiler allows the shared-value writes in the gestures below.
@@ -93,13 +113,14 @@ export function BottomSheet({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose} onShow={reset}>
       <GestureHandlerRootView style={styles.grow}>
-        <View style={[styles.backdrop, backdropPaddingBottom ? { paddingBottom: backdropPaddingBottom } : null]}>
+        <View style={[styles.backdrop, kbHeight > 0 ? { paddingBottom: kbHeight } : null]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
           <Animated.View
             style={[
               styles.sheet,
               { backgroundColor: theme.background },
-              height != null ? { height } : styles.maxHeight,
+              // Clamp a fixed-height sheet to the space above the keyboard so it never runs off the top.
+              height != null ? { height, maxHeight: '100%' } : styles.maxHeight,
               sheetStyle,
               sheetAnimStyle,
             ]}

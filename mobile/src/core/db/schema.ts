@@ -92,6 +92,26 @@ export const transactions = sqliteTable('transactions', {
 });
 
 /**
+ * Splits ONE transaction across several loans. When a single payment settles more than one loan
+ * (e.g. a lump repayment that clears two separate loans to the same person), the transaction keeps
+ * its single `transfer_role` (so analytics is unaffected — it's still one transfer) and its
+ * `loan_id` is left null; instead one allocation row per loan records how much of the amount applies
+ * to that loan. A directly-attached transaction (single loan) uses `transactions.loan_id` and has NO
+ * allocation rows. The two mechanisms are mutually exclusive.
+ */
+export const loanAllocations = sqliteTable('loan_allocations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  txnId: integer('txn_id')
+    .notNull()
+    .references(() => transactions.id),
+  loanId: integer('loan_id')
+    .notNull()
+    .references(() => loans.id),
+  paise: integer('paise').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
+/**
  * Rules the auto-categorizer learns from the user's edits. When the user re-files a
  * transaction, we remember "this counterparty (or tag) → this category" so future imports of
  * the same payee are categorized automatically. `matcherKey` is stored normalized.
@@ -118,6 +138,7 @@ export const categoryRules = sqliteTable(
 export type TransactionRow = typeof transactions.$inferSelect;
 export type NewTransactionRow = typeof transactions.$inferInsert;
 export type LoanRow = typeof loans.$inferSelect;
+export type LoanAllocationRow = typeof loanAllocations.$inferSelect;
 export type CategoryRow = typeof categories.$inferSelect;
 export type SubcategoryRow = typeof subcategories.$inferSelect;
 export type CategoryRuleRow = typeof categoryRules.$inferSelect;
@@ -212,6 +233,15 @@ CREATE TABLE IF NOT EXISTS category_rules (
   updated_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_category_rules_matcher ON category_rules(matcher_type, matcher_key);
+CREATE TABLE IF NOT EXISTS loan_allocations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  txn_id INTEGER NOT NULL REFERENCES transactions(id),
+  loan_id INTEGER NOT NULL REFERENCES loans(id),
+  paise INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_loan_allocations_loan ON loan_allocations(loan_id);
+CREATE INDEX IF NOT EXISTS idx_loan_allocations_txn ON loan_allocations(txn_id);
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT

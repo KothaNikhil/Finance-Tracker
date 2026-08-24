@@ -3,8 +3,8 @@
  * part (principal / repayment / interest) and an optional note.
  */
 
-import { useEffect, useState } from 'react';
-import { Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
@@ -43,7 +43,6 @@ export function LoanTxnForm({ visible, onSubmit, onClose }: LoanTxnFormProps) {
   const [part, setPart] = useState<LoanPart | null>(null);
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState('');
-  const [kbHeight, setKbHeight] = useState(0);
 
   const [prevVisible, setPrevVisible] = useState(visible);
   if (visible !== prevVisible) {
@@ -55,17 +54,6 @@ export function LoanTxnForm({ visible, onSubmit, onClose }: LoanTxnFormProps) {
       setNote('');
     }
   }
-
-  useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates?.height ?? 0));
-    const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   const submit = () => {
     let paise: number;
@@ -84,8 +72,8 @@ export function LoanTxnForm({ visible, onSubmit, onClose }: LoanTxnFormProps) {
   const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }];
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} heightFraction={0.85} backdropPaddingBottom={kbHeight}>
-      <SafeAreaView edges={kbHeight > 0 ? [] : ['bottom']} style={styles.flexible}>
+    <BottomSheet visible={visible} onClose={onClose} heightFraction={0.85}>
+      <SafeAreaView edges={['bottom']} style={styles.flexible}>
         <View style={styles.header}>
           <ThemedText type="smallBold">Add to this loan</ThemedText>
           <Pressable onPress={onClose} hitSlop={8}>

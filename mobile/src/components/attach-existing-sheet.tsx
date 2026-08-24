@@ -5,8 +5,8 @@
  * the "these ₹50k–₹10L credits are repayments for this loan" case from a bank import.
  */
 
-import { useEffect, useState } from 'react';
-import { Keyboard, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
@@ -50,7 +50,6 @@ export function AttachExistingSheet({ visible, onAttach, onClose }: AttachExisti
   const [maxText, setMaxText] = useState('');
   const [search, setSearch] = useState('');
   const [direction, setDirection] = useState<Direction | undefined>(undefined);
-  const [kbHeight, setKbHeight] = useState(0);
 
   const [prevVisible, setPrevVisible] = useState(visible);
   if (visible !== prevVisible) {
@@ -64,17 +63,6 @@ export function AttachExistingSheet({ visible, onAttach, onClose }: AttachExisti
       setDirection(undefined);
     }
   }
-
-  useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates?.height ?? 0));
-    const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   const filter: TxnFilter = {
     minPaise: textToPaise(minText),
@@ -101,8 +89,8 @@ export function AttachExistingSheet({ visible, onAttach, onClose }: AttachExisti
   const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }];
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} heightFraction={0.92} backdropPaddingBottom={kbHeight}>
-      <SafeAreaView edges={kbHeight > 0 ? [] : ['bottom']} style={styles.flexible}>
+    <BottomSheet visible={visible} onClose={onClose} heightFraction={0.92}>
+      <SafeAreaView edges={['bottom']} style={styles.flexible}>
         <View style={styles.header}>
           <ThemedText type="smallBold">Attach existing transactions</ThemedText>
           <Pressable onPress={onClose} hitSlop={8}>

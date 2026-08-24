@@ -3,8 +3,8 @@
  * (you lent / you borrowed). Self-contained — person is inline chips + add, no nested sheets.
  */
 
-import { useEffect, useState } from 'react';
-import { Keyboard, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useState } from 'react';
+import { Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
@@ -37,7 +37,6 @@ export function LoanFormModal({ visible, mode, initial, people, onAddPerson, onS
   const [personId, setPersonId] = useState<number | null>(initial?.personId ?? null);
   const [kind, setKind] = useState<LoanKind>(initial?.kind ?? 'lent');
   const [newPerson, setNewPerson] = useState('');
-  const [kbHeight, setKbHeight] = useState(0);
 
   // Seed the form from `initial` each time the sheet opens.
   const [prevVisible, setPrevVisible] = useState(visible);
@@ -50,17 +49,6 @@ export function LoanFormModal({ visible, mode, initial, people, onAddPerson, onS
       setNewPerson('');
     }
   }
-
-  useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates?.height ?? 0));
-    const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   const addPerson = () => {
     const n = newPerson.trim();
@@ -78,8 +66,8 @@ export function LoanFormModal({ visible, mode, initial, people, onAddPerson, onS
   const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }];
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} heightFraction={0.85} backdropPaddingBottom={kbHeight}>
-      <SafeAreaView edges={kbHeight > 0 ? [] : ['bottom']} style={styles.flexible}>
+    <BottomSheet visible={visible} onClose={onClose} heightFraction={0.85}>
+      <SafeAreaView edges={['bottom']} style={styles.flexible}>
         <View style={styles.header}>
           <ThemedText type="smallBold">{mode === 'create' ? 'New loan' : 'Edit loan'}</ThemedText>
           <Pressable onPress={onClose} hitSlop={8}>

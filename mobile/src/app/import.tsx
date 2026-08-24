@@ -10,17 +10,14 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
-import { AddToMoneyLentSheet, type LoanChoice } from '@/components/add-to-money-lent-sheet';
-import { CategoryPicker } from '@/components/category-picker';
 import { EmptyState } from '@/components/empty-state';
 import { PeriodTabs } from '@/components/period-tabs';
 import { StatTile } from '@/components/stat-tile';
 import { ThemedText } from '@/components/themed-text';
-import { TransactionDetail } from '@/components/transaction-detail';
 import { TransactionList } from '@/components/transaction-list';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -35,32 +32,21 @@ import { decryptWorkbook, isEncryptedWorkbook, WrongPasswordError } from '@/core
 import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
 import { parseXlsxBytes } from '@/core/import/xlsx';
-import { loanPartOf } from '@/core/lending/roles';
-import { useLoans } from '@/hooks/use-lending';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
-import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
+import { useTransactionDetail } from '@/hooks/use-transaction-detail';
+import { useCategoryIndex } from '@/hooks/use-reference-data';
 import { useDimensions, useSummary } from '@/hooks/use-analytics';
 import { useTransactionList } from '@/hooks/use-transactions';
 import { runAnalyticsParityCheck, seedRandomTransactions } from '@/services/db/dev-tools';
 import {
   acceptAllReviews,
-  acceptTransactionReview,
-  addCategory,
-  addPerson,
-  addSubcategory,
-  attachTransactionToLoan,
   clearPendingImport,
-  clearTransactionCategory,
-  createLoan,
-  deleteTransaction,
-  detachTransactionFromLoan,
   getExistingDedupeKeys,
   getPendingImport,
   reconcileDuplicatesFromImport,
   saveTransactions,
   setPendingImport,
-  setTransactionCategory,
 } from '@/services/db/repository';
 import { SESSION_START } from '@/services/session';
 
@@ -98,10 +84,8 @@ export default function ImportScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { busy, run } = useBusyAction();
-  // The transaction whose detail sheet is open; `pickerOpen` layers the category picker on top.
-  const [detailId, setDetailId] = useState<number | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [moneyLentOpen, setMoneyLentOpen] = useState(false);
+  // Tapping a row opens the app-wide transaction detail sheet (mounted at the root).
+  const { openTxn } = useTransactionDetail();
   // Which month of the current import is shown; null = the whole import.
   const [selectedMonth, setSelectedMonth] = useState<MonthKey | null>(null);
   // A picked, password-protected .xlsx waiting for its password. We hold the file's cache URI (not
@@ -123,24 +107,11 @@ export default function ImportScreen() {
   const { months } = useDimensions(sessionFilter);
 
   const index = useCategoryIndex();
-  const lists = useLists();
   const subNames = useMemo(() => {
     const m = new Map<number, string>();
     index.categories.forEach((c) => c.subcategories.forEach((s) => m.set(s.id, s.name)));
     return m;
   }, [index]);
-  const pmNames = useMemo(() => new Map(lists.paymentModes.map((p) => [p.id, p.name])), [lists.paymentModes]);
-  const personNames = useMemo(() => new Map(lists.people.map((p) => [p.id, p.name])), [lists.people]);
-
-  // Look the open transaction up live (the tapped row is always inside the loaded, live window).
-  const detailTxn = detailId != null ? (txns.find((t) => t.id === detailId) ?? null) : null;
-  const { active: activeLoans, closed: closedLoans, byId: loanById } = useLoans();
-  const loanChoices: LoanChoice[] = useMemo(
-    () => [...activeLoans, ...closedLoans].map((l) => ({ id: l.id, name: l.name, personName: l.personName, kind: l.kind })),
-    [activeLoans, closedLoans],
-  );
-  const detailLoan = detailTxn?.loanId != null ? loanById(detailTxn.loanId) : null;
-  const detailLoanLabel = detailLoan ? `${detailLoan.personName}${detailLoan.name ? ` · ${detailLoan.name}` : ''}` : null;
 
   const commit = useCallback(
     (sheets: SheetLike[], sourceLabel: string) => {
@@ -327,24 +298,6 @@ export default function ImportScreen() {
     );
   }, [reviewCount]);
 
-  const onPickCategory = useCallback(
-    (categoryId: number, subcategoryId: number | null) => {
-      if (detailId != null) setTransactionCategory(detailId, categoryId, subcategoryId, { learn: true });
-      setPickerOpen(false); // back to the detail sheet, which now shows the new category
-    },
-    [detailId],
-  );
-
-  const onAddCategory = useCallback((name: string, emoji: string | null) => addCategory(name, emoji), []);
-  const onAddSubcategory = useCallback((categoryId: number, name: string) => addSubcategory(categoryId, name), []);
-
-  // Stable so the memoized (recycled) TxnRow isn't invalidated each render.
-  const openDetail = useCallback((id: number) => {
-    setDetailId(id);
-    setPickerOpen(false);
-    setMoneyLentOpen(false);
-  }, []);
-
   const header = (
     <View style={styles.header}>
       <ThemedText type="subtitle">Import</ThemedText>
@@ -430,7 +383,7 @@ export default function ImportScreen() {
           loading={loading}
           hasMore={hasMore}
           loadMore={loadMore}
-          onPressRow={openDetail}
+          onPressRow={openTxn}
           categoryLabelFor={(t) => categoryLabel(t, index.byId, subNames)}
           showReviewBadge
           ListHeaderComponent={header}
@@ -450,62 +403,10 @@ export default function ImportScreen() {
         />
       </SafeAreaView>
 
-      <TransactionDetail
-        visible={detailTxn !== null && !pickerOpen && !moneyLentOpen}
-        txn={detailTxn}
-        categoryLabel={detailTxn ? categoryLabel(detailTxn, index.byId, subNames) : null}
-        paymentModeName={detailTxn?.paymentModeId != null ? (pmNames.get(detailTxn.paymentModeId) ?? null) : null}
-        personName={detailTxn?.personId != null ? (personNames.get(detailTxn.personId) ?? null) : null}
-        moneyLentLabel={detailLoanLabel}
-        onClose={() => setDetailId(null)}
-        onChangeCategory={() => setPickerOpen(true)}
-        onRemoveCategory={() => {
-          if (detailId != null) clearTransactionCategory(detailId);
-        }}
-        onAccept={() => {
-          if (detailId != null) acceptTransactionReview(detailId);
-        }}
-        onManageMoneyLent={() => setMoneyLentOpen(true)}
-        onDelete={() => {
-          if (detailId != null) deleteTransaction(detailId);
-        }}
-      />
-
-      <AddToMoneyLentSheet
-        visible={detailTxn !== null && moneyLentOpen}
-        txn={detailTxn}
-        loans={loanChoices}
-        people={lists.people}
-        currentLoanId={detailTxn?.loanId ?? null}
-        currentLoanName={detailLoanLabel ?? undefined}
-        currentPart={detailTxn ? loanPartOf(detailTxn.transferRole) : null}
-        onAddPerson={(name) => addPerson(name)}
-        onCreateLoan={(input) => createLoan(input)}
-        onAttach={(loanId, part) => {
-          if (detailId != null) attachTransactionToLoan(detailId, loanId, part);
-          setMoneyLentOpen(false);
-        }}
-        onDetach={() => {
-          if (detailId != null) detachTransactionFromLoan(detailId);
-          setMoneyLentOpen(false);
-        }}
-        onClose={() => setMoneyLentOpen(false)}
-      />
-
       {/* Inline overlay (NOT a React Native <Modal>): a separate-window Modal can be dropped when
           Samsung Knox App Lock re-authenticates and recreates the activity after the file picker.
           Rendering in the screen's own view tree keeps the prompt reliably on screen. */}
       {locked && <PasswordPrompt label={locked.label} onCancel={onCancelUnlock} onSubmit={onUnlock} />}
-
-      <CategoryPicker
-        visible={detailTxn !== null && pickerOpen}
-        categories={index.categories}
-        title={detailTxn ? (detailTxn.counterpartyName ?? detailTxn.rawDetails) : undefined}
-        onClose={() => setPickerOpen(false)}
-        onPick={onPickCategory}
-        onAddCategory={onAddCategory}
-        onAddSubcategory={onAddSubcategory}
-      />
     </ThemedView>
   );
 }
@@ -528,7 +429,9 @@ function PasswordPrompt({
   const theme = useTheme();
   const [pw, setPw] = useState('');
   return (
-    <View style={styles.overlay}>
+    // Lift the centered card above the keyboard. Both platforms: iOS never resizes for the keyboard,
+    // and this app is edge-to-edge so Android doesn't resize the window under the keyboard either.
+    <KeyboardAvoidingView style={styles.overlay} behavior="padding">
       <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityLabel="Cancel" />
       <ThemedView type="backgroundElement" style={styles.pwCard}>
         <ThemedText type="subtitle">Unlock statement</ThemedText>
@@ -550,7 +453,7 @@ function PasswordPrompt({
           <Button label="Unlock" variant="primary" onPress={() => onSubmit(pw)} disabled={pw === ''} style={styles.grow} />
         </View>
       </ThemedView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

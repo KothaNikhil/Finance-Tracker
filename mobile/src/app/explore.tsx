@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -72,7 +72,14 @@ export default function ManageScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {/* iOS uses the ScrollView's own keyboard insets; Android is edge-to-edge (no window resize),
+            so shrink the scroll area with a KeyboardAvoidingView to keep the edited row visible. */}
+        <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'android' ? 'height' : undefined}>
+          <ScrollView
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
+          >
           <ThemedText type="subtitle">Manage</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
             Edit your categories, payment modes and people. Changes apply to auto-categorization
@@ -137,7 +144,8 @@ export default function ManageScreen() {
           <BackupSection />
           <DangerSection />
           <AccountSection />
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
 
       <SubcategoryManager category={openCategory} onClose={() => setOpenCategoryId(null)} />
@@ -406,6 +414,7 @@ function AccountSection() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  fill: { flex: 1 },
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
   content: {
     paddingHorizontal: Spacing.three,

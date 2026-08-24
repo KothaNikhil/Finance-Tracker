@@ -17,15 +17,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
-import { AddToMoneyLentSheet, type LoanChoice } from '@/components/add-to-money-lent-sheet';
-import { CategoryPicker } from '@/components/category-picker';
 import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
 import { ReportsFilters } from '@/components/reports-filters';
 import { TextInputModal } from '@/components/text-input-modal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { TransactionDetail } from '@/components/transaction-detail';
 import { TransactionList } from '@/components/transaction-list';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import {
@@ -36,25 +33,12 @@ import {
 } from '@/core/analytics';
 import type { TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
-import { loanPartOf } from '@/core/lending/roles';
-import { useLoans } from '@/hooks/use-lending';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
+import { useTransactionDetail } from '@/hooks/use-transaction-detail';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { useDimensions, usePeriodTotals, useReportsBreakdowns } from '@/hooks/use-analytics';
 import { useTransactionCount, useTransactionList } from '@/hooks/use-transactions';
-import {
-  acceptTransactionReview,
-  addCategory,
-  addPerson,
-  addSubcategory,
-  attachTransactionToLoan,
-  clearTransactionCategory,
-  createLoan,
-  deleteTransaction,
-  detachTransactionFromLoan,
-  setTransactionCategory,
-} from '@/services/db/repository';
 import { saveFilteredToFolder, shareFilteredToExcel } from '@/services/export';
 
 const TOP_MERCHANTS = 12;
@@ -80,7 +64,6 @@ export default function ReportsScreen() {
     index.categories.forEach((c) => c.subcategories.forEach((s) => m.set(s.id, s.name)));
     return m;
   }, [index]);
-  const pmNames = useMemo(() => new Map(lists.paymentModes.map((p) => [p.id, p.name])), [lists.paymentModes]);
   const personNames = useMemo(() => new Map(lists.people.map((p) => [p.id, p.name])), [lists.people]);
 
   // Filter state. A deep link (params) seeds it; otherwise default to the most recent year.
@@ -153,23 +136,9 @@ export default function ReportsScreen() {
   const periodLabel = labelForPeriod(activeFilter);
   const chips = buildChips(activeFilter, { periodLabel, catLabel, subLabel, personNames }, update);
 
-  // Transaction detail + category editing (same flow as Home).
-  const [detailId, setDetailId] = useState<number | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [moneyLentOpen, setMoneyLentOpen] = useState(false);
-  const detailTxn = detailId != null ? (filtered.find((t) => t.id === detailId) ?? null) : null;
-  const { active: activeLoans, closed: closedLoans, byId: loanById } = useLoans();
-  const loanChoices: LoanChoice[] = useMemo(
-    () => [...activeLoans, ...closedLoans].map((l) => ({ id: l.id, name: l.name, personName: l.personName, kind: l.kind })),
-    [activeLoans, closedLoans],
-  );
-  const detailLoan = detailTxn?.loanId != null ? loanById(detailTxn.loanId) : null;
-  const detailLoanLabel = detailLoan ? `${detailLoan.personName}${detailLoan.name ? ` · ${detailLoan.name}` : ''}` : null;
-  const openDetail = (id: number) => {
-    setDetailId(id);
-    setPickerOpen(false);
-    setMoneyLentOpen(false);
-  };
+  // The transaction detail sheet (category edit, money-lent, delete) is app-wide — mounted once at
+  // the root — so a row tap just opens it by id.
+  const { openTxn } = useTransactionDetail();
 
   // Collapsible breakdowns.
   const [showBreakdowns, setShowBreakdowns] = useState(false);
@@ -201,11 +170,6 @@ export default function ReportsScreen() {
       },
       { text: 'Cancel', style: 'cancel' },
     ]);
-  };
-
-  const onPickCategory = (categoryId: number, subcategoryId: number | null) => {
-    if (detailId != null) setTransactionCategory(detailId, categoryId, subcategoryId, { learn: true });
-    setPickerOpen(false);
   };
 
   const toRows = (groups: GroupSpend[]): CategoryBreakdownRow[] =>
@@ -323,7 +287,7 @@ export default function ReportsScreen() {
             loading={loading}
             hasMore={hasMore}
             loadMore={loadMore}
-            onPressRow={openDetail}
+            onPressRow={openTxn}
             categoryLabelFor={(t) => rowCategoryLabel(t, index.byId, subNames)}
             showReviewBadge
             ListHeaderComponent={header}
@@ -360,58 +324,6 @@ export default function ReportsScreen() {
         confirmLabel="Next"
         onCancel={() => setRenameOpen(false)}
         onConfirm={doExport}
-      />
-
-      <TransactionDetail
-        visible={detailTxn !== null && !pickerOpen && !moneyLentOpen}
-        txn={detailTxn}
-        categoryLabel={detailTxn ? rowCategoryLabel(detailTxn, index.byId, subNames) : null}
-        paymentModeName={detailTxn?.paymentModeId != null ? (pmNames.get(detailTxn.paymentModeId) ?? null) : null}
-        personName={detailTxn?.personId != null ? (personNames.get(detailTxn.personId) ?? null) : null}
-        moneyLentLabel={detailLoanLabel}
-        onClose={() => setDetailId(null)}
-        onChangeCategory={() => setPickerOpen(true)}
-        onRemoveCategory={() => {
-          if (detailId != null) clearTransactionCategory(detailId);
-        }}
-        onAccept={() => {
-          if (detailId != null) acceptTransactionReview(detailId);
-        }}
-        onManageMoneyLent={() => setMoneyLentOpen(true)}
-        onDelete={() => {
-          if (detailId != null) deleteTransaction(detailId);
-        }}
-      />
-
-      <AddToMoneyLentSheet
-        visible={detailTxn !== null && moneyLentOpen}
-        txn={detailTxn}
-        loans={loanChoices}
-        people={lists.people}
-        currentLoanId={detailTxn?.loanId ?? null}
-        currentLoanName={detailLoanLabel ?? undefined}
-        currentPart={detailTxn ? loanPartOf(detailTxn.transferRole) : null}
-        onAddPerson={(name) => addPerson(name)}
-        onCreateLoan={(input) => createLoan(input)}
-        onAttach={(loanId, part) => {
-          if (detailId != null) attachTransactionToLoan(detailId, loanId, part);
-          setMoneyLentOpen(false);
-        }}
-        onDetach={() => {
-          if (detailId != null) detachTransactionFromLoan(detailId);
-          setMoneyLentOpen(false);
-        }}
-        onClose={() => setMoneyLentOpen(false)}
-      />
-
-      <CategoryPicker
-        visible={detailTxn !== null && pickerOpen}
-        categories={index.categories}
-        title={detailTxn ? (detailTxn.counterpartyName ?? detailTxn.rawDetails) : undefined}
-        onClose={() => setPickerOpen(false)}
-        onPick={onPickCategory}
-        onAddCategory={(name, emoji) => addCategory(name, emoji)}
-        onAddSubcategory={(categoryId, name) => addSubcategory(categoryId, name)}
       />
     </ThemedView>
   );

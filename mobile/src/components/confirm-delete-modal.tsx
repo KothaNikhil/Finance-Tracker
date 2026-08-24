@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { ActivityIndicator, Modal, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
@@ -53,7 +53,9 @@ export function ConfirmDeleteModal({
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={handleCancel}>
-      <View style={styles.backdrop}>
+      {/* Lift the centered card above the keyboard. Both platforms: iOS never resizes for the
+          keyboard, and this app is edge-to-edge so Android's Modal doesn't resize either. */}
+      <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
         <ThemedView type="backgroundElement" style={styles.card}>
           <ThemedText type="subtitle">Delete all data?</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
@@ -97,7 +99,7 @@ export function ConfirmDeleteModal({
           </View>
           {busy && <ActivityIndicator style={styles.spaced} />}
         </ThemedView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

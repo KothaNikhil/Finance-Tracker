@@ -7,7 +7,7 @@
  * hand it to `useLiveQuery` (which stays live because the entity is the `transactions` table).
  */
 
-import { desc, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 
 import type { TxnFilter } from '@/core/analytics';
@@ -28,6 +28,15 @@ export function txnListQuery(db: DB, filter: TxnFilter, limit: number) {
     .where(buildTxnConditions(filter))
     .orderBy(...NEWEST_FIRST)
     .limit(limit);
+}
+
+/**
+ * A single transaction by id (0 or 1 rows). Live — re-reads whenever that row is edited, so a
+ * globally-mounted detail sheet reflects category/loan changes without the caller holding the row.
+ * Pass a non-existent id (e.g. -1) to intentionally match nothing.
+ */
+export function txnByIdQuery(db: DB, id: number) {
+  return db.select().from(transactions).where(eq(transactions.id, id)).limit(1);
 }
 
 /** How many transactions match the filter (one row `{ n }`). Live. */

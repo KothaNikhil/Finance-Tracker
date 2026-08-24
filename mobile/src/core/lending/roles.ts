@@ -183,18 +183,31 @@ export interface LoanBalance {
   interestPaise: number;
 }
 
-/** Roll a loan's attached transactions into principal / repaid / outstanding / interest. */
-export function loanBalanceFromTxns(txns: { transferRole: string | null; paise: number }[]): LoanBalance {
+/** One contribution to a loan's balance — a part (principal/repayment/interest) and an amount. */
+export interface LoanContribution {
+  part: LoanPart | null;
+  paise: number;
+}
+
+/**
+ * Roll contributions into principal / repaid / outstanding / interest. Contributions come from both
+ * directly-attached transactions (whole amount) and split allocations (a slice of a transaction).
+ */
+export function loanBalanceFromParts(contribs: LoanContribution[]): LoanBalance {
   let principal = 0;
   let repaid = 0;
   let interest = 0;
-  for (const t of txns) {
-    const part = loanPartOf(t.transferRole);
-    if (part === 'principal') principal += t.paise;
-    else if (part === 'repayment') repaid += t.paise;
-    else if (part === 'interest') interest += t.paise;
+  for (const c of contribs) {
+    if (c.part === 'principal') principal += c.paise;
+    else if (c.part === 'repayment') repaid += c.paise;
+    else if (c.part === 'interest') interest += c.paise;
   }
   return { principalPaise: principal, repaidPaise: repaid, outstandingPaise: principal - repaid, interestPaise: interest };
+}
+
+/** Roll a loan's directly-attached transactions into principal / repaid / outstanding / interest. */
+export function loanBalanceFromTxns(txns: { transferRole: string | null; paise: number }[]): LoanBalance {
+  return loanBalanceFromParts(txns.map((t) => ({ part: loanPartOf(t.transferRole), paise: t.paise })));
 }
 
 /** The minimal shape {@link perPersonBalances} needs from a tagged transaction. */
