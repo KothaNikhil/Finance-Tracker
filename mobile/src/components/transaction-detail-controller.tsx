@@ -54,7 +54,7 @@ export function TransactionDetailController() {
 
   const index = useCategoryIndex();
   const lists = useLists();
-  const { active: activeLoans, closed: closedLoans, byId: loanById } = useLoans();
+  const { active: activeLoans, byId: loanById } = useLoans();
 
   const subNames = useMemo(() => {
     const m = new Map<number, string>();
@@ -63,9 +63,11 @@ export function TransactionDetailController() {
   }, [index]);
   const pmNames = useMemo(() => new Map(lists.paymentModes.map((p) => [p.id, p.name])), [lists.paymentModes]);
   const personNames = useMemo(() => new Map(lists.people.map((p) => [p.id, p.name])), [lists.people]);
+  // Only OPEN loans are pickable when attaching/splitting — a closed loan is done. (If the txn is
+  // itself attached to a closed loan, its name still resolves via `loanById` for the header.)
   const loanChoices: LoanChoice[] = useMemo(
-    () => [...activeLoans, ...closedLoans].map((l) => ({ id: l.id, name: l.name, personName: l.personName, kind: l.kind })),
-    [activeLoans, closedLoans],
+    () => activeLoans.map((l) => ({ id: l.id, name: l.name, personName: l.personName, kind: l.kind })),
+    [activeLoans],
   );
 
   const loan = txn?.loanId != null ? loanById(txn.loanId) : null;
