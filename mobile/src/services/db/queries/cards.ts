@@ -7,7 +7,7 @@
  * `imports` / `transactions` tables) and one-shot callers can `.get()`/`.all()`.
  */
 
-import { and, desc, eq, isNotNull, isNull, ne, or } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 
 import * as schema from '@/core/db/schema';
@@ -15,9 +15,13 @@ import { imports, transactions as t } from '@/core/db/schema';
 
 type DB = ExpoSQLiteDatabase<typeof schema>;
 
-/** Every imported credit-card statement (has card metadata), newest first. For the manual picker. */
+// A statement is only offered for linking if it actually has transactions stamped to it. This skips
+// any empty "ghost" batch (a re-import whose rows were all dropped as duplicates on insert).
+const HAS_TXNS = sql`exists (select 1 from ${t} where ${t.importId} = ${imports.id})`;
+
+/** Every imported credit-card statement (has card metadata + transactions), newest first. Manual picker. */
 export function cardStatementsQuery(db: DB) {
-  return db.select().from(imports).where(isNotNull(imports.cardLast4)).orderBy(desc(imports.id));
+  return db.select().from(imports).where(and(isNotNull(imports.cardLast4), HAS_TXNS)).orderBy(desc(imports.id));
 }
 
 /** Card statements whose Total Payment Due equals `paise` — auto-suggest matches for a bank payment. */
@@ -25,7 +29,7 @@ export function matchingCardStatementsQuery(db: DB, paise: number) {
   return db
     .select()
     .from(imports)
-    .where(and(isNotNull(imports.cardLast4), eq(imports.totalDuePaise, paise)))
+    .where(and(isNotNull(imports.cardLast4), eq(imports.totalDuePaise, paise), HAS_TXNS))
     .orderBy(desc(imports.id));
 }
 

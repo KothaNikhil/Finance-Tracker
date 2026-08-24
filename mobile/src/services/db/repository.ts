@@ -208,10 +208,23 @@ export function saveTransactions(
 ): number {
   if (txns.length === 0) return 0;
 
+  const db = getDb();
+
+  // Re-check against what's actually stored (and dedupe within the batch) so a double-tapped Save, a
+  // re-import, or a stale caller snapshot can't create an EMPTY import batch or double-insert. Only
+  // genuinely-new rows get a batch — otherwise we'd leave a 0-transaction ghost statement behind.
+  const existing = getExistingDedupeKeys();
+  const seen = new Set<string>();
+  const fresh = txns.filter((t) => {
+    if (existing.has(t.dedupeKey) || seen.has(t.dedupeKey)) return false;
+    seen.add(t.dedupeKey);
+    return true;
+  });
+  if (fresh.length === 0) return 0;
+
   const index = getCategoryIndex();
   const learned = getLearnedRules();
   const now = new Date().toISOString();
-  const db = getDb();
 
   // Record the import batch first so its id can stamp the rows (only when this came from a real
   // import — a null label means "don't track", e.g. an internal insert). Credit-card imports also
@@ -223,7 +236,7 @@ export function saveTransactions(
       .values({
         sourceLabel: sourceLabel.trim(),
         importedAt: now,
-        addedCount: txns.length,
+        addedCount: fresh.length,
         updatedCount: 0,
         cardLast4: cardMeta?.cardLast4 ?? null,
         statementMonth: cardMeta?.statementMonth ?? null,
@@ -234,7 +247,7 @@ export function saveTransactions(
     importId = ins[0].id;
   }
 
-  const rows: NewTransactionRow[] = txns.map((t) => {
+  const rows: NewTransactionRow[] = fresh.map((t) => {
     const guess = categorizeTxn(t, index, learned);
 
     // Transfers (to your own accounts, or money sent to a person) are always surfaced for review —
