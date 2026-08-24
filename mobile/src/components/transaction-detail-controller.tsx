@@ -23,8 +23,8 @@ import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { useTransactionDetail } from '@/hooks/use-transaction-detail';
 import { getDb } from '@/services/db/database';
 import {
-  cardSpendsQuery,
   cardStatementByIdQuery,
+  cardStatementItemsQuery,
   cardStatementsQuery,
   matchingCardStatementsQuery,
 } from '@/services/db/queries/cards';
@@ -95,8 +95,8 @@ export function TransactionDetailController() {
   const linkedImportId = txn?.linkedImportId ?? null;
   const { data: linkedData } = useLiveQuery(cardStatementByIdQuery(db, linkedImportId ?? -1), [linkedImportId]);
   const linkedStatement = (linkedData?.[0] as ImportRow | undefined) ?? null;
-  const { data: spendData } = useLiveQuery(cardSpendsQuery(db, linkedImportId ?? -1), [linkedImportId]);
-  const cardSpends = (spendData ?? []) as TransactionRow[];
+  const { data: itemData } = useLiveQuery(cardStatementItemsQuery(db, linkedImportId ?? -1), [linkedImportId]);
+  const cardItems = (itemData ?? []) as TransactionRow[];
   const { data: matchData } = useLiveQuery(matchingCardStatementsQuery(db, txn?.paise ?? -1), [txn?.paise ?? -1]);
   const matchingStatements = (matchData ?? []) as ImportRow[];
   const suggestedIds = matchingStatements.map((s) => s.id);
@@ -124,7 +124,7 @@ export function TransactionDetailController() {
         personName={txn?.personId != null ? (personNames.get(txn.personId) ?? null) : null}
         moneyLentLabel={loanLabel}
         cardBillLabel={cardBillLabel}
-        cardSpendCount={cardSpends.length}
+        cardSpendCount={cardItems.length}
         cardBillSuggestion={cardBillSuggestion}
         onManageCardBill={cardBillEligible ? () => setCardBillOpen(true) : undefined}
         onClose={closeAll}
@@ -188,7 +188,7 @@ export function TransactionDetailController() {
       <CardBillSheet
         visible={txn !== null && cardBillOpen}
         linkedStatement={linkedStatement}
-        spends={cardSpends}
+        items={cardItems}
         statements={cardStatements}
         suggestedIds={suggestedIds}
         onLink={(importId) => {

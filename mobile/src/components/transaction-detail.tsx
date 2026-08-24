@@ -230,7 +230,7 @@ export function TransactionDetail({
                 <Section title="Credit-card bill">
                   <Field label="Statement" value={cardBillLabel ?? (cardBillSuggestion ? `Not linked · ${cardBillSuggestion}` : 'Not linked')} />
                   {cardBillLabel && cardSpendCount != null && (
-                    <Field label="Card spends" value={`${cardSpendCount} transaction${cardSpendCount === 1 ? '' : 's'}`} />
+                    <Field label="Card activity" value={`${cardSpendCount} transaction${cardSpendCount === 1 ? '' : 's'} (spends & refunds)`} />
                   )}
                   <Pressable
                     onPress={onManageCardBill}

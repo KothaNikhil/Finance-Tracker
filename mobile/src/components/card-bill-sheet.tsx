@@ -33,8 +33,8 @@ export interface CardBillSheetProps {
   visible: boolean;
   /** The statement this payment is linked to, or null when unlinked. */
   linkedStatement: ImportRow | null;
-  /** Card spends of the linked statement (empty when unlinked). */
-  spends: TransactionRow[];
+  /** The linked statement's itemised activity — spends AND refunds/cashbacks (empty when unlinked). */
+  items: TransactionRow[];
   /** All imported card statements, for manual picking. */
   statements: ImportRow[];
   /** Ids of statements whose Total Payment Due matches this payment (suggested first). */
@@ -48,7 +48,7 @@ export interface CardBillSheetProps {
 export function CardBillSheet({
   visible,
   linkedStatement,
-  spends,
+  items,
   statements,
   suggestedIds,
   onLink,
@@ -61,6 +61,10 @@ export function CardBillSheet({
   // Picker order: suggested (amount-matched) statements first, then the rest.
   const suggested = statements.filter((s) => suggestedIds.includes(s.id));
   const others = statements.filter((s) => !suggestedIds.includes(s.id));
+
+  // Net of the itemised activity = spends (out) − refunds/cashbacks (in); should equal the statement's
+  // Total Payment Due when the previous bill was cleared in full.
+  const netPaise = items.reduce((sum, it) => sum + (it.direction === 'out' ? it.paise : -it.paise), 0);
 
   return (
     <BottomSheet visible={visible} onClose={onClose}>
@@ -83,33 +87,53 @@ export function CardBillSheet({
               <ThemedText type="smallBold">{cardStatementLabel(linkedStatement)}</ThemedText>
 
               <ThemedText type="overline" themeColor="textSecondary" style={styles.sectionTitle}>
-                {spends.length} CARD SPEND{spends.length === 1 ? '' : 'S'} · TAP TO OPEN
+                {items.length} CARD TRANSACTION{items.length === 1 ? '' : 'S'} · SPENDS & REFUNDS · TAP TO OPEN
               </ThemedText>
-              {spends.length === 0 ? (
+              {items.length === 0 ? (
                 <ThemedText type="small" themeColor="textSecondary">
-                  This statement has no itemised spends (it may have been payment-only).
+                  This statement has no itemised activity (it may have been payment-only).
                 </ThemedText>
               ) : (
-                spends.map((s) => (
-                  <Pressable
-                    key={s.id}
-                    onPress={() => onPressSpend(s.id)}
-                    accessibilityRole="button"
-                    style={({ pressed }) => [styles.row, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
-                  >
-                    <View style={styles.grow}>
-                      <ThemedText type="small" numberOfLines={1}>
-                        {s.counterpartyName ?? s.rawDetails ?? 'Card spend'}
+                items.map((it) => {
+                  const isOut = it.direction === 'out';
+                  return (
+                    <Pressable
+                      key={it.id}
+                      onPress={() => onPressSpend(it.id)}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [styles.row, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
+                    >
+                      <View style={styles.grow}>
+                        <ThemedText type="small" numberOfLines={1}>
+                          {it.counterpartyName ?? it.rawDetails ?? (isOut ? 'Card spend' : 'Refund / cashback')}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {isOut ? 'Spend' : 'Refund / cashback'} · {it.isoDate}
+                        </ThemedText>
+                      </View>
+                      <ThemedText type="smallBold" style={{ color: isOut ? theme.spend : theme.income }}>
+                        {isOut ? '−' : '+'} {formatINR(it.paise)}
                       </ThemedText>
+                    </Pressable>
+                  );
+                })
+              )}
+
+              {/* Reconciliation: spends − refunds should equal the statement's Total Payment Due. */}
+              {items.length > 0 && (
+                <View style={[styles.reconcile, { borderColor: theme.border }]}>
+                  <View style={styles.grow}>
+                    <ThemedText type="smallBold">Net (spends − refunds)</ThemedText>
+                    {linkedStatement.totalDuePaise != null && (
                       <ThemedText type="small" themeColor="textSecondary">
-                        {s.isoDate}
+                        Statement Total Payment Due: {formatINR(linkedStatement.totalDuePaise)}
                       </ThemedText>
-                    </View>
-                    <ThemedText type="smallBold" style={{ color: theme.spend }}>
-                      − {formatINR(s.paise)}
-                    </ThemedText>
-                  </Pressable>
-                ))
+                    )}
+                  </View>
+                  <ThemedText type="smallBold" style={{ color: netPaise >= 0 ? theme.spend : theme.income }}>
+                    {netPaise >= 0 ? '−' : '+'} {formatINR(Math.abs(netPaise))}
+                  </ThemedText>
+                </View>
               )}
 
               <Pressable
@@ -212,6 +236,14 @@ const styles = StyleSheet.create({
     marginTop: Spacing.one,
   },
   grow: { flex: 1 },
+  reconcile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: Spacing.two,
+    paddingTop: Spacing.two,
+  },
   unlinkBtn: {
     marginTop: Spacing.four,
     paddingVertical: Spacing.three,

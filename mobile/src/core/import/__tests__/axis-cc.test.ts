@@ -94,6 +94,16 @@ describe('axisCcAdapter.normalize', () => {
     expect(pay?.rawDetails).toContain('BBPS Payment Received');
   });
 
+  it('itemises spends AND refunds/cashbacks (excluding the payment leg), netting to the bill', () => {
+    // Mirrors cardStatementItemsQuery (everything except the cc_payment_received leg) + the sheet's
+    // net = spends − refunds. This is what "view card spends" must show so the statement reconciles.
+    const items = txns.filter((t) => t.transferRole !== 'cc_payment_received');
+    expect(items).toHaveLength(3); // 2 spends + 1 cashback; the BBPS payment-received row is excluded
+    expect(items.some((t) => t.kind === 'refund' && t.direction === 'in')).toBe(true); // cashback included
+    const net = items.reduce((sum, t) => sum + (t.direction === 'out' ? t.paise : -t.paise), 0);
+    expect(net).toBe(25000 + 25000 - 1500); // ₹250 + ₹250 spends − ₹15 cashback
+  });
+
   it('gives same-day, same-amount charges DISTINCT dedupe keys, and re-import is idempotent', () => {
     const spends = txns.filter((t) => t.counterpartyName === 'COFFEE HOUSE');
     expect(spends).toHaveLength(2);

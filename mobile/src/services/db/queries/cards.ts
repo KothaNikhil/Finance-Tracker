@@ -7,7 +7,7 @@
  * `imports` / `transactions` tables) and one-shot callers can `.get()`/`.all()`.
  */
 
-import { and, desc, eq, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, ne, or } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 
 import * as schema from '@/core/db/schema';
@@ -34,11 +34,16 @@ export function cardStatementByIdQuery(db: DB, importId: number) {
   return db.select().from(imports).where(eq(imports.id, importId)).limit(1);
 }
 
-/** The individual card spends (money-out rows) of a statement, newest first. */
-export function cardSpendsQuery(db: DB, importId: number) {
+/**
+ * A statement's itemised activity that makes up its Total Payment Due — the card spends (Debit) AND
+ * the refunds / cashbacks (Credit), newest first. Excludes the payment-received leg
+ * (`cc_payment_received`), which settles the previous balance rather than being part of this bill.
+ * Net of these rows (spends − refunds) equals the Total Payment Due when the prior bill was cleared.
+ */
+export function cardStatementItemsQuery(db: DB, importId: number) {
   return db
     .select()
     .from(t)
-    .where(and(eq(t.importId, importId), eq(t.direction, 'out')))
+    .where(and(eq(t.importId, importId), or(isNull(t.transferRole), ne(t.transferRole, 'cc_payment_received'))))
     .orderBy(desc(t.isoDate), desc(t.id));
 }
