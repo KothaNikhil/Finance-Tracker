@@ -25,7 +25,7 @@ import type { MonthKey, TxnFilter } from '@/core/analytics';
 import type { TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
 import { axisAdapter } from '@/core/import/adapters/axis';
-import { axisCcAdapter } from '@/core/import/adapters/axis-cc';
+import { axisCcAdapter, readCardStatementMeta } from '@/core/import/adapters/axis-cc';
 import { kvbAdapter } from '@/core/import/adapters/kvb';
 import { paytmAdapter } from '@/core/import/adapters/paytm';
 import { sbiAdapter } from '@/core/import/adapters/sbi';
@@ -131,6 +131,10 @@ export default function ImportScreen() {
         [paytmAdapter, axisAdapter, kvbAdapter, sbiAdapter, axisCcAdapter],
         getExistingDedupeKeys(),
       );
+      // For a credit-card statement, capture the card/month/total-due so the batch can later be
+      // linked to the bank bill-payment that settled it (Phase B). Null for every other source.
+      const cardMeta =
+        preview.source === 'cc' && sheets[0]?.pdfLines ? readCardStatementMeta(sheets[0].pdfLines) : null;
       // Duplicates (same UPI ref already stored from the other statement) can still be reconciled:
       // filling a category/tag where they agree, or flagging review where a tag disagrees with our
       // category. So a Save is worthwhile even with 0 brand-new rows.
@@ -139,7 +143,7 @@ export default function ImportScreen() {
           async () => {
             // Yield a frame so the spinner paints before the synchronous DB write blocks the thread.
             await new Promise((resolve) => setTimeout(resolve, 0));
-            const n = saveTransactions(preview.newTxns, sourceLabel);
+            const n = saveTransactions(preview.newTxns, sourceLabel, cardMeta);
             const { updated, flagged } = reconcileDuplicatesFromImport(preview.duplicates);
             const parts = [`${n} new transaction(s) saved from ${sourceLabel} and auto-categorized.`];
             if (updated > 0) parts.push(`${updated} matching row(s) already imported were updated.`);

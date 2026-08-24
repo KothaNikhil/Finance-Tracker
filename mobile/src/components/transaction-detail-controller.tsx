@@ -12,15 +12,22 @@
 import { useMemo, useState } from 'react';
 
 import { AddToMoneyLentSheet, type LoanChoice } from '@/components/add-to-money-lent-sheet';
+import { CardBillSheet, cardStatementLabel } from '@/components/card-bill-sheet';
 import { CategoryPicker } from '@/components/category-picker';
 import { TransactionDetail } from '@/components/transaction-detail';
-import type { TransactionRow } from '@/core/db/schema';
+import type { ImportRow, TransactionRow } from '@/core/db/schema';
 import { loanPartOf } from '@/core/lending/roles';
 import { useLoans } from '@/hooks/use-lending';
 import { useLiveQuery } from '@/hooks/use-live-query';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { useTransactionDetail } from '@/hooks/use-transaction-detail';
 import { getDb } from '@/services/db/database';
+import {
+  cardSpendsQuery,
+  cardStatementByIdQuery,
+  cardStatementsQuery,
+  matchingCardStatementsQuery,
+} from '@/services/db/queries/cards';
 import { allocationsForTxnQuery } from '@/services/db/queries/lending';
 import { txnByIdQuery } from '@/services/db/queries/transactions';
 import {
@@ -33,16 +40,19 @@ import {
   createLoan,
   deleteTransaction,
   detachTransactionFromLoan,
+  linkTxnToCardStatement,
   setTransactionCategory,
   splitTransactionAcrossLoans,
+  unlinkCardStatement,
 } from '@/services/db/repository';
 
 export function TransactionDetailController() {
-  const { openId, close, noteEdited, clearLastEdited } = useTransactionDetail();
+  const { openId, openTxn, close, noteEdited, clearLastEdited } = useTransactionDetail();
   const db = getDb();
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [moneyLentOpen, setMoneyLentOpen] = useState(false);
+  const [cardBillOpen, setCardBillOpen] = useState(false);
 
   // Resolve the open transaction by id — live, so category/loan edits refresh the sheet in place.
   const { data } = useLiveQuery(txnByIdQuery(db, openId ?? -1), [openId]);
@@ -77,21 +87,46 @@ export function TransactionDetailController() {
       ? `Split across ${allocations.length} loans`
       : null;
 
+  // --- Credit-card bill linking ---
+  // All imported card statements (for manual picking), the statement this txn is linked to (if any),
+  // that statement's card spends, and statements whose Total Payment Due matches this txn (suggested).
+  const { data: cardStmtData } = useLiveQuery(cardStatementsQuery(db), []);
+  const cardStatements = (cardStmtData ?? []) as ImportRow[];
+  const linkedImportId = txn?.linkedImportId ?? null;
+  const { data: linkedData } = useLiveQuery(cardStatementByIdQuery(db, linkedImportId ?? -1), [linkedImportId]);
+  const linkedStatement = (linkedData?.[0] as ImportRow | undefined) ?? null;
+  const { data: spendData } = useLiveQuery(cardSpendsQuery(db, linkedImportId ?? -1), [linkedImportId]);
+  const cardSpends = (spendData ?? []) as TransactionRow[];
+  const { data: matchData } = useLiveQuery(matchingCardStatementsQuery(db, txn?.paise ?? -1), [txn?.paise ?? -1]);
+  const matchingStatements = (matchData ?? []) as ImportRow[];
+  const suggestedIds = matchingStatements.map((s) => s.id);
+
+  // Show the section for an already-linked row, or a money-out row once any card statement exists.
+  const cardBillEligible =
+    txn != null && (linkedImportId != null || (txn.direction === 'out' && cardStatements.length > 0));
+  const cardBillLabel = linkedStatement ? cardStatementLabel(linkedStatement) : null;
+  const cardBillSuggestion = !linkedStatement && matchingStatements.length > 0 ? cardStatementLabel(matchingStatements[0]) : null;
+
   const closeAll = () => {
     close();
     setPickerOpen(false);
     setMoneyLentOpen(false);
+    setCardBillOpen(false);
   };
 
   return (
     <>
       <TransactionDetail
-        visible={txn !== null && !pickerOpen && !moneyLentOpen}
+        visible={txn !== null && !pickerOpen && !moneyLentOpen && !cardBillOpen}
         txn={txn}
         categoryLabel={txn ? categoryLabelFor(txn, index.byId, subNames) : null}
         paymentModeName={txn?.paymentModeId != null ? (pmNames.get(txn.paymentModeId) ?? null) : null}
         personName={txn?.personId != null ? (personNames.get(txn.personId) ?? null) : null}
         moneyLentLabel={loanLabel}
+        cardBillLabel={cardBillLabel}
+        cardSpendCount={cardSpends.length}
+        cardBillSuggestion={cardBillSuggestion}
+        onManageCardBill={cardBillEligible ? () => setCardBillOpen(true) : undefined}
         onClose={closeAll}
         onChangeCategory={() => setPickerOpen(true)}
         onRemoveCategory={() => {
@@ -148,6 +183,33 @@ export function TransactionDetailController() {
           setMoneyLentOpen(false);
         }}
         onClose={() => setMoneyLentOpen(false)}
+      />
+
+      <CardBillSheet
+        visible={txn !== null && cardBillOpen}
+        linkedStatement={linkedStatement}
+        spends={cardSpends}
+        statements={cardStatements}
+        suggestedIds={suggestedIds}
+        onLink={(importId) => {
+          if (openId != null) {
+            linkTxnToCardStatement(openId, importId);
+            noteEdited(openId);
+          }
+          setCardBillOpen(false);
+        }}
+        onUnlink={() => {
+          if (openId != null) {
+            unlinkCardStatement(openId);
+            noteEdited(openId);
+          }
+          setCardBillOpen(false);
+        }}
+        onPressSpend={(spendId) => {
+          setCardBillOpen(false);
+          openTxn(spendId); // jump the app-wide sheet to the selected card spend
+        }}
+        onClose={() => setCardBillOpen(false)}
       />
 
       <CategoryPicker

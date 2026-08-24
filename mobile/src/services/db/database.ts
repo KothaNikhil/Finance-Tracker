@@ -120,10 +120,28 @@ function migrate(sqlite: SQLite.SQLiteDatabase): void {
   if (!txnCols.some((c) => c.name === 'import_id')) {
     sqlite.execSync('ALTER TABLE transactions ADD COLUMN import_id INTEGER;');
   }
+  // Credit-card linking: the card-statement import a bank bill-payment row is linked to (Phase B).
+  if (!txnCols.some((c) => c.name === 'linked_import_id')) {
+    sqlite.execSync('ALTER TABLE transactions ADD COLUMN linked_import_id INTEGER;');
+  }
+
+  // Card-statement metadata on the import batch (only set for credit-card PDF imports).
+  const importCols = sqlite.getAllSync<{ name: string }>('PRAGMA table_info(imports);');
+  if (!importCols.some((c) => c.name === 'card_last4')) {
+    sqlite.execSync('ALTER TABLE imports ADD COLUMN card_last4 TEXT;');
+  }
+  if (!importCols.some((c) => c.name === 'statement_month')) {
+    sqlite.execSync('ALTER TABLE imports ADD COLUMN statement_month TEXT;');
+  }
+  if (!importCols.some((c) => c.name === 'total_due_paise')) {
+    sqlite.execSync('ALTER TABLE imports ADD COLUMN total_due_paise INTEGER;');
+  }
+
   // Indexes created here (not in CREATE_TABLES_SQL) so they never reference a column an ALTER above
   // just added; IF NOT EXISTS keeps them idempotent for fresh installs too.
   sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_loan ON transactions(loan_id);');
   sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_import ON transactions(import_id);');
+  sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_linked_import ON transactions(linked_import_id);');
 }
 
 /** Insert the starter categories/sub-categories/payment modes/people if the DB is empty. */

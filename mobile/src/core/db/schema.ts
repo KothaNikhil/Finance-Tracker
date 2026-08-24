@@ -71,6 +71,11 @@ export const imports = sqliteTable('imports', {
   importedAt: text('imported_at').notNull(),
   addedCount: integer('added_count').notNull().default(0),
   updatedCount: integer('updated_count').notNull().default(0),
+  // Card-statement metadata (only set for credit-card PDF imports; null otherwise). Used to link a
+  // bank bill-payment to the statement it settled (match its amount to `total_due_paise`).
+  cardLast4: text('card_last4'),
+  statementMonth: text('statement_month'), // 'YYYY-MM'
+  totalDuePaise: integer('total_due_paise'),
 });
 
 export const transactions = sqliteTable('transactions', {
@@ -94,6 +99,8 @@ export const transactions = sqliteTable('transactions', {
   loanId: integer('loan_id'),
   // The import run that added this row (null for manual entries). Lets a whole import be reverted.
   importId: integer('import_id'),
+  // Credit-card linking: for a bank bill-payment row, the card-statement import batch it settled.
+  linkedImportId: integer('linked_import_id'),
   rawDetails: text('raw_details').notNull().default(''),
   rawTag: text('raw_tag'),
   remarks: text('remarks'),
@@ -206,7 +213,10 @@ CREATE TABLE IF NOT EXISTS imports (
   source_label TEXT NOT NULL DEFAULT '',
   imported_at TEXT NOT NULL,
   added_count INTEGER NOT NULL DEFAULT 0,
-  updated_count INTEGER NOT NULL DEFAULT 0
+  updated_count INTEGER NOT NULL DEFAULT 0,
+  card_last4 TEXT,
+  statement_month TEXT,
+  total_due_paise INTEGER
 );
 CREATE TABLE IF NOT EXISTS transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,6 +235,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   transfer_role TEXT,
   loan_id INTEGER,
   import_id INTEGER,
+  linked_import_id INTEGER,
   raw_details TEXT NOT NULL DEFAULT '',
   raw_tag TEXT,
   remarks TEXT,

@@ -194,7 +194,18 @@ function categorizeTxn(t: NormalizedTxn, index: CategoryIndex, learned: LearnedR
  * an `imports` row and every inserted transaction is stamped with its `import_id`, so the whole
  * import can be reverted later ({@link revertImport}).
  */
-export function saveTransactions(txns: NormalizedTxn[], sourceLabel: string | null = null): number {
+/** Card-statement metadata recorded on a credit-card import batch (for bill-payment linking). */
+export interface CardStatementMeta {
+  cardLast4: string | null;
+  statementMonth: string | null; // 'YYYY-MM'
+  totalDuePaise: number | null;
+}
+
+export function saveTransactions(
+  txns: NormalizedTxn[],
+  sourceLabel: string | null = null,
+  cardMeta: CardStatementMeta | null = null,
+): number {
   if (txns.length === 0) return 0;
 
   const index = getCategoryIndex();
@@ -203,12 +214,21 @@ export function saveTransactions(txns: NormalizedTxn[], sourceLabel: string | nu
   const db = getDb();
 
   // Record the import batch first so its id can stamp the rows (only when this came from a real
-  // import — a null label means "don't track", e.g. an internal insert).
+  // import — a null label means "don't track", e.g. an internal insert). Credit-card imports also
+  // stamp the statement's card/month/total-due, used later to link the bank bill-payment to it.
   let importId: number | null = null;
   if (sourceLabel !== null) {
     const ins = db
       .insert(imports)
-      .values({ sourceLabel: sourceLabel.trim(), importedAt: now, addedCount: txns.length, updatedCount: 0 })
+      .values({
+        sourceLabel: sourceLabel.trim(),
+        importedAt: now,
+        addedCount: txns.length,
+        updatedCount: 0,
+        cardLast4: cardMeta?.cardLast4 ?? null,
+        statementMonth: cardMeta?.statementMonth ?? null,
+        totalDuePaise: cardMeta?.totalDuePaise ?? null,
+      })
       .returning({ id: imports.id })
       .all();
     importId = ins[0].id;
@@ -277,9 +297,39 @@ export function revertImport(importId: number): number {
     db.delete(loanAllocations).where(inArray(loanAllocations.txnId, ids)).run(); // FK children first
     db.delete(transactions).where(inArray(transactions.id, ids)).run();
   }
+  // Any bank bill-payment linked to this (card) statement loses its link + card-payment role.
+  db.update(transactions)
+    .set({ linkedImportId: null, transferRole: null })
+    .where(eq(transactions.linkedImportId, importId))
+    .run();
   db.delete(imports).where(eq(imports.id, importId)).run();
   touchDataUpdatedAt();
   return ids.length;
+}
+
+/**
+ * Link a bank bill-payment transaction to the credit-card statement (import batch) it settled: the
+ * bank row becomes a `cc_payment` transfer (excluded from Spent), and tapping it can drill into that
+ * statement's card spends. Mutually exclusive with a loan attachment (clears loan links).
+ */
+export function linkTxnToCardStatement(bankTxnId: number, importId: number): void {
+  const db = getDb();
+  db.delete(loanAllocations).where(eq(loanAllocations.txnId, bankTxnId)).run();
+  db.update(transactions)
+    .set({ linkedImportId: importId, transferRole: 'cc_payment', loanId: null, needsReview: false })
+    .where(eq(transactions.id, bankTxnId))
+    .run();
+  touchDataUpdatedAt();
+}
+
+/** Undo {@link linkTxnToCardStatement}: clear the link and the `cc_payment` role. */
+export function unlinkCardStatement(bankTxnId: number): void {
+  getDb()
+    .update(transactions)
+    .set({ linkedImportId: null, transferRole: null })
+    .where(eq(transactions.id, bankTxnId))
+    .run();
+  touchDataUpdatedAt();
 }
 
 /** Outcome of reconciling an import's duplicates against already-stored rows. */

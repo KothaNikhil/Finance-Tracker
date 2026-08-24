@@ -60,6 +60,14 @@ export interface TransactionDetailProps {
   onAccept?: () => void;
   /** Open the single "Add to / Manage in Money Lent" flow. When provided, that action is shown. */
   onManageMoneyLent?: () => void;
+  /** Linked credit-card statement label (e.g. "Axis …CC ••4723 · Jun 2026"), or null when unlinked. */
+  cardBillLabel?: string | null;
+  /** How many card spends the linked statement itemises (shown when linked). */
+  cardSpendCount?: number;
+  /** A hint when unlinked but a matching statement exists (e.g. "Matches Axis …CC · Jun 2026"). */
+  cardBillSuggestion?: string | null;
+  /** Open the credit-card-bill flow (view linked spends, or pick a statement to link). */
+  onManageCardBill?: () => void;
   /** Delete this transaction entirely. When provided, a "Delete transaction" action is shown. */
   onDelete?: () => void;
 }
@@ -76,6 +84,10 @@ export function TransactionDetail({
   onAccept,
   moneyLentLabel,
   onManageMoneyLent,
+  cardBillLabel,
+  cardSpendCount,
+  cardBillSuggestion,
+  onManageCardBill,
   onDelete,
 }: TransactionDetailProps) {
   const theme = useTheme();
@@ -208,6 +220,25 @@ export function TransactionDetail({
                   >
                     <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
                       {moneyLentLabel ? 'Manage in Money Lent' : 'Add to Money Lent'}
+                    </ThemedText>
+                  </Pressable>
+                </Section>
+              )}
+
+              {/* Credit-card bill — link this bank bill-payment to the card statement it settled. */}
+              {onManageCardBill && (
+                <Section title="Credit-card bill">
+                  <Field label="Statement" value={cardBillLabel ?? (cardBillSuggestion ? `Not linked · ${cardBillSuggestion}` : 'Not linked')} />
+                  {cardBillLabel && cardSpendCount != null && (
+                    <Field label="Card spends" value={`${cardSpendCount} transaction${cardSpendCount === 1 ? '' : 's'}`} />
+                  )}
+                  <Pressable
+                    onPress={onManageCardBill}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.changeBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
+                      {cardBillLabel ? 'View card spends' : 'Link to a card statement'}
                     </ThemedText>
                   </Pressable>
                 </Section>

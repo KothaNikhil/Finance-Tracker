@@ -92,6 +92,46 @@ function readMeta(lines: PdfPositionedLine[]): Meta {
   return { last4, product, accountName };
 }
 
+/** Card-statement summary used for bill-payment linking (Phase B). */
+export interface CardStatementMeta {
+  cardLast4: string | null;
+  statementMonth: string | null; // 'YYYY-MM'
+  totalDuePaise: number | null;
+}
+
+/** The date-band value on the line directly below the label line whose date-band starts with `label`. */
+function valueBelow(lines: PdfPositionedLine[], label: string): string | null {
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (bandCells(lines[i]).date.trim().toLowerCase().startsWith(label.toLowerCase())) {
+      return bandCells(lines[i + 1]).date.trim() || null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Read the statement's card last-4, month ('YYYY-MM') and Total Payment Due (paise) from the header
+ * summary. Used to record the import batch so a bank bill-payment can later be linked to it.
+ */
+export function readCardStatementMeta(lines: PdfPositionedLine[]): CardStatementMeta {
+  const { last4 } = readMeta(lines);
+
+  let statementMonth: string | null = null;
+  const monthVal = valueBelow(lines, 'Selected Statement Month'); // e.g. "Jun 2026"
+  const mm = /^([A-Za-z]{3})\w*\s+(\d{4})$/.exec(monthVal ?? '');
+  if (mm && MONTHS[mm[1].toLowerCase()]) statementMonth = `${mm[2]}-${MONTHS[mm[1].toLowerCase()]}`;
+
+  let totalDuePaise: number | null = null;
+  const dueVal = valueBelow(lines, 'Total Payment Due'); // e.g. "₹ 1,227.00" (can be negative)
+  if (dueVal && /\d/.test(dueVal)) {
+    const neg = /-/.test(dueVal);
+    const n = parseFloat(dueVal.replace(/[^0-9.]/g, ''));
+    if (!Number.isNaN(n)) totalDuePaise = Math.round(n * 100) * (neg ? -1 : 1);
+  }
+
+  return { cardLast4: last4 || null, statementMonth, totalDuePaise };
+}
+
 /** Index of the line that looks like the transaction-table header. */
 function headerLineIndex(lines: PdfPositionedLine[]): number {
   return lines.findIndex((l) => {

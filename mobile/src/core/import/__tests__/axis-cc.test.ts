@@ -5,7 +5,7 @@
  * Indian lakh amounts, wrapped detail lines, and stable card-scoped dedupe keys.
  */
 
-import { axisCcAdapter } from '../adapters/axis-cc';
+import { axisCcAdapter, readCardStatementMeta } from '../adapters/axis-cc';
 import type { NormalizedTxn, PdfPositionedLine, SheetLike } from '../types';
 
 interface LineSpec {
@@ -113,6 +113,29 @@ describe('axisCcAdapter.normalize', () => {
     const a = parse(STATEMENT).find((t) => t.counterpartyName === 'COFFEE HOUSE')!;
     const b = parse(otherCard).find((t) => t.counterpartyName === 'COFFEE HOUSE')!;
     expect(a.dedupeKey).not.toBe(b.dedupeKey);
+  });
+});
+
+describe('readCardStatementMeta', () => {
+  const META_LINES: LineSpec[] = [
+    { y: 782, cells: [[311, 'Axis Rewards Credit Card Monthly Statement']] },
+    { y: 704, cells: [[369, 'Credit Card Number: 5521XXXXXXXX9999']] },
+    { y: 659, cells: [[55, 'Total Payment Due'], [222, 'Minimum Payment Due'], [388, 'Payment Due Date']] },
+    { y: 642, cells: [[55, '₹ 1,227.00'], [222, '₹ 100.00'], [388, "21 Jun '26"]] },
+    { y: 612, cells: [[55, 'Selected Statement Month'], [222, 'Credit Limit'], [388, 'Opening Balance']] },
+    { y: 596, cells: [[55, 'Jun 2026'], [222, '₹ 2,98,000.00'], [388, '₹ 1,882.90']] },
+  ];
+
+  it('reads card last-4, statement month and Total Payment Due', () => {
+    const meta = readCardStatementMeta(sheetFrom(META_LINES).pdfLines!);
+    expect(meta).toEqual({ cardLast4: '9999', statementMonth: '2026-06', totalDuePaise: 122700 });
+  });
+
+  it('handles a negative (credit) Total Payment Due', () => {
+    const lines = META_LINES.map((l) =>
+      l.y === 642 ? { y: l.y, cells: [[55, '₹ -84.00'], ...l.cells.slice(1)] as [number, string][] } : l,
+    );
+    expect(readCardStatementMeta(sheetFrom(lines).pdfLines!).totalDuePaise).toBe(-8400);
   });
 });
 
