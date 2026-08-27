@@ -94,9 +94,12 @@ export default function LendingScreen() {
                     netted person header with the loans nested under it. */}
                 {people.map((g) =>
                   g.loans.length > 1 ? (
+                    // Key BOTH branches by personId — this is a list of person groups, so personId is
+                    // unique here. (Keying the single-loan branch by loan id could collide with a
+                    // person group whose personId happens to equal that loan id → duplicate-key warning.)
                     <PersonGroupCard key={g.personId} group={g} onPressLoan={setOpenLoanId} />
                   ) : (
-                    <LoanRow key={g.loans[0].id} loan={g.loans[0]} onPress={() => setOpenLoanId(g.loans[0].id)} />
+                    <LoanRow key={g.personId} loan={g.loans[0]} onPress={() => setOpenLoanId(g.loans[0].id)} />
                   ),
                 )}
                 {people.length === 0 && (
