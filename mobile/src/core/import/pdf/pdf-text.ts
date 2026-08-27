@@ -136,7 +136,7 @@ function hexToCodepoints(hex: string): string {
   let out = '';
   // UTF-16BE code units, 4 hex chars each.
   for (let i = 0; i + 4 <= clean.length; i += 4) {
-    out += String.fromCharCode(parseInt(clean.substr(i, 4), 16));
+    out += String.fromCharCode(parseInt(clean.slice(i, i + 4), 16));
   }
   return out;
 }
@@ -185,7 +185,7 @@ function decodeStringOperand(op: string): number[] {
   const codes: number[] = [];
   if (op[0] === '<') {
     const hex = op.slice(1, -1).replace(/\s+/g, '');
-    for (let i = 0; i + 2 <= hex.length; i += 2) codes.push(parseInt(hex.substr(i, 2), 16));
+    for (let i = 0; i + 2 <= hex.length; i += 2) codes.push(parseInt(hex.slice(i, i + 2), 16));
   } else {
     // literal (...) with escapes
     const body = op.slice(1, -1);
@@ -374,6 +374,7 @@ function tokenize(s: string): Token[] {
     }
     if (ch === '<') {
       const end = s.indexOf('>', i);
+      if (end === -1) break; // unterminated hex string (garbage) — stop rather than reset to 0
       tokens.push({ type: 'operand', value: s.slice(i, end + 1) });
       i = end + 1;
       continue;
@@ -400,6 +401,7 @@ function tokenize(s: string): Token[] {
     if (ch === '[') {
       // array — capture verbatim (used by TJ)
       const end = s.indexOf(']', i);
+      if (end === -1) break; // unterminated array (garbage) — stop rather than reset to 0
       tokens.push({ type: 'operand', value: s.slice(i, end + 1) });
       i = end + 1;
       continue;
