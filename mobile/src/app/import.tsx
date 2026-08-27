@@ -321,13 +321,21 @@ export default function ImportScreen() {
               return;
             }
           }
+          // Yield to the UI before each heavy synchronous step so the on-screen log paints the step's
+          // label first — whichever label is the LAST one visible when the spinner sticks is the
+          // stage that blocked (the JS thread can't repaint mid-block).
+          const yieldFrame = () => new Promise((r) => setTimeout(r, 0));
           try {
             if (isPdfBytes(bytes)) {
+              ilog('onUnlock: deriving key (pdfFileKey)…');
+              await yieldFrame();
               // Verify + derive the key (throws WrongPasswordError on a bad password), then parse.
               const key = pdfFileKey(bytes, password);
               ilog('onUnlock: key derived, parsing PDF…');
+              await yieldFrame();
               const sheets = parsePdfToSheets(bytes, key);
               ilog('onUnlock: parsed, committing…');
+              await yieldFrame();
               clearPendingImport();
               commit(sheets, label);
               ilog('onUnlock: commit returned');
