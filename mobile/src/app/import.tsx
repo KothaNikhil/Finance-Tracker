@@ -105,6 +105,11 @@ export default function ImportScreen() {
   // A picked, password-protected .xlsx waiting for its password. We hold the file's cache URI (not
   // its bytes) so it survives an app-lock reload — the URI is also persisted (see setPendingImport).
   const [locked, setLocked] = useState<{ uri: string; label: string } | null>(null);
+  // The locked file's bytes, read ONCE in processPending and reused by onUnlock — the picker's cache
+  // file can be reaped between the pick and the unlock (esp. on Samsung Knox app-lock, which reloads
+  // the app after the picker), and re-reading a reaped URI can HANG. Re-populated by the resume path,
+  // so it survives the reload too. See the on-device stall diagnosis.
+  const lockedBytesRef = useRef<Uint8Array | null>(null);
   // TEMP: on-screen tail of the import diagnostic log (see core/import/import-log).
   const [logLines, setLogLines] = useState<string[]>([]);
   useEffect(() => subscribeImportLog(setLogLines), []);
@@ -227,6 +232,7 @@ export default function ImportScreen() {
             const enc = isEncryptedPdf(bytes);
             ilog(`processPending: PDF detected, encrypted=${enc}`);
             if (enc) {
+              lockedBytesRef.current = bytes; // reuse in onUnlock — don't re-read the (reapable) URI
               setLocked({ uri, label });
               return;
             }
@@ -236,6 +242,7 @@ export default function ImportScreen() {
           }
           if (isEncryptedWorkbook(bytes)) {
             // Keep the marker set: if the app is reloaded by the lock, we resume this prompt.
+            lockedBytesRef.current = bytes; // reuse in onUnlock — don't re-read the (reapable) URI
             setLocked({ uri, label });
             return;
           }
@@ -297,16 +304,22 @@ export default function ImportScreen() {
           ilog('onUnlock: start');
           // Yield a frame so the spinner paints — decryption (spin-count key derivation) is heavy.
           await new Promise((resolve) => setTimeout(resolve, 0));
-          let bytes: Uint8Array;
-          try {
-            ilog('onUnlock: reading file bytes…');
-            bytes = new Uint8Array(await new File(uri).arrayBuffer());
-            ilog(`onUnlock: read ${bytes.length} bytes`);
-          } catch {
-            ilog('onUnlock: FILE READ FAILED (file gone)');
-            clearPendingImport();
-            Alert.alert('Couldn’t unlock', 'The file is no longer available — please pick it again.');
-            return;
+          // Prefer the bytes we already read in processPending — re-reading the URI here can HANG if
+          // the picker's cache file was reaped (the on-device stall). Only touch disk as a fallback.
+          let bytes = lockedBytesRef.current;
+          if (bytes) {
+            ilog(`onUnlock: using ${bytes.length} in-memory bytes`);
+          } else {
+            try {
+              ilog('onUnlock: no cached bytes, reading file…');
+              bytes = new Uint8Array(await new File(uri).arrayBuffer());
+              ilog(`onUnlock: read ${bytes.length} bytes`);
+            } catch {
+              ilog('onUnlock: FILE READ FAILED (file gone)');
+              clearPendingImport();
+              Alert.alert('Couldn’t unlock', 'The file is no longer available — please pick it again.');
+              return;
+            }
           }
           try {
             if (isPdfBytes(bytes)) {
@@ -342,6 +355,7 @@ export default function ImportScreen() {
 
   const onCancelUnlock = useCallback(() => {
     clearPendingImport();
+    lockedBytesRef.current = null;
     setLocked(null);
   }, []);
 
