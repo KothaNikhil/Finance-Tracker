@@ -6,6 +6,7 @@
  * the whole current import.
  */
 
+import * as Application from 'expo-application';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { useRouter } from 'expo-router';
@@ -59,11 +60,14 @@ function isPdfBytes(bytes: Uint8Array): boolean {
   return bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
 }
 
+// The app version shown in the footer, read from the real native build (set automatically by
+// android/app/build.gradle from git + build time) — never hand-edited. Falls back to 'dev' in
+// environments without a native version (e.g. web / unit tests).
+const APP_VERSION = Application.nativeApplicationVersion ?? 'dev';
+
 // A tiny built-in sample (no personal data) for a one-tap demo of import + auto-categorization.
 // A mix of tagged rows (categorize confidently), a known merchant (Zepto → Groceries), and
 // untagged rows (flagged "Needs review") so the review + Accept-all flow is visible.
-// Bumped on each build the user verifies on-device; shown in the Import footer.
-const APP_VERSION = '1.0.5';
 
 const SAMPLE_HEADERS = [
   'Date', 'Time', 'Transaction Details', 'Other Transaction Details (UPI ID or A/c No)',
