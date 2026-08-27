@@ -14,6 +14,7 @@
 
 import { unzlibSync, inflateSync } from 'fflate';
 
+import { ilog } from '../import-log';
 import type { PdfPositionedLine, RawRow, SheetLike } from '../types';
 import { decryptPdfData } from './decrypt-pdf';
 
@@ -511,17 +512,28 @@ function pageContent(doc: PdfDoc, page: PdfObject): string {
  * document; omit it for a plain PDF. Lines are top-to-bottom, spans within each left-to-right.
  */
 export function parsePdfPositionedText(bytes: Uint8Array, fileKey?: Uint8Array): PositionedLine[] {
+  ilog(`parsePdf: bytes=${bytes.length} toLatin1…`);
   const latin1 = toLatin1(bytes);
+  ilog('parsePdf: parseObjects…');
   const doc: PdfDoc = { bytes, latin1, objects: parseObjects(bytes, latin1), fileKey };
+  ilog(`parsePdf: objects=${doc.objects.size}, find page…`);
 
   const page = findFirstPage(doc);
-  if (!page) return [];
+  if (!page) {
+    ilog('parsePdf: NO PAGE FOUND → 0 lines');
+    return [];
+  }
 
+  ilog('parsePdf: read fonts…');
   const fonts = pageFonts(doc, page);
+  ilog(`parsePdf: fonts=${fonts.size}, read content…`);
   const content = pageContent(doc, page);
+  ilog(`parsePdf: content len=${content.length}, extract spans…`);
   const spans = extractSpans(content, fonts);
-
-  return groupIntoLines(spans);
+  ilog(`parsePdf: spans=${spans.length}, group lines…`);
+  const grouped = groupIntoLines(spans);
+  ilog(`parsePdf: lines=${grouped.length}`);
+  return grouped;
 }
 
 /**

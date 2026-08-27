@@ -33,6 +33,7 @@ import { sbiAdapter } from '@/core/import/adapters/sbi';
 import { decryptWorkbook, isEncryptedWorkbook, WrongPasswordError } from '@/core/import/decrypt';
 import { isEncryptedPdf, pdfFileKey } from '@/core/import/pdf/decrypt-pdf';
 import { parsePdfToSheets } from '@/core/import/pdf/pdf-text';
+import { ilog, resetImportLog, subscribeImportLog } from '@/core/import/import-log';
 import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
 import { parseXlsxBytes } from '@/core/import/xlsx';
@@ -104,6 +105,9 @@ export default function ImportScreen() {
   // A picked, password-protected .xlsx waiting for its password. We hold the file's cache URI (not
   // its bytes) so it survives an app-lock reload — the URI is also persisted (see setPendingImport).
   const [locked, setLocked] = useState<{ uri: string; label: string } | null>(null);
+  // TEMP: on-screen tail of the import diagnostic log (see core/import/import-log).
+  const [logLines, setLogLines] = useState<string[]>([]);
+  useEffect(() => subscribeImportLog(setLogLines), []);
 
   // Everything on this screen is scoped to THIS session's imports.
   const sessionFilter: TxnFilter = { since: SESSION_START };
@@ -135,6 +139,7 @@ export default function ImportScreen() {
         [paytmAdapter, axisAdapter, kvbAdapter, sbiAdapter, axisCcAdapter],
         getExistingDedupeKeys(),
       );
+      ilog(`commit: source=${preview.source} rows=${preview.totalRows} new=${preview.newTxns.length} dupes=${preview.duplicates.length}`);
       // For a credit-card statement, capture the card/month/total-due so the batch can later be
       // linked to the bank bill-payment that settled it (Phase B). Null for every other source.
       const cardMeta =
@@ -204,18 +209,24 @@ export default function ImportScreen() {
     (uri: string, label: string) => {
       run(
         async () => {
+          ilog(`processPending: label="${label}" uri=${uri.slice(0, 24)}…`);
           // Yield a frame so the spinner paints before the synchronous parse blocks the thread.
           await new Promise((resolve) => setTimeout(resolve, 0));
           let bytes: Uint8Array;
           try {
+            ilog('processPending: reading file bytes…');
             bytes = new Uint8Array(await new File(uri).arrayBuffer());
+            ilog(`processPending: read ${bytes.length} bytes (magic ${bytes[0]},${bytes[1]},${bytes[2]},${bytes[3]})`);
           } catch (err) {
+            ilog(`processPending: FILE READ FAILED: ${err instanceof Error ? err.message : String(err)}`);
             clearPendingImport(); // the cache file is gone — drop the marker so we don't loop
             throw err;
           }
           // Credit-card statements are PDFs; bank/Paytm statements are xlsx/xls (CFB when locked).
           if (isPdfBytes(bytes)) {
-            if (isEncryptedPdf(bytes)) {
+            const enc = isEncryptedPdf(bytes);
+            ilog(`processPending: PDF detected, encrypted=${enc}`);
+            if (enc) {
               setLocked({ uri, label });
               return;
             }
@@ -258,6 +269,8 @@ export default function ImportScreen() {
     if (res.canceled || !res.assets?.length) return;
     const asset = res.assets[0];
     const label = asset.name ?? 'statement';
+    resetImportLog();
+    ilog(`picked: name="${asset.name}" mime=${asset.mimeType} size=${asset.size} uriScheme=${asset.uri.split(':')[0]}`);
     // Persist BEFORE we might lose focus: a Samsung Knox app-lock re-auth can reload the app on
     // return from the picker, wiping memory. The marker lets us resume from the cached file.
     setPendingImport(asset.uri, label);
@@ -281,12 +294,16 @@ export default function ImportScreen() {
       setLocked(null);
       run(
         async () => {
+          ilog('onUnlock: start');
           // Yield a frame so the spinner paints — decryption (spin-count key derivation) is heavy.
           await new Promise((resolve) => setTimeout(resolve, 0));
           let bytes: Uint8Array;
           try {
+            ilog('onUnlock: reading file bytes…');
             bytes = new Uint8Array(await new File(uri).arrayBuffer());
+            ilog(`onUnlock: read ${bytes.length} bytes`);
           } catch {
+            ilog('onUnlock: FILE READ FAILED (file gone)');
             clearPendingImport();
             Alert.alert('Couldn’t unlock', 'The file is no longer available — please pick it again.');
             return;
@@ -295,14 +312,19 @@ export default function ImportScreen() {
             if (isPdfBytes(bytes)) {
               // Verify + derive the key (throws WrongPasswordError on a bad password), then parse.
               const key = pdfFileKey(bytes, password);
+              ilog('onUnlock: key derived, parsing PDF…');
+              const sheets = parsePdfToSheets(bytes, key);
+              ilog('onUnlock: parsed, committing…');
               clearPendingImport();
-              commit(parsePdfToSheets(bytes, key), label);
+              commit(sheets, label);
+              ilog('onUnlock: commit returned');
             } else {
               const decrypted = decryptWorkbook(bytes, password);
               clearPendingImport();
               commit(parseXlsxBytes(decrypted), label);
             }
           } catch (err) {
+            ilog(`onUnlock: ERROR ${err instanceof Error ? err.name + ': ' + err.message : String(err)}`);
             if (err instanceof WrongPasswordError) {
               setLocked({ uri, label }); // reopen so they can retry (marker still set)
               Alert.alert('Incorrect password', 'That password didn’t unlock the file. Please try again.');
@@ -415,6 +437,18 @@ export default function ImportScreen() {
         </View>
       )}
       {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
+
+      {/* TEMP diagnostic: on-screen import log tail. Shows where an import stalls on-device without
+          needing adb. The LAST line before a frozen spinner is the stage that hung. */}
+      {logLines.length > 0 && (
+        <View style={[styles.logPanel, { borderColor: theme.border }]}>
+          {logLines.slice(-16).map((line, i) => (
+            <ThemedText key={i} type="caption" themeColor="textSecondary" style={styles.logLine}>
+              {line}
+            </ThemedText>
+          ))}
+        </View>
+      )}
 
       {/* Revert the last import — deletes everything that batch added (survives app restarts). */}
       {lastImport && (
@@ -577,6 +611,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     marginTop: Spacing.two,
   },
+  logPanel: {
+    marginTop: Spacing.two,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: Spacing.two,
+    padding: Spacing.two,
+    gap: 1,
+  },
+  logLine: { fontFamily: 'monospace', fontSize: 10 },
   tabsWrap: { marginTop: Spacing.two },
   footer: { marginTop: Spacing.three },
   empty: { marginTop: Spacing.three },

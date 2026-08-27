@@ -21,6 +21,7 @@
 import CryptoJS from 'crypto-js';
 
 import { UnsupportedEncryptionError, WrongPasswordError } from '../decrypt';
+import { ilog } from '../import-log';
 
 type WordArray = CryptoJS.lib.WordArray;
 
@@ -100,7 +101,8 @@ function aesCbcDecryptNoPad(cipher: Uint8Array, key: Uint8Array, iv: Uint8Array)
  */
 function hash2B(password: Uint8Array, salt: Uint8Array, udata: Uint8Array): Uint8Array {
   let k = sha256(concatU8(password, salt, udata));
-  for (let round = 0; ; round++) {
+  let round = 0;
+  for (; ; round++) {
     // K1 = (password ‖ K ‖ udata) repeated 64 times
     const block = concatU8(password, k, udata);
     const k1 = new Uint8Array(block.length * 64);
@@ -114,7 +116,14 @@ function hash2B(password: Uint8Array, salt: Uint8Array, udata: Uint8Array): Uint
     k = mod === 0 ? sha256(e) : mod === 1 ? sha384(e) : sha512(e);
 
     if (round >= 63 && e[e.length - 1] <= round - 32) break;
+    if (round > 100000) {
+      // Safety valve: R6 normally terminates well under a few hundred rounds. If we somehow don't,
+      // bail rather than spin forever (this would be the on-device "stuck spinner").
+      ilog(`hash2B: SAFETY BREAK at round ${round} (did not converge)`);
+      break;
+    }
   }
+  ilog(`hash2B done in ${round + 1} rounds`);
   return k.subarray(0, 32);
 }
 
@@ -267,27 +276,36 @@ const ZERO_IV = new Uint8Array(16);
  * don't implement. Handles both the user and (fallback) owner password.
  */
 export function pdfFileKey(bytes: Uint8Array, password: string): Uint8Array {
+  ilog('pdfFileKey: parseEncrypt start');
   const enc = parseEncrypt(bytes);
+  ilog(`pdfFileKey: parseEncrypt ok (U=${enc.u.length}b UE=${enc.ue.length}b), pw len=${password.length}`);
   const pw = passwordBytes(password);
 
   // Try the USER password: hash(pw ‖ validationSalt) must equal U[0:32]; then unwrap UE with hash(pw ‖ keySalt).
   const uValidationSalt = enc.u.subarray(32, 40);
   const uKeySalt = enc.u.subarray(40, 48);
+  ilog('pdfFileKey: user verify hash…');
   const userHash = hash2B(pw, uValidationSalt, new Uint8Array(0));
   if (u8Equals(userHash, enc.u.subarray(0, 32))) {
+    ilog('pdfFileKey: user password matched, deriving key…');
     const ik = hash2B(pw, uKeySalt, new Uint8Array(0));
+    ilog('pdfFileKey: done (user)');
     return aesCbcDecryptNoPad(enc.ue, ik, ZERO_IV);
   }
 
   // Fall back to the OWNER password: owner hashes mix in the 48-byte U string as `udata`.
+  ilog('pdfFileKey: user no-match, trying owner…');
   const oValidationSalt = enc.o.subarray(32, 40);
   const oKeySalt = enc.o.subarray(40, 48);
   const ownerHash = hash2B(pw, oValidationSalt, enc.u.subarray(0, 48));
   if (u8Equals(ownerHash, enc.o.subarray(0, 32))) {
+    ilog('pdfFileKey: owner password matched, deriving key…');
     const ik = hash2B(pw, oKeySalt, enc.u.subarray(0, 48));
+    ilog('pdfFileKey: done (owner)');
     return aesCbcDecryptNoPad(enc.oe, ik, ZERO_IV);
   }
 
+  ilog('pdfFileKey: WRONG PASSWORD (neither user nor owner matched)');
   throw new WrongPasswordError();
 }
 
