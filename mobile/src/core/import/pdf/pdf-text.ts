@@ -116,12 +116,17 @@ function streamBytes(doc: PdfDoc, obj: PdfObject): Uint8Array | null {
   let data = doc.bytes.subarray(obj.streamStart, obj.streamEnd);
   if (doc.fileKey) data = decryptPdfData(doc.fileKey, data);
   if (/\/FlateDecode/.test(obj.dict)) {
+    // fflate can be picky about a subarray VIEW (non-zero byteOffset) — pass a tight 0-offset copy.
+    const zdata = new Uint8Array(data);
     try {
-      return unzlibSync(data);
-    } catch {
+      return unzlibSync(zdata);
+    } catch (e1) {
       try {
-        return inflateSync(data);
-      } catch {
+        return inflateSync(zdata);
+      } catch (e2) {
+        // Log the header + error so we can tell "wrong decryption" (garbage header) from "inflate
+        // library failed on valid zlib" (header 120,156 = 0x78 9C). Only fires on the failure path.
+        ilog(`streamBytes: INFLATE FAILED hdr=${zdata[0]},${zdata[1]} len=${zdata.length} e1=${String(e1)} e2=${String(e2)}`);
         return data;
       }
     }
