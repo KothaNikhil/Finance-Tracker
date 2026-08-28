@@ -15,6 +15,7 @@ import { ActivityIndicator, Alert, KeyboardAvoidingView, Pressable, StyleSheet, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { DebugLogScreen } from '@/components/debug-log-screen';
 import { EmptyState } from '@/components/empty-state';
 import { PeriodTabs } from '@/components/period-tabs';
 import { StatTile } from '@/components/stat-tile';
@@ -33,7 +34,7 @@ import { sbiAdapter } from '@/core/import/adapters/sbi';
 import { decryptWorkbook, isEncryptedWorkbook, WrongPasswordError } from '@/core/import/decrypt';
 import { isEncryptedPdf, pdfFileKey } from '@/core/import/pdf/decrypt-pdf';
 import { parsePdfToSheets } from '@/core/import/pdf/pdf-text';
-import { ilog, resetImportLog, subscribeImportLog } from '@/core/import/import-log';
+import { ilog, resetImportLog } from '@/core/import/import-log';
 import { runImport } from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
 import { parseXlsxBytes } from '@/core/import/xlsx';
@@ -110,9 +111,8 @@ export default function ImportScreen() {
   // the app after the picker), and re-reading a reaped URI can HANG. Re-populated by the resume path,
   // so it survives the reload too. See the on-device stall diagnosis.
   const lockedBytesRef = useRef<Uint8Array | null>(null);
-  // TEMP: on-screen tail of the import diagnostic log (see core/import/import-log).
-  const [logLines, setLogLines] = useState<string[]>([]);
-  useEffect(() => subscribeImportLog(setLogLines), []);
+  // The diagnostic-log viewer (a separate full-screen page); `ilog(...)` still records the trace.
+  const [debugOpen, setDebugOpen] = useState(false);
 
   // Everything on this screen is scoped to THIS session's imports.
   const sessionFilter: TxnFilter = { since: SESSION_START };
@@ -460,17 +460,17 @@ export default function ImportScreen() {
       )}
       {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
 
-      {/* TEMP diagnostic: on-screen import log tail. Shows where an import stalls on-device without
-          needing adb. The LAST line before a frozen spinner is the stage that hung. */}
-      {logLines.length > 0 && (
-        <View style={[styles.logPanel, { borderColor: theme.border }]}>
-          {logLines.slice(-16).map((line, i) => (
-            <ThemedText key={i} type="caption" themeColor="textSecondary" style={styles.logLine}>
-              {line}
-            </ThemedText>
-          ))}
-        </View>
-      )}
+      {/* Open the diagnostic-log page (a separate full-screen view). */}
+      <Pressable
+        onPress={() => setDebugOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Open debug logs"
+        style={({ pressed }) => [styles.debugLink, { opacity: pressed ? 0.6 : 1 }]}
+      >
+        <ThemedText type="small" themeColor="textSecondary">
+          🐞 Debug logs
+        </ThemedText>
+      </Pressable>
 
       {/* Revert the last import — deletes everything that batch added (survives app restarts). */}
       {lastImport && (
@@ -540,6 +540,9 @@ export default function ImportScreen() {
           Samsung Knox App Lock re-authenticates and recreates the activity after the file picker.
           Rendering in the screen's own view tree keeps the prompt reliably on screen. */}
       {locked && <PasswordPrompt label={locked.label} onCancel={onCancelUnlock} onSubmit={onUnlock} />}
+
+      {/* Diagnostic-log page (separate full-screen view), opened from the "Debug logs" link. */}
+      <DebugLogScreen visible={debugOpen} onClose={() => setDebugOpen(false)} />
     </ThemedView>
   );
 }
@@ -633,14 +636,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     marginTop: Spacing.two,
   },
-  logPanel: {
-    marginTop: Spacing.two,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: Spacing.two,
-    padding: Spacing.two,
-    gap: 1,
-  },
-  logLine: { fontFamily: 'monospace', fontSize: 10 },
+  debugLink: { marginTop: Spacing.two, alignSelf: 'flex-start', paddingVertical: Spacing.one },
   tabsWrap: { marginTop: Spacing.two },
   footer: { marginTop: Spacing.three },
   empty: { marginTop: Spacing.three },
