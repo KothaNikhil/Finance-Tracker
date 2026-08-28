@@ -30,7 +30,7 @@ import {
   type MatcherType,
 } from '@/core/categorize';
 import type { NormalizedTxn } from '@/core/import/types';
-import { roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@/core/lending/roles';
+import { isPrincipal, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@/core/lending/roles';
 
 /** All dedupe keys already stored — passed to the import pipeline to skip duplicates. */
 export function getExistingDedupeKeys(): Set<string> {
@@ -569,23 +569,28 @@ export function attachTransactionToLoan(txnId: number, loanId: number, part: Loa
 }
 
 /**
- * Split ONE transaction across several loans (e.g. a lump repayment that clears two loans). All
- * target loans must be the same kind (their role/direction is shared by the one transaction). The
- * transaction keeps a single `transfer_role` (so analytics still treats it as one transfer); each
- * slice is recorded as a `loan_allocations` row. Replaces any prior attachment/split on the txn.
+ * Split ONE transaction into several slices, each `{loan, part, amount}` — e.g. a lump repayment that
+ * clears two loans, or a payment that is part repayment + part interest on the same loan (the same
+ * loan may appear in more than one slice). Every slice's role must move money the SAME way (a single
+ * transaction has one direction), which rules out mixing lending-out principal with repayment/interest
+ * or mixing lent- and borrowed-loan slices. The transaction keeps ONE representative `transfer_role`
+ * (a principal/repayment role is preferred when parts are mixed, so returning principal isn't counted
+ * as income); each slice's own `part` drives the exact per-loan roll-up. Replaces any prior
+ * attachment/split on the txn.
  */
 export function splitTransactionAcrossLoans(
   txnId: number,
-  part: LoanPart,
-  allocations: { loanId: number; paise: number }[],
+  allocations: { loanId: number; part: LoanPart; paise: number }[],
 ): void {
   const slices = allocations.filter((a) => a.paise > 0);
   if (slices.length === 0) return;
   const metas = slices.map((a) => ({ ...a, meta: getLoanMeta(a.loanId) }));
   if (metas.some((m) => m.meta == null)) return;
-  const kind = metas[0].meta!.kind;
-  if (metas.some((m) => m.meta!.kind !== kind)) return; // mixed lent/borrowed can't share one role
-  const role = roleForLoanPart(kind, part);
+  const roles = metas.map((m) => roleForLoanPart(m.meta!.kind, m.part));
+  if (new Set(roles.map(roleDirection)).size > 1) return; // one txn moves money one way only
+  // Representative role for the whole txn (drives analytics + labelling). Prefer a principal/repayment
+  // (excluded-from-totals) role when the split mixes parts, so returned principal isn't counted as income.
+  const role = roles.find((r) => isPrincipal(r)) ?? roles[0];
   const personIds = new Set(metas.map((m) => m.meta!.personId));
   const db = getDb();
   const now = new Date().toISOString();
@@ -598,7 +603,7 @@ export function splitTransactionAcrossLoans(
   db.delete(loanAllocations).where(eq(loanAllocations.txnId, txnId)).run();
   db.update(transactions).set(patch).where(eq(transactions.id, txnId)).run();
   for (const s of slices) {
-    db.insert(loanAllocations).values({ txnId, loanId: s.loanId, paise: s.paise, createdAt: now }).run();
+    db.insert(loanAllocations).values({ txnId, loanId: s.loanId, part: s.part, paise: s.paise, createdAt: now }).run();
   }
   touchDataUpdatedAt();
 }

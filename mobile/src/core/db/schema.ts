@@ -121,12 +121,16 @@ export const transactions = sqliteTable('transactions', {
 });
 
 /**
- * Splits ONE transaction across several loans. When a single payment settles more than one loan
- * (e.g. a lump repayment that clears two separate loans to the same person), the transaction keeps
- * its single `transfer_role` (so analytics is unaffected — it's still one transfer) and its
- * `loan_id` is left null; instead one allocation row per loan records how much of the amount applies
- * to that loan. A directly-attached transaction (single loan) uses `transactions.loan_id` and has NO
+ * Splits ONE transaction across several slices — each a `{loan, part, amount}`. Used when a single
+ * payment settles more than one thing at once: a lump repayment that clears two separate loans, or a
+ * payment that is part repayment + part interest on the same loan. The transaction keeps its single
+ * (representative) `transfer_role` for analytics/labelling and its `loan_id` is left null; each slice
+ * carries its OWN `part` (`principal` / `repayment` / `interest`) so the per-loan roll-up is exact.
+ * A directly-attached transaction (single loan, whole amount) uses `transactions.loan_id` and has NO
  * allocation rows. The two mechanisms are mutually exclusive.
+ *
+ * `part` is nullable only for rows written before the column existed; those fall back to the part
+ * derived from the transaction's `transfer_role` (see the lending hook).
  */
 export const loanAllocations = sqliteTable('loan_allocations', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -136,6 +140,7 @@ export const loanAllocations = sqliteTable('loan_allocations', {
   loanId: integer('loan_id')
     .notNull()
     .references(() => loans.id),
+  part: text('part'), // 'principal' | 'repayment' | 'interest'; null on legacy rows
   paise: integer('paise').notNull(),
   createdAt: text('created_at').notNull(),
 });
@@ -281,6 +286,7 @@ CREATE TABLE IF NOT EXISTS loan_allocations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   txn_id INTEGER NOT NULL REFERENCES transactions(id),
   loan_id INTEGER NOT NULL REFERENCES loans(id),
+  part TEXT,
   paise INTEGER NOT NULL,
   created_at TEXT NOT NULL
 );

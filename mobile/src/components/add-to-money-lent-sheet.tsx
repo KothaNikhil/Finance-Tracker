@@ -18,7 +18,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import type { TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
-import { LOAN_PARTS, type LoanKind, type LoanPart } from '@/core/lending/roles';
+import { LOAN_PARTS, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
 
 export interface LoanChoice {
@@ -26,6 +26,13 @@ export interface LoanChoice {
   name: string;
   personName: string;
   kind: LoanKind;
+}
+
+/** One editable split slice in the sheet: which loan, which part, and the rupee text entered. */
+interface SplitRow {
+  loanId: number | null;
+  part: LoanPart;
+  text: string;
 }
 
 export interface AddToMoneyLentSheetProps {
@@ -38,12 +45,15 @@ export interface AddToMoneyLentSheetProps {
   currentLoanName?: string;
   currentPart?: LoanPart | null;
   /** Existing split slices for this transaction (empty when not split). */
-  currentAllocations?: { loanId: number; paise: number }[];
+  currentAllocations?: { loanId: number; part: LoanPart | null; paise: number }[];
   onAddPerson: (name: string) => number;
   onCreateLoan: (input: { name: string; personId: number; kind: LoanKind }) => number;
   onAttach: (loanId: number, part: LoanPart) => void;
-  /** Split the transaction across loans (all the same kind). Replaces any attach/split. */
-  onSplit: (part: LoanPart, allocations: { loanId: number; paise: number }[]) => void;
+  /**
+   * Split the transaction into slices, each a `{loan, part, amount}`. All slices must move money the
+   * same way (e.g. repayment + interest, or several principals). Replaces any attach/split.
+   */
+  onSplit: (allocations: { loanId: number; part: LoanPart; paise: number }[]) => void;
   onDetach: () => void;
   onClose: () => void;
 }
@@ -83,9 +93,10 @@ export function AddToMoneyLentSheet({
   const [newPersonId, setNewPersonId] = useState<number | null>(null);
   const [newName, setNewName] = useState('');
   const [newPerson, setNewPerson] = useState('');
-  const [part, setPart] = useState<LoanPart | null>(currentPart ?? null);
-  // Per-loan rupee text for split mode, keyed by loan id.
-  const [amounts, setAmounts] = useState<Record<number, string>>({});
+  const [part, setPart] = useState<LoanPart | null>(currentPart ?? null); // single-mode part
+  // One row per split slice: which loan, which part, and the rupee text. The same loan may appear in
+  // more than one row (e.g. repayment + interest on one loan).
+  const [splitRows, setSplitRows] = useState<SplitRow[]>([]);
 
   const attached = currentLoanId != null;
   const isSplit = (currentAllocations?.length ?? 0) > 0;
@@ -102,10 +113,14 @@ export function AddToMoneyLentSheet({
       setNewName('');
       setNewPerson('');
       setPart(currentPart ?? null);
-      // Prefill split amounts (and default to split mode) when editing an existing split.
-      const seed: Record<number, string> = {};
-      for (const a of currentAllocations ?? []) seed[a.loanId] = String(a.paise / 100);
-      setAmounts(seed);
+      // Prefill split rows (and default to split mode) when editing an existing split; otherwise start
+      // with one blank slice (pre-picking the loan when there's only one to choose).
+      const seeded = (currentAllocations ?? []).map<SplitRow>((a) => ({
+        loanId: a.loanId,
+        part: a.part ?? 'repayment',
+        text: String(a.paise / 100),
+      }));
+      setSplitRows(seeded.length > 0 ? seeded : [{ loanId: loans.length === 1 ? loans[0].id : null, part: 'repayment', text: '' }]);
       setMode(isSplit ? 'split' : 'single');
     }
   }
@@ -119,13 +134,28 @@ export function AddToMoneyLentSheet({
   };
 
   // --- split-mode derived values ---
-  const splitSlices = loans
-    .map((l) => ({ loanId: l.id, kind: l.kind, paise: textToPaise(amounts[l.id] ?? '') }))
-    .filter((s): s is { loanId: number; kind: LoanKind; paise: number } => s.paise != null && s.paise > 0);
-  const allocated = splitSlices.reduce((sum, s) => sum + s.paise, 0);
-  const splitKinds = new Set(splitSlices.map((s) => s.kind));
+  const loanKind = (id: number | null) => (id != null ? loans.find((l) => l.id === id)?.kind : undefined);
+  const validSlices = splitRows
+    .map((r) => {
+      const kind = loanKind(r.loanId);
+      const paise = textToPaise(r.text);
+      return r.loanId != null && kind != null && paise != null && paise > 0
+        ? { loanId: r.loanId, part: r.part, paise, direction: roleDirection(roleForLoanPart(kind, r.part)) }
+        : null;
+    })
+    .filter((s): s is { loanId: number; part: LoanPart; paise: number; direction: 'in' | 'out' } => s != null);
+  const allocated = validSlices.reduce((sum, s) => sum + s.paise, 0);
   const overAllocated = total > 0 && allocated > total;
-  const canSplit = part != null && splitSlices.length > 0 && !overAllocated && splitKinds.size === 1;
+  // A single transaction moves money one way — every slice's role must share a direction (this rules
+  // out mixing lending-out principal with repayment/interest, or lent-loan with borrowed-loan slices).
+  const mixedDirection = new Set(validSlices.map((s) => s.direction)).size > 1;
+  const canSplit = validSlices.length > 0 && !overAllocated && !mixedDirection;
+
+  const newRow = (): SplitRow => ({ loanId: loans.length === 1 ? loans[0].id : null, part: 'repayment', text: '' });
+  const updateRow = (i: number, patch: Partial<SplitRow>) =>
+    setSplitRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addRow = () => setSplitRows((rows) => [...rows, newRow()]);
+  const removeRow = (i: number) => setSplitRows((rows) => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows));
 
   const canSubmitSingle = part != null && (attached || selectedLoanId != null || (creatingNew && newPersonId != null));
 
@@ -144,8 +174,8 @@ export function AddToMoneyLentSheet({
   };
 
   const submitSplit = () => {
-    if (!canSplit || part == null) return;
-    onSplit(part, splitSlices.map((s) => ({ loanId: s.loanId, paise: s.paise })));
+    if (!canSplit) return;
+    onSplit(validSlices.map((s) => ({ loanId: s.loanId, part: s.part, paise: s.paise })));
   };
 
   const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }];
@@ -179,47 +209,79 @@ export function AddToMoneyLentSheet({
             </View>
           )}
 
-          {/* What this transaction is — the part applies to the attach OR to every split slice. */}
-          <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
-            THIS TRANSACTION IS
-          </ThemedText>
-          <View style={styles.chips}>
-            {LOAN_PARTS.map((p) => (
-              <Chip key={p.part} label={p.label} selected={p.part === part} onPress={() => setPart(p.part)} />
-            ))}
-          </View>
+          {/* What this transaction is — for a single attach. In split mode each slice picks its own part. */}
+          {mode !== 'split' && (
+            <>
+              <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
+                THIS TRANSACTION IS
+              </ThemedText>
+              <View style={styles.chips}>
+                {LOAN_PARTS.map((p) => (
+                  <Chip key={p.part} label={p.label} selected={p.part === part} onPress={() => setPart(p.part)} />
+                ))}
+              </View>
+            </>
+          )}
 
           {mode === 'split' ? (
             <>
               <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
-                AMOUNT PER LOAN
+                SLICES
               </ThemedText>
-              {loans.map((l) => (
-                <View key={l.id} style={styles.splitRow}>
-                  <ThemedText type="small" numberOfLines={1} style={styles.splitLabel}>
-                    {loanLabel(l)}
-                  </ThemedText>
-                  <TextInput
-                    value={amounts[l.id] ?? ''}
-                    onChangeText={(v) => setAmounts((m) => ({ ...m, [l.id]: v }))}
-                    placeholder="₹0"
-                    placeholderTextColor={theme.textSecondary}
-                    keyboardType="numeric"
-                    style={[inputStyle, styles.splitInput]}
-                  />
+              {splitRows.map((row, i) => (
+                <View key={i} style={[styles.sliceCard, { backgroundColor: theme.backgroundElement }]}>
+                  <View style={styles.sliceHeader}>
+                    <ThemedText type="smallBold">Slice {i + 1}</ThemedText>
+                    {splitRows.length > 1 && (
+                      <Pressable onPress={() => removeRow(i)} hitSlop={8} accessibilityRole="button">
+                        <ThemedText type="small" style={{ color: theme.spend }}>
+                          Remove
+                        </ThemedText>
+                      </Pressable>
+                    )}
+                  </View>
+                  <View style={styles.chips}>
+                    {loans.map((l) => (
+                      <Chip key={l.id} label={loanLabel(l)} selected={row.loanId === l.id} onPress={() => updateRow(i, { loanId: l.id })} />
+                    ))}
+                  </View>
+                  <View style={styles.chips}>
+                    {LOAN_PARTS.map((p) => (
+                      <Chip key={p.part} label={p.label} selected={row.part === p.part} onPress={() => updateRow(i, { part: p.part })} />
+                    ))}
+                  </View>
+                  <View style={styles.sliceAmountRow}>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.sliceAmountLabel}>
+                      Amount
+                    </ThemedText>
+                    <TextInput
+                      value={row.text}
+                      onChangeText={(v) => updateRow(i, { text: v })}
+                      placeholder="₹0"
+                      placeholderTextColor={theme.textSecondary}
+                      keyboardType="numeric"
+                      style={[inputStyle, styles.splitInput]}
+                    />
+                  </View>
                 </View>
               ))}
+              <Pressable onPress={addRow} hitSlop={8} accessibilityRole="button" style={({ pressed }) => [styles.addSlice, { opacity: pressed ? 0.6 : 1 }]}>
+                <ThemedText type="smallBold" style={{ color: theme.accent }}>
+                  ＋ Add slice
+                </ThemedText>
+              </Pressable>
               <ThemedText type="small" themeColor={overAllocated ? undefined : 'textSecondary'} style={overAllocated ? { color: theme.spend } : undefined}>
                 Allocated {formatINR(allocated)} of {formatINR(total)}
                 {allocated < total ? ` · ${formatINR(total - allocated)} left unallocated` : ''}
                 {overAllocated ? ' · over the payment amount' : ''}
               </ThemedText>
-              {splitKinds.size > 1 && (
+              {mixedDirection && (
                 <ThemedText type="small" style={{ color: theme.spend }}>
-                  Split must be across loans of the same type (all lent or all borrowed).
+                  All slices must move money the same way — you can mix repayment and interest, but not
+                  money-in with money-out.
                 </ThemedText>
               )}
-              <Button label="Split across loans" variant="primary" onPress={submitSplit} disabled={!canSplit} style={styles.saveBtn} />
+              <Button label="Save split" variant="primary" onPress={submitSplit} disabled={!canSplit} style={styles.saveBtn} />
             </>
           ) : attached ? (
             <>
@@ -333,9 +395,12 @@ const styles = StyleSheet.create({
   flexInput: { flex: 1 },
   addBtn: { paddingHorizontal: Spacing.four },
   input: { borderRadius: Spacing.two, paddingHorizontal: Spacing.three, paddingVertical: Spacing.three, fontSize: 16 },
-  splitRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.one },
-  splitLabel: { flex: 1 },
-  splitInput: { width: 130, textAlign: 'right' },
+  sliceCard: { borderRadius: Spacing.two, padding: Spacing.three, marginTop: Spacing.two, gap: Spacing.one },
+  sliceHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sliceAmountRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.one },
+  sliceAmountLabel: { flex: 1 },
+  addSlice: { paddingVertical: Spacing.two },
+  splitInput: { width: 160, textAlign: 'right' },
   saveBtn: { marginTop: Spacing.four },
   removeBtn: { marginTop: Spacing.two, alignItems: 'center', paddingVertical: Spacing.one },
 });

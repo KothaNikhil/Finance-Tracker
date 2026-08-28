@@ -35,6 +35,7 @@ export function loanAllocationsQuery(db: DB) {
       id: la.id,
       loanId: la.loanId,
       txnId: la.txnId,
+      part: la.part,
       paise: la.paise,
       transferRole: t.transferRole,
       isoDate: t.isoDate,

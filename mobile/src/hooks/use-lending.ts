@@ -62,6 +62,7 @@ interface AllocRow {
   id: number;
   loanId: number;
   txnId: number;
+  part: string | null;
   paise: number;
   transferRole: string | null;
   isoDate: string;
@@ -117,7 +118,8 @@ export function useLoans(): LoansOverview {
         id: a.id,
         txnId: a.txnId,
         paise: a.paise,
-        part: loanPartOf(a.transferRole),
+        // The slice's own part; legacy rows (null) fall back to the txn's single transfer_role.
+        part: (a.part as LoanPart | null) ?? loanPartOf(a.transferRole),
         isoDate: a.isoDate,
         label: a.counterpartyName ?? a.remarks ?? '',
         direction: a.direction,

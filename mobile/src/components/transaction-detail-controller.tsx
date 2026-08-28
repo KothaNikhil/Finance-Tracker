@@ -16,7 +16,7 @@ import { CardBillSheet, cardStatementLabel } from '@/components/card-bill-sheet'
 import { CategoryPicker } from '@/components/category-picker';
 import { TransactionDetail } from '@/components/transaction-detail';
 import type { ImportRow, TransactionRow } from '@/core/db/schema';
-import { loanPartOf } from '@/core/lending/roles';
+import { loanPartOf, type LoanPart } from '@/core/lending/roles';
 import { useLoans } from '@/hooks/use-lending';
 import { useLiveQuery } from '@/hooks/use-live-query';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
@@ -64,7 +64,7 @@ export function TransactionDetailController() {
 
   // Split slices for this transaction (empty unless it's split across loans).
   const { data: allocData } = useLiveQuery(allocationsForTxnQuery(db, openId ?? -1), [openId]);
-  const allocations = (allocData ?? []) as { loanId: number; paise: number }[];
+  const allocations = (allocData ?? []) as { loanId: number; part: LoanPart | null; paise: number }[];
 
   const index = useCategoryIndex();
   const lists = useLists();
@@ -197,9 +197,9 @@ export function TransactionDetailController() {
           }
           setMoneyLentOpen(false);
         }}
-        onSplit={(part, allocs) => {
+        onSplit={(allocs) => {
           if (openId != null) {
-            splitTransactionAcrossLoans(openId, part, allocs);
+            splitTransactionAcrossLoans(openId, allocs);
             noteEdited(openId);
           }
           setMoneyLentOpen(false);

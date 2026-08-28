@@ -145,6 +145,13 @@ function migrate(sqlite: SQLite.SQLiteDatabase): void {
     sqlite.execSync('ALTER TABLE imports ADD COLUMN total_due_paise INTEGER;');
   }
 
+  // Per-slice loan part on a split: which part (principal/repayment/interest) each slice settles, so
+  // one payment can be part repayment + part interest. Legacy rows (null) fall back to the txn's role.
+  const allocCols = sqlite.getAllSync<{ name: string }>('PRAGMA table_info(loan_allocations);');
+  if (!allocCols.some((c) => c.name === 'part')) {
+    sqlite.execSync('ALTER TABLE loan_allocations ADD COLUMN part TEXT;');
+  }
+
   // Indexes created here (not in CREATE_TABLES_SQL) so they never reference a column an ALTER above
   // just added; IF NOT EXISTS keeps them idempotent for fresh installs too.
   sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_loan ON transactions(loan_id);');
