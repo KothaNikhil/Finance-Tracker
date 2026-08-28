@@ -71,8 +71,10 @@ export interface CategorizeInput {
   counterpartyName: string | null;
   counterpartyVpa: string | null;
   rawDetails: string;
-  /** The user-typed note (Paytm remarks, or the bank UPI narration's note segment). */
+  /** The imported note (Paytm remarks, or the bank UPI narration's note segment). */
   remarks?: string | null;
+  /** A note the user hand-typed on this transaction. Takes priority over `remarks` for the note signal. */
+  userNote?: string | null;
 }
 
 /** The categorizer's verdict for one transaction. */

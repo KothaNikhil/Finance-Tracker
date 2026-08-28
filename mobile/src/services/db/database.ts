@@ -124,6 +124,14 @@ function migrate(sqlite: SQLite.SQLiteDatabase): void {
   if (!txnCols.some((c) => c.name === 'linked_import_id')) {
     sqlite.execSync('ALTER TABLE transactions ADD COLUMN linked_import_id INTEGER;');
   }
+  // User-typed note (separate from the imported `remarks`); feeds auto-categorization.
+  if (!txnCols.some((c) => c.name === 'note')) {
+    sqlite.execSync('ALTER TABLE transactions ADD COLUMN note TEXT;');
+  }
+  // The pre-self-transfer in/out direction, kept so "mark as self-transfer" can be undone exactly.
+  if (!txnCols.some((c) => c.name === 'original_direction')) {
+    sqlite.execSync('ALTER TABLE transactions ADD COLUMN original_direction TEXT;');
+  }
 
   // Card-statement metadata on the import batch (only set for credit-card PDF imports).
   const importCols = sqlite.getAllSync<{ name: string }>('PRAGMA table_info(imports);');

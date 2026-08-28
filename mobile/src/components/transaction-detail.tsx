@@ -1,15 +1,18 @@
 /**
- * A read-only detail sheet for one transaction: shows everything the app knows about it —
- * the amount, when it happened, how it was categorized, the counterparty, and (importantly)
- * any text the user wrote on it in Paytm (remarks, tag) plus the original statement wording.
+ * The detail sheet for one transaction, organised into two tabs to keep it short:
+ *  - OVERVIEW — the things you act on: category (change / re-categorize), how the row is counted
+ *    (self-transfer, refund, money lent, card bill) as a compact chip row, and your note.
+ *  - DETAILS — read-only provenance (counterparty, account, statement text, record) plus Delete.
  *
- * From here the user can jump to changing the category via `onChangeCategory`.
+ * The amount + who is shown above the tabs so it stays in view on both.
  */
 
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
+import { Chip } from '@/components/chip';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import type { TransactionRow } from '@/core/db/schema';
@@ -68,9 +71,19 @@ export interface TransactionDetailProps {
   cardBillSuggestion?: string | null;
   /** Open the credit-card-bill flow (view linked spends, or pick a statement to link). */
   onManageCardBill?: () => void;
+  /** Save (or clear) the user's hand-typed note; `recategorize` re-runs auto-categorization after. */
+  onSaveNote?: (note: string, recategorize: boolean) => void;
+  /** Re-run auto-categorization on this row using everything learned so far. */
+  onRecategorize?: () => void;
+  /** Set/clear the refund flag (a refund is money-in subtracted from Spent, not counted as income). */
+  onSetRefund?: (isRefund: boolean) => void;
+  /** Mark this row as a self-transfer (between own accounts, excluded from totals) or undo it. */
+  onSetSelfTransfer?: (isSelf: boolean) => void;
   /** Delete this transaction entirely. When provided, a "Delete transaction" action is shown. */
   onDelete?: () => void;
 }
+
+type Tab = 'overview' | 'details';
 
 export function TransactionDetail({
   visible,
@@ -88,9 +101,31 @@ export function TransactionDetail({
   cardSpendCount,
   cardBillSuggestion,
   onManageCardBill,
+  onSaveNote,
+  onRecategorize,
+  onSetRefund,
+  onSetSelfTransfer,
   onDelete,
 }: TransactionDetailProps) {
   const theme = useTheme();
+
+  // Per-open UI state. Re-seeded from the current row whenever a different transaction opens, and
+  // reset when the sheet closes so reopening always starts on Overview with a clean, non-editing view.
+  const [tab, setTab] = useState<Tab>('overview');
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const [recatOnSave, setRecatOnSave] = useState(true);
+  const [seededId, setSeededId] = useState<number | null>(null);
+  if (!visible) {
+    if (seededId !== null) setSeededId(null);
+  } else if (txn && txn.id !== seededId) {
+    setSeededId(txn.id);
+    setTab('overview');
+    setEditingNote(false);
+    setNoteText(txn.note ?? '');
+    setRecatOnSave(true);
+  }
+
   if (!txn) return null;
 
   const confirmDelete = () => {
@@ -115,7 +150,16 @@ export function TransactionDetail({
   const title = txn.counterpartyName ?? txn.rawDetails ?? 'Transaction';
   const isTransfer = txn.direction === 'self' || txn.kind === 'received';
   const categoryText = categoryLabel ?? (isTransfer ? 'Not categorized (transfer)' : 'Uncategorized');
+  const statusText = txn.needsReview
+    ? 'Needs review'
+    : txn.autoCategorized
+      ? 'Auto-categorized'
+      : txn.categoryId != null
+        ? 'Set by you'
+        : 'Uncategorized';
   const addedOn = (txn.createdAt ?? '').slice(0, 10);
+
+  const isSelf = txn.direction === 'self';
 
   return (
     <BottomSheet visible={visible} onClose={onClose}>
@@ -130,128 +174,188 @@ export function TransactionDetail({
           </Pressable>
         </View>
 
-            <ScrollView style={styles.flexible} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-              {/* Amount + who */}
-              <ThemedText type="subtitle" numberOfLines={2}>
-                {title}
-              </ThemedText>
-              <ThemedText type="amountLarge" style={{ color: theme[dir.color] }}>
-                {dir.sign} {formatINR(txn.paise)}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {dir.label} · {txn.isoDate}
-                {txn.time ? ` · ${txn.time}` : ''}
-              </ThemedText>
+        {/* Amount + who — always in view, above the tabs */}
+        <ThemedText type="subtitle" numberOfLines={2}>
+          {title}
+        </ThemedText>
+        <ThemedText type="amountLarge" style={{ color: theme[dir.color] }}>
+          {dir.sign} {formatINR(txn.paise)}
+        </ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          {dir.label} · {txn.isoDate}
+          {txn.time ? ` · ${txn.time}` : ''}
+        </ThemedText>
 
-              {/* Category (with status) */}
+        {/* Tabs */}
+        <View style={[styles.tabBar, { borderBottomColor: theme.border }]}>
+          <TabButton label="Overview" active={tab === 'overview'} onPress={() => setTab('overview')} theme={theme} />
+          <TabButton label="Details" active={tab === 'details'} onPress={() => setTab('details')} theme={theme} />
+        </View>
+
+        <ScrollView style={styles.flexible} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          {tab === 'overview' ? (
+            <>
+              {/* Category — one primary action + a compact re-categorize icon. */}
               <Section title="Category">
-                <Field label="Category" value={categoryText} />
-                <Field
-                  label="Status"
-                  value={
-                    txn.needsReview
-                      ? 'Needs review'
-                      : txn.autoCategorized
-                        ? 'Auto-categorized'
-                        : txn.categoryId != null
-                          ? 'Set by you'
-                          : '—'
-                  }
-                />
-                {txn.needsReview && onAccept && (
-                  <Pressable
-                    onPress={() => {
-                      onAccept();
-                      onClose();
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Accept this category as correct"
-                    style={({ pressed }) => [styles.acceptBtn, { borderColor: theme.income, opacity: pressed ? 0.6 : 1 }]}
-                  >
-                    <ThemedText type="smallBold" style={{ color: theme.income }}>
-                      ✓ Looks right — accept
-                    </ThemedText>
-                  </Pressable>
-                )}
-                <Pressable
-                  onPress={onChangeCategory}
-                  accessibilityRole="button"
-                  style={({ pressed }) => [
-                    styles.changeBtn,
-                    { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 },
-                  ]}
-                >
-                  <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
-                    Change category
+                <View style={styles.catHead}>
+                  <ThemedText type="default" style={styles.flexShrink}>
+                    {categoryText}
                   </ThemedText>
-                </Pressable>
-                {txn.categoryId != null && (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {statusText}
+                  </ThemedText>
+                </View>
+                <View style={styles.actionRow}>
                   <Pressable
-                    onPress={onRemoveCategory}
+                    onPress={onChangeCategory}
                     accessibilityRole="button"
-                    hitSlop={8}
-                    style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? 0.6 : 1 }]}
+                    style={({ pressed }) => [styles.primaryBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 }]}
                   >
-                    <ThemedText type="small" style={{ color: theme.spend }}>
-                      Remove category
+                    <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
+                      Change category
                     </ThemedText>
                   </Pressable>
+                  {onRecategorize && (
+                    <Pressable
+                      onPress={onRecategorize}
+                      accessibilityRole="button"
+                      accessibilityLabel="Re-categorize using everything learned so far"
+                      style={({ pressed }) => [styles.iconBtn, { borderColor: theme.accent, opacity: pressed ? 0.6 : 1 }]}
+                    >
+                      <ThemedText type="smallBold" style={{ color: theme.accent }}>
+                        ↻
+                      </ThemedText>
+                    </Pressable>
+                  )}
+                </View>
+                <View style={styles.linkRow}>
+                  {txn.needsReview && onAccept && (
+                    <Pressable
+                      onPress={() => {
+                        onAccept();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Accept this category as correct"
+                      hitSlop={8}
+                    >
+                      <ThemedText type="small" style={{ color: theme.income }}>
+                        ✓ Looks right
+                      </ThemedText>
+                    </Pressable>
+                  )}
+                  {txn.categoryId != null && (
+                    <Pressable onPress={onRemoveCategory} accessibilityRole="button" hitSlop={8}>
+                      <ThemedText type="small" style={{ color: theme.spend }}>
+                        Remove category
+                      </ThemedText>
+                    </Pressable>
+                  )}
+                </View>
+              </Section>
+
+              {/* How it's counted — compact chips. Self-transfer / Refund toggle directly; Money lent /
+                  Card bill open their own flow. Selected = the row is currently counted that way. */}
+              <Section title="How it's counted">
+                <View style={styles.chips}>
+                  {onSetSelfTransfer && (
+                    <Chip label="⇄ Self-transfer" selected={isSelf} onPress={() => onSetSelfTransfer(!isSelf)} />
+                  )}
+                  {!isSelf && txn.direction === 'in' && onSetRefund && (
+                    <Chip label="↩ Refund" selected={txn.isRefund} onPress={() => onSetRefund(!txn.isRefund)} />
+                  )}
+                  {onManageMoneyLent && (
+                    <Chip label="💸 Money lent" selected={!!moneyLentLabel} onPress={onManageMoneyLent} />
+                  )}
+                  {onManageCardBill && (
+                    <Chip label="💳 Card bill" selected={!!cardBillLabel} onPress={onManageCardBill} />
+                  )}
+                </View>
+                {(isSelf || moneyLentLabel || cardBillLabel || cardBillSuggestion) && (
+                  <ThemedText type="small" themeColor="textSecondary" style={styles.countedHint}>
+                    {isSelf ? 'Self-transfer — excluded from totals. ' : ''}
+                    {moneyLentLabel ? `In Money Lent: ${moneyLentLabel}. ` : ''}
+                    {cardBillLabel
+                      ? `Card bill: ${cardBillLabel}${cardSpendCount != null ? ` (${cardSpendCount} item${cardSpendCount === 1 ? '' : 's'})` : ''}.`
+                      : cardBillSuggestion
+                        ? `Matches ${cardBillSuggestion}.`
+                        : ''}
+                  </ThemedText>
                 )}
               </Section>
 
-              {/* What you wrote */}
-              {(txn.remarks || txn.rawTag) && (
-                <Section title="Your notes">
-                  {txn.remarks ? (
-                    <NoteField label="Remarks / note" value={txn.remarks} theme={theme} />
-                  ) : null}
-                  {txn.rawTag ? <Field label="Tag (from Paytm)" value={txn.rawTag} /> : null}
-                </Section>
-              )}
-
-              {/* Money lent — one button to add to / manage in the Lent tab. */}
-              {onManageMoneyLent && (
-                <Section title="Money lent">
-                  <Field label="Loan" value={moneyLentLabel ?? 'Not in Money Lent'} />
-                  <Pressable
-                    onPress={onManageMoneyLent}
-                    accessibilityRole="button"
-                    style={({ pressed }) => [styles.changeBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 }]}
-                  >
-                    <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
-                      {moneyLentLabel ? 'Manage in Money Lent' : 'Add to Money Lent'}
-                    </ThemedText>
-                  </Pressable>
-                </Section>
-              )}
-
-              {/* Credit-card bill — link this bank bill-payment to the card statement it settled. */}
-              {onManageCardBill && (
-                <Section title="Credit-card bill">
-                  <Field label="Statement" value={cardBillLabel ?? (cardBillSuggestion ? `Not linked · ${cardBillSuggestion}` : 'Not linked')} />
-                  {cardBillLabel && cardSpendCount != null && (
-                    <Field label="Card activity" value={`${cardSpendCount} transaction${cardSpendCount === 1 ? '' : 's'} (spends & refunds)`} />
-                  )}
-                  <Pressable
-                    onPress={onManageCardBill}
-                    accessibilityRole="button"
-                    style={({ pressed }) => [styles.changeBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 }]}
-                  >
-                    <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
-                      {cardBillLabel ? 'View card spends' : 'Link to a card statement'}
-                    </ThemedText>
-                  </Pressable>
-                </Section>
-              )}
-
+              {/* Your note (editable) — plus imported remarks / tag for context. */}
+              <Section title="Your notes">
+                {editingNote ? (
+                  <View style={styles.noteEditor}>
+                    <TextInput
+                      value={noteText}
+                      onChangeText={setNoteText}
+                      placeholder="Add a note (e.g. what you bought)…"
+                      placeholderTextColor={theme.textSecondary}
+                      multiline
+                      autoFocus
+                      style={[styles.noteInput, { color: theme.text, backgroundColor: theme.backgroundElement }]}
+                    />
+                    <Pressable
+                      onPress={() => setRecatOnSave((v) => !v)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: recatOnSave }}
+                      style={({ pressed }) => [styles.checkboxRow, { opacity: pressed ? 0.6 : 1 }]}
+                    >
+                      <ThemedText type="default">{recatOnSave ? '☑' : '☐'}</ThemedText>
+                      <ThemedText type="small">Re-categorize using this note</ThemedText>
+                    </Pressable>
+                    <View style={styles.noteActions}>
+                      <Pressable onPress={() => setEditingNote(false)} accessibilityRole="button" hitSlop={8}>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          Cancel
+                        </ThemedText>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          onSaveNote?.(noteText, recatOnSave);
+                          setEditingNote(false);
+                        }}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.saveNoteBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 }]}
+                      >
+                        <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
+                          Save note
+                        </ThemedText>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : (
+                  <>
+                    {txn.note ? <NoteField label="Note" value={txn.note} theme={theme} /> : null}
+                    {txn.remarks ? <NoteField label="Imported remarks" value={txn.remarks} theme={theme} /> : null}
+                    {txn.rawTag ? <Field label="Tag (from Paytm)" value={txn.rawTag} /> : null}
+                    {onSaveNote && (
+                      <Pressable
+                        onPress={() => {
+                          setNoteText(txn.note ?? '');
+                          setRecatOnSave(true);
+                          setEditingNote(true);
+                        }}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.recatBtn, { borderColor: theme.accent, opacity: pressed ? 0.6 : 1 }]}
+                      >
+                        <ThemedText type="smallBold" style={{ color: theme.accent }}>
+                          {txn.note ? 'Edit note' : '＋ Add note'}
+                        </ThemedText>
+                      </Pressable>
+                    )}
+                  </>
+                )}
+              </Section>
+            </>
+          ) : (
+            <>
               {/* Transaction details */}
               <Section title="Details">
                 <Field label="Type" value={KIND_LABEL[txn.kind] ?? txn.kind} />
                 {txn.counterpartyName ? (
-                  <Field
-                    label={txn.direction === 'in' ? 'Received from' : 'Paid to'}
-                    value={txn.counterpartyName}
-                  />
+                  <Field label={txn.direction === 'in' ? 'Received from' : 'Paid to'} value={txn.counterpartyName} />
                 ) : null}
                 {txn.counterpartyVpa ? <Field label="UPI ID" value={txn.counterpartyVpa} /> : null}
                 {txn.accountName ? <Field label="From account" value={txn.accountName} /> : null}
@@ -280,9 +384,37 @@ export function TransactionDetail({
                   </ThemedText>
                 </Pressable>
               )}
-            </ScrollView>
+            </>
+          )}
+        </ScrollView>
       </SafeAreaView>
     </BottomSheet>
+  );
+}
+
+/** One tab in the sheet's segmented tab bar — an underline marks the active tab. */
+function TabButton({
+  label,
+  active,
+  onPress,
+  theme,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  theme: ReturnType<typeof useTheme>;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      style={[styles.tab, active && { borderBottomColor: theme.accent }]}
+    >
+      <ThemedText type="smallBold" themeColor={active ? 'text' : 'textSecondary'}>
+        {label}
+      </ThemedText>
+    </Pressable>
   );
 }
 
@@ -335,21 +467,54 @@ function NoteField({
 
 const styles = StyleSheet.create({
   flexible: { flexShrink: 1 },
+  flexShrink: { flexShrink: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: Spacing.two,
   },
+  tabBar: {
+    flexDirection: 'row',
+    marginTop: Spacing.three,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: Spacing.two,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
   body: { paddingBottom: Spacing.four, gap: Spacing.one },
   section: { marginTop: Spacing.three, gap: Spacing.one },
   sectionTitle: { marginBottom: Spacing.half },
+  catHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
+  actionRow: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
+  primaryBtn: {
+    flex: 1,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBtn: {
+    width: 48,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  linkRow: { flexDirection: 'row', gap: Spacing.four, marginTop: Spacing.one },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one },
+  countedHint: { marginTop: Spacing.one },
   field: { flexDirection: 'row', gap: Spacing.two, paddingVertical: Spacing.half },
   fieldLabel: { width: 130 },
   fieldValue: { flex: 1 },
   noteField: { gap: Spacing.half, paddingVertical: Spacing.half },
   noteBox: { borderRadius: Spacing.two, padding: Spacing.two },
-  acceptBtn: {
+  recatBtn: {
     marginTop: Spacing.two,
     paddingVertical: Spacing.two,
     borderRadius: Spacing.two,
@@ -357,14 +522,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  changeBtn: {
-    marginTop: Spacing.two,
+  noteEditor: { gap: Spacing.two },
+  noteInput: {
+    borderRadius: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+    fontSize: 16,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.half },
+  noteActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: Spacing.four },
+  saveNoteBtn: {
     paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.four,
     borderRadius: Spacing.two,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  removeBtn: { marginTop: Spacing.one, paddingVertical: Spacing.one, alignItems: 'center' },
   deleteBtn: {
     marginTop: Spacing.four,
     paddingVertical: Spacing.three,

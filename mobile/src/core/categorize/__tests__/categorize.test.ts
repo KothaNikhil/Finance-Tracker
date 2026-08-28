@@ -297,3 +297,30 @@ describe('categorize — notes drive the sub-category', () => {
     expect(s.via).toBe('transfer');
   });
 });
+
+describe('categorize — user note (hand-typed) as a note signal', () => {
+  const food = () => INDEX.byName.get(normalizeText('Food & Dining'))!;
+  const subId = (cat: ReturnType<typeof food>, name: string) => cat.subcategories.find((s) => s.name === name)!.id;
+
+  it('supplies the category from the user note when the payee is unknown (no imported remarks)', () => {
+    const learned: LearnedRule[] = [
+      { matcherType: 'note', matcherKey: 'uthappam', categoryId: food().id, subcategoryId: subId(food(), 'Dosa') },
+    ];
+    const s = categorize(input({ counterpartyName: 'Sri Krishna Tiffins', kind: 'paid', userNote: 'uthappam' }), INDEX, learned);
+    expect(s.categoryId).toBe(food().id);
+    expect(s.subcategoryId).toBe(subId(food(), 'Dosa'));
+    expect(s.via).toBe('note');
+  });
+
+  it('refines the sub-category from the user note when it fits the tag category', () => {
+    const s = categorize(input({ rawTag: '#🥘 Food', userNote: 'biriyani' }), INDEX);
+    expect(s.categoryId).toBe(food().id);
+    expect(s.subcategoryId).toBe(subId(food(), 'Biriyani'));
+  });
+
+  it('considers the user note alongside the imported remarks', () => {
+    // Imported remarks are unhelpful; the user note carries the meaningful keyword.
+    const s = categorize(input({ rawTag: '#🥘 Food', remarks: 'upi/1234567890', userNote: 'biriyani' }), INDEX);
+    expect(s.subcategoryId).toBe(subId(food(), 'Biriyani'));
+  });
+});

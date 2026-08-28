@@ -229,12 +229,13 @@ interface NoteMatch {
 }
 
 /**
- * Read the user's note (Paytm remarks / bank UPI note). First honour anything the user has taught
- * us about a note (learned `note` rules, matched fuzzily to tolerate typos like "biriani"), then
- * fall back to the static note purpose-words (whole-word match so "tea" doesn't hit "steam").
+ * Read the user's note (a hand-typed note, plus the imported Paytm remarks / bank UPI note). First
+ * honour anything the user has taught us about a note (learned `note` rules, matched fuzzily to
+ * tolerate typos like "biriani"), then fall back to the static note purpose-words (whole-word match
+ * so "tea" doesn't hit "steam"). The hand-typed note is folded in first so its words are considered.
  */
 function matchNote(input: CategorizeInput, index: CategoryIndex, learned: LearnedRule[]): NoteMatch | null {
-  const note = normalizeText(input.remarks);
+  const note = normalizeText([input.userNote, input.remarks].filter(Boolean).join(' '));
   if (!note) return null;
   const tokens = note.split(' ').filter(Boolean);
 

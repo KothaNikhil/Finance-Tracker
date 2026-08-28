@@ -653,6 +653,7 @@ function learnFromTxn(txnId: number, categoryId: number, subcategoryId: number |
       vpa: transactions.counterpartyVpa,
       name: transactions.counterpartyName,
       remarks: transactions.remarks,
+      note: transactions.note,
     })
     .from(transactions)
     .where(eq(transactions.id, txnId))
@@ -665,11 +666,66 @@ function learnFromTxn(txnId: number, categoryId: number, subcategoryId: number |
   upsertRule('merchant', normalizeText(row.name), categoryId, subcategoryId, now);
 
   // Learn from a CONCISE note (1–2 words, e.g. "uthappam", "biriyani") so the same note auto-fills
-  // its sub-category next time. Long free-text notes are skipped to avoid noisy rules.
-  const note = normalizeText(row.remarks);
+  // its sub-category next time. Prefer the user's hand-typed note over the imported remarks. Long
+  // free-text notes are skipped to avoid noisy rules.
+  const note = normalizeText(row.note || row.remarks);
   if (note && note.split(' ').length <= 2) {
     upsertRule('note', note, categoryId, subcategoryId, now);
   }
+}
+
+/**
+ * Set (or clear) a transaction's hand-typed note. Kept separate from the imported `remarks` so the
+ * original statement wording is preserved. Pass an empty string to clear the note. Does NOT itself
+ * re-categorize — the caller decides whether to follow up with {@link recategorizeTransaction}.
+ */
+export function setTransactionNote(txnId: number, note: string): void {
+  const trimmed = note.trim();
+  getDb()
+    .update(transactions)
+    .set({ note: trimmed === '' ? null : trimmed })
+    .where(eq(transactions.id, txnId))
+    .run();
+  touchDataUpdatedAt();
+}
+
+/**
+ * Re-run the auto-categorizer over one existing transaction using everything learned so far (the
+ * user's note included), and apply the result. Overwrites the current category — this is an explicit
+ * user action ("re-categorize based on learning thus far"). Marks the row as auto-categorized and
+ * sets its review flag from the fresh guess. Returns the resolved category id (null if uncategorized).
+ */
+export function recategorizeTransaction(txnId: number): number | null {
+  const db = getDb();
+  const row = db.select().from(transactions).where(eq(transactions.id, txnId)).get();
+  if (!row) return null;
+
+  const guess = categorize(
+    {
+      kind: row.kind as NormalizedTxn['kind'],
+      direction: row.direction as NormalizedTxn['direction'],
+      rawTag: row.rawTag,
+      counterpartyName: row.counterpartyName,
+      counterpartyVpa: row.counterpartyVpa,
+      rawDetails: row.rawDetails,
+      remarks: row.remarks,
+      userNote: row.note,
+    },
+    getCategoryIndex(),
+    getLearnedRules(),
+  );
+
+  db.update(transactions)
+    .set({
+      categoryId: guess.categoryId,
+      subcategoryId: guess.subcategoryId,
+      autoCategorized: guess.categoryId != null,
+      needsReview: guess.needsReview,
+    })
+    .where(eq(transactions.id, txnId))
+    .run();
+  touchDataUpdatedAt();
+  return guess.categoryId;
 }
 
 /**
@@ -879,6 +935,48 @@ export function deletePerson(id: number): void {
     return;
   }
   db.delete(people).where(eq(people.id, id)).run();
+}
+
+/**
+ * Set (or clear) a transaction's refund flag. A refund is money-in that's subtracted from Spent
+ * (`netSpent = spent − refund`) rather than counted as income — flipping this moves the row between
+ * the refund tally and ordinary income/spend in every live total. Only meaningful for money-in rows.
+ */
+export function setTransactionRefund(txnId: number, isRefund: boolean): void {
+  getDb().update(transactions).set({ isRefund }).where(eq(transactions.id, txnId)).run();
+  touchDataUpdatedAt();
+}
+
+/**
+ * Mark a transaction as a self-transfer (money moved between your own accounts) or undo that. A
+ * self-transfer is `direction='self'`, which every total — the pure `analytics` functions AND the
+ * SQL aggregates — excludes from Spent/Received. Marking preserves the original in/out direction in
+ * `original_direction` so un-marking restores it exactly; it also clears the review flag (a
+ * deliberate decision). The row keeps its category/note untouched, so a revert is fully lossless.
+ */
+export function setTransactionSelfTransfer(txnId: number, isSelf: boolean): void {
+  const db = getDb();
+  const row = db
+    .select({ direction: transactions.direction, originalDirection: transactions.originalDirection })
+    .from(transactions)
+    .where(eq(transactions.id, txnId))
+    .get();
+  if (!row) return;
+
+  if (isSelf) {
+    if (row.direction === 'self') return; // already a self-transfer
+    db.update(transactions)
+      .set({ originalDirection: row.originalDirection ?? row.direction, direction: 'self', needsReview: false })
+      .where(eq(transactions.id, txnId))
+      .run();
+  } else {
+    if (row.direction !== 'self') return; // not a self-transfer — nothing to undo
+    db.update(transactions)
+      .set({ direction: row.originalDirection ?? 'out', originalDirection: null })
+      .where(eq(transactions.id, txnId))
+      .run();
+  }
+  touchDataUpdatedAt();
 }
 
 /** Remove a transaction's category (back to uncategorized) and clear its review flag. */

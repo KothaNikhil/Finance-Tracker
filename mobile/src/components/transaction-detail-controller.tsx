@@ -41,7 +41,11 @@ import {
   deleteTransaction,
   detachTransactionFromLoan,
   linkTxnToCardStatement,
+  recategorizeTransaction,
   setTransactionCategory,
+  setTransactionNote,
+  setTransactionRefund,
+  setTransactionSelfTransfer,
   splitTransactionAcrossLoans,
   unlinkCardStatement,
 } from '@/services/db/repository';
@@ -127,6 +131,31 @@ export function TransactionDetailController() {
         cardSpendCount={cardItems.length}
         cardBillSuggestion={cardBillSuggestion}
         onManageCardBill={cardBillEligible ? () => setCardBillOpen(true) : undefined}
+        onSaveNote={(note, recategorize) => {
+          if (openId != null) {
+            setTransactionNote(openId, note);
+            if (recategorize) recategorizeTransaction(openId);
+            noteEdited(openId);
+          }
+        }}
+        onRecategorize={() => {
+          if (openId != null) {
+            recategorizeTransaction(openId);
+            noteEdited(openId);
+          }
+        }}
+        onSetRefund={(isRefund) => {
+          if (openId != null) {
+            setTransactionRefund(openId, isRefund);
+            noteEdited(openId);
+          }
+        }}
+        onSetSelfTransfer={(isSelf) => {
+          if (openId != null) {
+            setTransactionSelfTransfer(openId, isSelf);
+            noteEdited(openId);
+          }
+        }}
         onClose={closeAll}
         onChangeCategory={() => setPickerOpen(true)}
         onRemoveCategory={() => {

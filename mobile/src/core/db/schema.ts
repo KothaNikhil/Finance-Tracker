@@ -92,6 +92,9 @@ export const transactions = sqliteTable('transactions', {
   counterpartyName: text('counterparty_name'),
   counterpartyVpa: text('counterparty_vpa'),
   accountName: text('account_name'),
+  // The in/out direction this row had before the user marked it a self-transfer (`direction='self'`),
+  // kept so un-marking can restore it exactly. Null when the row was never marked self by the user.
+  originalDirection: text('original_direction'),
   // Money-lent / interest tracker: this transaction's PART in a loan (lent / repaid_to_me /
   // interest_received / …), or null when it isn't part of a loan.
   transferRole: text('transfer_role'),
@@ -104,6 +107,9 @@ export const transactions = sqliteTable('transactions', {
   rawDetails: text('raw_details').notNull().default(''),
   rawTag: text('raw_tag'),
   remarks: text('remarks'),
+  // A note the user hand-typed on this transaction (distinct from the imported `remarks`, which is
+  // kept intact for provenance). Fed into auto-categorization as the highest-priority note signal.
+  note: text('note'),
   isRefund: integer('is_refund', { mode: 'boolean' }).notNull().default(false),
   source: text('source').notNull(), // paytm | manual | ...
   sourceRef: text('source_ref'), // UPI Ref No.
@@ -232,6 +238,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   counterparty_name TEXT,
   counterparty_vpa TEXT,
   account_name TEXT,
+  original_direction TEXT,
   transfer_role TEXT,
   loan_id INTEGER,
   import_id INTEGER,
@@ -239,6 +246,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   raw_details TEXT NOT NULL DEFAULT '',
   raw_tag TEXT,
   remarks TEXT,
+  note TEXT,
   is_refund INTEGER NOT NULL DEFAULT 0,
   source TEXT NOT NULL,
   source_ref TEXT,
