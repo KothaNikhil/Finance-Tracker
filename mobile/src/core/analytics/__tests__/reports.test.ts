@@ -76,4 +76,29 @@ describe('cashbackTotals', () => {
   it('is zero when there is no cashback', () => {
     expect(cashbackTotals(SAMPLE, { year: 2025 })).toEqual({ totalPaise: 0, count: 0 });
   });
+
+  it('excludes principal slices while retaining a split remainder', () => {
+    const rows = [
+      txn({
+        isoDate: '2026-05-10',
+        paise: 10_000,
+        direction: 'out',
+        counterpartyName: 'Split payment',
+        transferRole: 'lent',
+        loanAllocations: [{ part: 'principal', paise: 6_000 }],
+      }),
+      txn({
+        isoDate: '2026-05-11',
+        paise: 5_000,
+        direction: 'in',
+        isRefund: true,
+        transferRole: 'repaid_to_me',
+      }),
+    ];
+
+    expect(merchantSpend(rows, { year: 2026 })).toEqual([
+      { key: 'Split payment', spentPaise: 4_000, txnCount: 1 },
+    ]);
+    expect(cashbackTotals(rows, { year: 2026 })).toEqual({ totalPaise: 0, count: 0 });
+  });
 });

@@ -7,13 +7,17 @@
  * React-Native adapter that touches the database, the filesystem, and sharing.
  */
 
-import { buildFilteredWorkbook, type ExportTxn } from '@/core/export';
-import type { TxnFilter } from '@/core/analytics';
+import type { LendingLoanRef } from '@/components/lending-row-label';
+import { countablePaise, type TxnFilter } from '@/core/analytics';
+import { loanAllocations, loans } from '@/core/db/schema';
 import type { Direction } from '@/core/domain/money';
+import { buildFilteredWorkbook, type ExportTxn } from '@/core/export';
+import { isTransferRole, type LoanPart } from '@/core/lending/roles';
 import { getDb } from '@/services/db/database';
 import { selectFilteredTxns } from '@/services/db/queries/transactions';
 import { getCategoryIndex, getLists } from '@/services/db/repository';
 import { saveBytesToFolder, shareBytes } from '@/services/file-io';
+import { exportCounterparty } from './counterparty';
 import { writeWorkbookBytes } from './xlsx-writer';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -34,26 +38,84 @@ function normalizeXlsxName(name: string): string {
 function loadExportTxns(filter: TxnFilter): ExportTxn[] {
   const index = getCategoryIndex();
   const lists = getLists();
+  const db = getDb();
 
   const subNames = new Map<number, string>();
   index.categories.forEach((c) => c.subcategories.forEach((s) => subNames.set(s.id, s.name)));
   const pmNames = new Map(lists.paymentModes.map((p) => [p.id, p.name]));
   const personNames = new Map(lists.people.map((p) => [p.id, p.name]));
+  // Loans, so a lending row that has no merchant of its own can still be named in the Details
+  // column by the person and loan it belongs to.
+  const loanRefs = new Map<number, LendingLoanRef>();
+  for (const loan of db
+    .select({ id: loans.id, name: loans.name, personId: loans.personId })
+    .from(loans)
+    .all()) {
+    loanRefs.set(loan.id, { id: loan.id, name: loan.name, personName: personNames.get(loan.personId) ?? '' });
+  }
 
-  return selectFilteredTxns(getDb(), filter)
+  const allocationsByTxn = new Map<number, { part: LoanPart | null; paise: number }[]>();
+  const splitLoansByTxn = new Map<number, LendingLoanRef[]>();
+  for (const allocation of db
+    .select({
+      txnId: loanAllocations.txnId,
+      loanId: loanAllocations.loanId,
+      part: loanAllocations.part,
+      paise: loanAllocations.paise,
+    })
+    .from(loanAllocations)
+    .all()) {
+    const part: LoanPart | null =
+      allocation.part === 'principal' ||
+      allocation.part === 'repayment' ||
+      allocation.part === 'interest'
+        ? allocation.part
+        : null;
+    const slices = allocationsByTxn.get(allocation.txnId) ?? [];
+    slices.push({ part, paise: allocation.paise });
+    allocationsByTxn.set(allocation.txnId, slices);
+
+    const ref = loanRefs.get(allocation.loanId);
+    if (ref) {
+      const refs = splitLoansByTxn.get(allocation.txnId) ?? [];
+      // Two slices on one loan (part repayment, part interest) are still one loan.
+      if (!refs.some((existing) => existing.id === ref.id)) refs.push(ref);
+      splitLoansByTxn.set(allocation.txnId, refs);
+    }
+  }
+
+  return selectFilteredTxns(db, filter)
     .map((r) => ({
       isoDate: r.isoDate,
       time: r.time ?? '',
       paise: r.paise,
+      countablePaise: countablePaise({
+        isoDate: r.isoDate,
+        paise: r.paise,
+        direction: r.direction as Direction,
+        isRefund: r.isRefund,
+        categoryId: r.categoryId,
+        subcategoryId: r.subcategoryId,
+        counterpartyName: r.counterpartyName,
+        counterpartyVpa: r.counterpartyVpa,
+        accountName: r.accountName,
+        personId: r.personId,
+        transferRole: isTransferRole(r.transferRole) ? r.transferRole : null,
+        loanAllocations: allocationsByTxn.get(r.id),
+      }),
       direction: r.direction as Direction,
       isRefund: r.isRefund,
-      counterparty: r.counterpartyName ?? r.rawDetails ?? '',
+      counterparty: exportCounterparty(r, {
+        personName: r.personId != null ? (personNames.get(r.personId) ?? null) : null,
+        loan: r.loanId != null ? (loanRefs.get(r.loanId) ?? null) : null,
+        splitLoans: splitLoansByTxn.get(r.id) ?? [],
+      }),
       categoryName: r.categoryId != null ? (index.byId.get(r.categoryId)?.name ?? '') : '',
       subcategoryName: r.subcategoryId != null ? (subNames.get(r.subcategoryId) ?? '') : '',
       paymentMode: r.paymentModeId != null ? (pmNames.get(r.paymentModeId) ?? '') : '',
       person: r.personId != null ? (personNames.get(r.personId) ?? '') : '',
       account: r.accountName ?? '',
-      remarks: r.remarks ?? '',
+      remarks: [r.note?.trim(), r.remarks?.trim()].filter(Boolean).join(' · '),
       ref: r.sourceRef ?? '',
     }));
 }

@@ -6,12 +6,13 @@
  */
 
 import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
+import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 const CONFIRM_WORD = 'DELETE';
@@ -55,9 +56,12 @@ export function ConfirmDeleteModal({
     <Modal visible={visible} animationType="fade" transparent onRequestClose={handleCancel}>
       {/* Lift the centered card above the keyboard. Both platforms: iOS never resizes for the
           keyboard, and this app is edge-to-edge so Android's Modal doesn't resize either. */}
-      <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
-        <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="subtitle">Delete all data?</ThemedText>
+      <KeyboardAvoidingView
+        style={[styles.backdrop, { backgroundColor: theme.overlay }]}
+        behavior="padding"
+      >
+        <ThemedView type="backgroundElement" style={styles.card} accessibilityViewIsModal>
+          <ThemedText type="heading">Delete all data?</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
             This permanently removes all {count} transaction{count === 1 ? '' : 's'} on this device.
             Your categories and lists are kept. This can’t be undone.
@@ -67,6 +71,7 @@ export function ConfirmDeleteModal({
             <Button
               label="Back up to Drive first"
               variant="secondary"
+              size="small"
               onPress={onBackupFirst}
               disabled={busy}
               style={styles.spaced}
@@ -74,24 +79,31 @@ export function ConfirmDeleteModal({
           )}
 
           <ThemedText type="small" themeColor="textSecondary" style={styles.spaced}>
-            Type <ThemedText type="smallBold">{CONFIRM_WORD}</ThemedText> to confirm.
+            Type <ThemedText type="smallEmphasis">{CONFIRM_WORD}</ThemedText> to confirm.
           </ThemedText>
-          <TextInput
+          <TextField
             value={text}
             onChangeText={setText}
             placeholder={CONFIRM_WORD}
-            placeholderTextColor={theme.textSecondary}
+            accessibilityLabel={`Type ${CONFIRM_WORD} to confirm deletion`}
             autoCapitalize="characters"
             autoCorrect={false}
             editable={!busy}
-            style={[styles.input, { color: theme.text, backgroundColor: theme.background, borderColor: theme.backgroundSelected }]}
           />
 
           <View style={styles.actions}>
-            <Button label="Cancel" variant="secondary" onPress={handleCancel} disabled={busy} style={styles.grow} />
+            <Button
+              label="Cancel"
+              variant="secondary"
+              size="small"
+              onPress={handleCancel}
+              disabled={busy}
+              style={styles.grow}
+            />
             <Button
               label="Delete all"
               variant="danger"
+              size="small"
               onPress={handleConfirm}
               disabled={!confirmed || busy}
               style={styles.grow}
@@ -109,24 +121,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: Spacing.four,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: Spacing.three,
   },
   card: {
     width: '100%',
     maxWidth: 420,
-    borderRadius: Spacing.four,
-    padding: Spacing.four,
-    gap: Spacing.two,
+    borderRadius: Radius.lg,
+    padding: Spacing.three,
+    gap: Spacing.one,
   },
-  spaced: { marginTop: Spacing.one },
-  input: {
-    borderRadius: Spacing.two,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    fontSize: 16,
-  },
-  actions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
+  spaced: { marginTop: Spacing.half },
+  actions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
   grow: { flex: 1 },
 });

@@ -2,22 +2,29 @@
  * The single "Add to Money Lent" flow, opened from a transaction. Two modes:
  *  - One loan: pick an existing loan (or create one inline — person + direction + name), choose what
  *    this transaction is (principal / repayment / interest), and attach it.
- *  - Split across loans: divide this one payment across several loans of the same kind — e.g. a lump
- *    repayment that clears two separate loans to the same person. Enter an amount per loan.
+ *  - Split across loans: divide this one payment across active loans — e.g. a lump repayment that
+ *    clears two loans, or principal + interest slices on the same loan. Every slice keeps one cash
+ *    direction and imported transactions retain their statement direction.
  * If the transaction is already attached/split, this lets you change it or remove it.
  */
 
+import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { validateLendingSplit } from '@/components/lending-split-validation';
 import { BottomSheet } from '@/components/bottom-sheet';
 import { Button } from '@/components/button';
+import { Card } from '@/components/card';
 import { Chip } from '@/components/chip';
+import { SegmentedControl } from '@/components/segmented-control';
+import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
+import { TextRole } from '@/constants/typography';
 import type { TransactionRow } from '@/core/db/schema';
-import { formatINR } from '@/core/domain/money';
+import { formatINR, type Direction } from '@/core/domain/money';
 import { LOAN_PARTS, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -30,10 +37,23 @@ export interface LoanChoice {
 
 /** One editable split slice in the sheet: which loan, which part, and the rupee text entered. */
 interface SplitRow {
+  key: number;
   loanId: number | null;
   part: LoanPart;
   text: string;
 }
+
+let nextSplitRowKey = 1;
+
+const createSplitRow = (
+  loanId: number | null = null,
+  part: LoanPart = 'repayment',
+): SplitRow => ({
+  key: nextSplitRowKey++,
+  loanId,
+  part,
+  text: '',
+});
 
 export interface AddToMoneyLentSheetProps {
   visible: boolean;
@@ -93,10 +113,11 @@ export function AddToMoneyLentSheet({
   const [newPersonId, setNewPersonId] = useState<number | null>(null);
   const [newName, setNewName] = useState('');
   const [newPerson, setNewPerson] = useState('');
-  const [part, setPart] = useState<LoanPart | null>(currentPart ?? null); // single-mode part
+  const [part, setPart] = useState<LoanPart>(currentPart ?? 'principal'); // single-mode part
   // One row per split slice: which loan, which part, and the rupee text. The same loan may appear in
   // more than one row (e.g. repayment + interest on one loan).
   const [splitRows, setSplitRows] = useState<SplitRow[]>([]);
+  const [openLoanPicker, setOpenLoanPicker] = useState<number | null>(null);
 
   const attached = currentLoanId != null;
   const isSplit = (currentAllocations?.length ?? 0) > 0;
@@ -112,15 +133,30 @@ export function AddToMoneyLentSheet({
       setNewPersonId(null);
       setNewName('');
       setNewPerson('');
-      setPart(currentPart ?? null);
+      setPart(currentPart ?? 'principal');
+      setOpenLoanPicker(null);
       // Prefill split rows (and default to split mode) when editing an existing split; otherwise start
       // with one blank slice (pre-picking the loan when there's only one to choose).
       const seeded = (currentAllocations ?? []).map<SplitRow>((a) => ({
+        key: nextSplitRowKey++,
         loanId: a.loanId,
         part: a.part ?? 'repayment',
         text: String(a.paise / 100),
       }));
-      setSplitRows(seeded.length > 0 ? seeded : [{ loanId: loans.length === 1 ? loans[0].id : null, part: 'repayment', text: '' }]);
+      const currentActiveLoanId =
+        currentLoanId != null && loans.some((loan) => loan.id === currentLoanId)
+          ? currentLoanId
+          : null;
+      setSplitRows(
+        seeded.length > 0
+          ? seeded
+          : [
+              createSplitRow(
+                currentActiveLoanId ?? (loans.length === 1 ? loans[0].id : null),
+                currentPart ?? 'repayment',
+              ),
+            ],
+      );
       setMode(isSplit ? 'split' : 'single');
     }
   }
@@ -135,32 +171,55 @@ export function AddToMoneyLentSheet({
 
   // --- split-mode derived values ---
   const loanKind = (id: number | null) => (id != null ? loans.find((l) => l.id === id)?.kind : undefined);
-  const validSlices = splitRows
-    .map((r) => {
+  const sourceDirection: Direction =
+    txn?.direction === 'in' || txn?.direction === 'out' ? txn.direction : 'self';
+  const splitValidation = validateLendingSplit(
+    {
+      direction: sourceDirection,
+      paise: total,
+      enforceDirection: txn?.source !== 'manual',
+    },
+    splitRows.map((r) => {
       const kind = loanKind(r.loanId);
       const paise = textToPaise(r.text);
-      return r.loanId != null && kind != null && paise != null && paise > 0
-        ? { loanId: r.loanId, part: r.part, paise, direction: roleDirection(roleForLoanPart(kind, r.part)) }
-        : null;
-    })
-    .filter((s): s is { loanId: number; part: LoanPart; paise: number; direction: 'in' | 'out' } => s != null);
-  const allocated = validSlices.reduce((sum, s) => sum + s.paise, 0);
-  const overAllocated = total > 0 && allocated > total;
-  // A single transaction moves money one way — every slice's role must share a direction (this rules
-  // out mixing lending-out principal with repayment/interest, or lent-loan with borrowed-loan slices).
-  const mixedDirection = new Set(validSlices.map((s) => s.direction)).size > 1;
-  const canSplit = validSlices.length > 0 && !overAllocated && !mixedDirection;
+      return {
+        loanId: r.loanId,
+        part: r.part,
+        paise,
+        direction: kind != null ? roleDirection(roleForLoanPart(kind, r.part)) : undefined,
+      };
+    }),
+  );
+  const allocated = splitValidation.allocatedPaise;
+  const canSplit = splitValidation.valid;
 
-  const newRow = (): SplitRow => ({ loanId: loans.length === 1 ? loans[0].id : null, part: 'repayment', text: '' });
+  const newRow = (): SplitRow => createSplitRow(loans.length === 1 ? loans[0].id : null);
   const updateRow = (i: number, patch: Partial<SplitRow>) =>
     setSplitRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addRow = () => setSplitRows((rows) => [...rows, newRow()]);
-  const removeRow = (i: number) => setSplitRows((rows) => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows));
+  const removeRow = (i: number) => {
+    const removedKey = splitRows[i]?.key;
+    setSplitRows((rows) => rows.filter((_, idx) => idx !== i));
+    if (removedKey != null && openLoanPicker === removedKey) setOpenLoanPicker(null);
+  };
 
-  const canSubmitSingle = part != null && (attached || selectedLoanId != null || (creatingNew && newPersonId != null));
+  const singleKind = attached
+    ? loans.find((loan) => loan.id === currentLoanId)?.kind
+    : creatingNew
+      ? newKind
+      : loans.find((loan) => loan.id === selectedLoanId)?.kind;
+  const singleDirection =
+    singleKind != null ? roleDirection(roleForLoanPart(singleKind, part)) : undefined;
+  const singleDirectionMismatch =
+    txn != null &&
+    txn.source !== 'manual' &&
+    singleDirection != null &&
+    sourceDirection !== singleDirection;
+  const canSubmitSingle =
+    !singleDirectionMismatch &&
+    (attached || selectedLoanId != null || (creatingNew && newPersonId != null));
 
   const submitSingle = () => {
-    if (part == null) return;
     if (attached) {
       onAttach(currentLoanId!, part); // change part on the existing loan
       return;
@@ -175,38 +234,86 @@ export function AddToMoneyLentSheet({
 
   const submitSplit = () => {
     if (!canSplit) return;
-    onSplit(validSlices.map((s) => ({ loanId: s.loanId, part: s.part, paise: s.paise })));
+    onSplit(splitValidation.allocations);
   };
 
-  const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }];
-
   return (
-    <BottomSheet visible={visible} onClose={onClose} heightFraction={0.9}>
+    <BottomSheet visible={visible} onClose={onClose}>
       <SafeAreaView edges={['bottom']} style={styles.flexible}>
         <View style={styles.header}>
-          <ThemedText type="smallBold">{attached || isSplit ? 'Money lent' : 'Add to Money Lent'}</ThemedText>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <ThemedText type="link" themeColor="textSecondary">
+          <ThemedText type="smallEmphasis">Money Lent</ThemedText>
+          <Pressable
+            onPress={onClose}
+            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Close Money Lent"
+            style={({ pressed }) => [styles.headerAction, { opacity: pressed ? Opacity.pressed : 1 }]}
+          >
+            <ThemedText type="link" style={{ color: theme.accent }}>
               Close
             </ThemedText>
           </Pressable>
         </View>
 
-        <ScrollView style={styles.flexible} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.flexible}
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {txn && (
-            <ThemedText type="small" themeColor="textSecondary">
-              This transaction · {txn.direction === 'out' ? '−' : '+'}
-              {formatINR(txn.paise)} · {txn.isoDate}
-            </ThemedText>
+            <View style={styles.transactionSummary}>
+              <View style={[styles.badge, { backgroundColor: theme.accentMuted }]}>
+                <SymbolView
+                  name={{ ios: 'arrow.left.arrow.right', android: 'sync_alt', web: 'sync_alt' }}
+                  size={15}
+                  tintColor={theme.accent}
+                />
+              </View>
+              <View style={styles.grow}>
+                <ThemedText type={TextRole.rowTitle} numberOfLines={1}>
+                  {txn.counterpartyName || txn.remarks || txn.rawDetails || 'Transaction'}
+                </ThemedText>
+                <ThemedText type={TextRole.rowSecondary} themeColor="textSecondary" numberOfLines={1}>
+                  {txn.direction === 'out'
+                    ? 'Money out'
+                    : txn.direction === 'in'
+                      ? 'Money in'
+                      : 'Self-transfer'}{' '}
+                  · {txn.isoDate}
+                </ThemedText>
+              </View>
+              <ThemedText
+                type={TextRole.rowAmount}
+                numberOfLines={1}
+                style={{
+                  fontVariant: ['tabular-nums'],
+                  color:
+                    txn.direction === 'out'
+                      ? theme.spend
+                      : txn.direction === 'in'
+                        ? theme.income
+                        : theme.textSecondary,
+                }}
+              >
+                {txn.direction === 'out' ? '−' : txn.direction === 'in' ? '+' : ''}
+                {formatINR(txn.paise)}
+              </ThemedText>
+            </View>
           )}
 
           {/* Mode toggle — shown whenever there are loans to split across (including converting an
               already-attached payment into a split, e.g. one repayment that clears two loans). */}
           {loans.length > 0 && (
-            <View style={styles.chips}>
-              <Chip label="One loan" selected={mode === 'single'} onPress={() => setMode('single')} />
-              <Chip label="Split across loans" selected={mode === 'split'} onPress={() => setMode('split')} />
-            </View>
+            <SegmentedControl
+              accessibilityLabel="Money Lent mode"
+              options={[
+                { value: 'single', label: 'One loan' },
+                { value: 'split', label: 'Split across loans' },
+              ]}
+              value={mode}
+              onChange={setMode}
+            />
           )}
 
           {/* What this transaction is — for a single attach. In split mode each slice picks its own part. */}
@@ -215,156 +322,381 @@ export function AddToMoneyLentSheet({
               <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
                 THIS TRANSACTION IS
               </ThemedText>
-              <View style={styles.chips}>
-                {LOAN_PARTS.map((p) => (
-                  <Chip key={p.part} label={p.label} selected={p.part === part} onPress={() => setPart(p.part)} />
-                ))}
-              </View>
+              <SegmentedControl
+                accessibilityLabel="Loan part"
+                options={LOAN_PARTS.map((option) => ({ value: option.part, label: option.label }))}
+                value={part ?? 'principal'}
+                onChange={setPart}
+              />
+              {singleDirectionMismatch ? (
+                <ThemedText type="small" style={{ color: theme.spend }} accessibilityLiveRegion="polite">
+                  This choice moves money {singleDirection}, but the imported transaction is money{' '}
+                  {sourceDirection}. Choose a matching loan part.
+                </ThemedText>
+              ) : null}
             </>
           )}
 
           {mode === 'split' ? (
             <>
-              <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
-                SLICES
-              </ThemedText>
-              {splitRows.map((row, i) => (
-                <View key={i} style={[styles.sliceCard, { backgroundColor: theme.backgroundElement }]}>
-                  <View style={styles.sliceHeader}>
-                    <ThemedText type="smallBold">Slice {i + 1}</ThemedText>
-                    {splitRows.length > 1 && (
-                      <Pressable onPress={() => removeRow(i)} hitSlop={8} accessibilityRole="button">
-                        <ThemedText type="small" style={{ color: theme.spend }}>
+              <View style={styles.splitHeading}>
+                <ThemedText type="overline" themeColor="textSecondary">
+                  SLICES
+                </ThemedText>
+                <ThemedText type="caption" themeColor="textSecondary">
+                  {loans.length} active {loans.length === 1 ? 'loan' : 'loans'}
+                </ThemedText>
+              </View>
+              {splitRows.length === 0 ? (
+                <Card padding="small">
+                  <ThemedText type="small" themeColor="textSecondary">
+                    No slices. Add one to build this split.
+                  </ThemedText>
+                </Card>
+              ) : null}
+              {splitRows.map((row, i) => {
+                const selectedLoan = loans.find((loan) => loan.id === row.loanId);
+                const selectedDirection =
+                  selectedLoan != null
+                    ? roleDirection(roleForLoanPart(selectedLoan.kind, row.part))
+                    : undefined;
+                const rowError = splitValidation.rowErrors[i];
+                const pickerOpen = openLoanPicker === row.key;
+                return (
+                  <Card key={row.key} padding="small" style={styles.sliceCard}>
+                    <View style={styles.sliceHeader}>
+                      <ThemedText type="overline" themeColor="textSecondary">
+                        SLICE {i + 1}
+                      </ThemedText>
+                      {selectedDirection ? (
+                        <ThemedText type="caption" themeColor="textSecondary" style={styles.grow}>
+                          · Money {selectedDirection}
+                        </ThemedText>
+                      ) : (
+                        <View style={styles.grow} />
+                      )}
+                      <Pressable
+                        onPress={() => removeRow(i)}
+                        hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove slice ${i + 1}`}
+                        style={({ pressed }) => ({ opacity: pressed ? Opacity.pressed : 1 })}
+                      >
+                        <ThemedText type="smallEmphasis" style={{ color: theme.spend }}>
                           Remove
                         </ThemedText>
                       </Pressable>
-                    )}
-                  </View>
-                  <View style={styles.chips}>
-                    {loans.map((l) => (
-                      <Chip key={l.id} label={loanLabel(l)} selected={row.loanId === l.id} onPress={() => updateRow(i, { loanId: l.id })} />
-                    ))}
-                  </View>
-                  <View style={styles.chips}>
-                    {LOAN_PARTS.map((p) => (
-                      <Chip key={p.part} label={p.label} selected={row.part === p.part} onPress={() => updateRow(i, { part: p.part })} />
-                    ))}
-                  </View>
-                  <View style={styles.sliceAmountRow}>
-                    <ThemedText type="small" themeColor="textSecondary" style={styles.sliceAmountLabel}>
-                      Amount
-                    </ThemedText>
-                    <TextInput
-                      value={row.text}
-                      onChangeText={(v) => updateRow(i, { text: v })}
-                      placeholder="₹0"
-                      placeholderTextColor={theme.textSecondary}
-                      keyboardType="numeric"
-                      style={[inputStyle, styles.splitInput]}
+                    </View>
+
+                    <Pressable
+                      onPress={() => setOpenLoanPicker(pickerOpen ? null : row.key)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Choose loan for slice ${i + 1}`}
+                      accessibilityState={{ expanded: pickerOpen }}
+                      hitSlop={{ top: 3, bottom: 3 }}
+                      style={({ pressed }) => [
+                        styles.loanSelector,
+                        { borderColor: row.loanId == null && rowError ? theme.spend : theme.borderStrong },
+                        { opacity: pressed ? Opacity.pressed : 1 },
+                      ]}
+                    >
+                      <ThemedText
+                        type="small"
+                        numberOfLines={1}
+                        style={{ color: selectedLoan ? theme.text : theme.textSecondary, flex: 1 }}
+                      >
+                        {selectedLoan ? loanLabel(selectedLoan) : 'Choose an active loan'}
+                      </ThemedText>
+                      <SymbolView
+                        name={{
+                          ios: pickerOpen ? 'chevron.up' : 'chevron.down',
+                          android: pickerOpen ? 'expand_less' : 'expand_more',
+                          web: pickerOpen ? 'expand_less' : 'expand_more',
+                        }}
+                        size={15}
+                        tintColor={theme.textSecondary}
+                      />
+                    </Pressable>
+                    {pickerOpen ? (
+                      <View style={[styles.loanOptions, { borderColor: theme.border }]}>
+                        {loans.length === 0 ? (
+                          <ThemedText type="small" themeColor="textSecondary" style={styles.loanOptionEmpty}>
+                            Create an active loan before splitting.
+                          </ThemedText>
+                        ) : (
+                          loans.map((loan, loanIndex) => {
+                            const chosen = loan.id === row.loanId;
+                            return (
+                              <Pressable
+                                key={loan.id}
+                                onPress={() => {
+                                  updateRow(i, { loanId: loan.id });
+                                  setOpenLoanPicker(null);
+                                }}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: chosen }}
+                                style={({ pressed }) => [
+                                  styles.loanOption,
+                                  loanIndex > 0 && {
+                                    borderTopColor: theme.border,
+                                    borderTopWidth: StyleSheet.hairlineWidth,
+                                  },
+                                  {
+                                    backgroundColor: chosen
+                                      ? theme.backgroundSelected
+                                      : theme.backgroundElement,
+                                    opacity: pressed ? Opacity.pressed : 1,
+                                  },
+                                ]}
+                              >
+                                <ThemedText type="small" numberOfLines={1} style={styles.loanOptionLabel}>
+                                  {loanLabel(loan)}
+                                </ThemedText>
+                                {chosen ? (
+                                  <ThemedText type="smallEmphasis" style={{ color: theme.accent }}>
+                                    ✓
+                                  </ThemedText>
+                                ) : null}
+                              </Pressable>
+                            );
+                          })
+                        )}
+                      </View>
+                    ) : null}
+
+                    <SegmentedControl
+                      accessibilityLabel={`Part for slice ${i + 1}`}
+                      options={LOAN_PARTS.map((option) => ({ value: option.part, label: option.label }))}
+                      value={row.part}
+                      onChange={(nextPart) => updateRow(i, { part: nextPart })}
                     />
-                  </View>
+                    <TextField
+                      value={row.text}
+                      onChangeText={(value) => updateRow(i, { text: value })}
+                      placeholder="0.00"
+                      keyboardType="decimal-pad"
+                      leading={
+                        <ThemedText type="small" themeColor="textSecondary">
+                          ₹
+                        </ThemedText>
+                      }
+                      error={rowError?.startsWith('Enter an amount') ? rowError : undefined}
+                      accessibilityLabel={`Amount for slice ${i + 1} in rupees`}
+                    />
+                    {rowError && !rowError.startsWith('Enter an amount') ? (
+                      <ThemedText type="small" style={{ color: theme.spend }} accessibilityLiveRegion="polite">
+                        {rowError}
+                      </ThemedText>
+                    ) : null}
+                  </Card>
+                );
+              })}
+              <Button
+                label="Add slice"
+                icon={{ ios: 'plus', android: 'add', web: 'add' }}
+                variant="secondary"
+                size="small"
+                onPress={addRow}
+              />
+
+              <Card
+                tone={splitValidation.errors.length > 0 ? 'danger' : 'subtle'}
+                padding="small"
+                style={styles.allocationCard}
+              >
+                <View style={styles.allocationLine}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Allocated
+                  </ThemedText>
+                  <ThemedText type="smallEmphasis">
+                    {formatINR(allocated)} of {formatINR(total)}
+                  </ThemedText>
                 </View>
+                <View style={[styles.progressTrack, { backgroundColor: theme.border }]}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${total > 0 ? Math.min(100, Math.round((allocated / total) * 100)) : 0}%`,
+                        backgroundColor:
+                          allocated > total ? theme.spend : splitValidation.valid ? theme.accent : theme.review,
+                      },
+                    ]}
+                  />
+                </View>
+                <View style={styles.allocationLine}>
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    Partial allocation is allowed
+                  </ThemedText>
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    {formatINR(splitValidation.remainingPaise)} left
+                  </ThemedText>
+                </View>
+              </Card>
+              {splitValidation.errors.map((message) => (
+                <ThemedText
+                  key={message}
+                  type="small"
+                  style={{ color: theme.spend }}
+                  accessibilityLiveRegion="polite"
+                >
+                  {message}
+                </ThemedText>
               ))}
-              <Pressable onPress={addRow} hitSlop={8} accessibilityRole="button" style={({ pressed }) => [styles.addSlice, { opacity: pressed ? 0.6 : 1 }]}>
-                <ThemedText type="smallBold" style={{ color: theme.accent }}>
-                  ＋ Add slice
-                </ThemedText>
-              </Pressable>
-              <ThemedText type="small" themeColor={overAllocated ? undefined : 'textSecondary'} style={overAllocated ? { color: theme.spend } : undefined}>
-                Allocated {formatINR(allocated)} of {formatINR(total)}
-                {allocated < total ? ` · ${formatINR(total - allocated)} left unallocated` : ''}
-                {overAllocated ? ' · over the payment amount' : ''}
+              <ThemedText type="caption" themeColor="textSecondary">
+                All slices must move one way. Imported transactions keep their original cash direction.
+                Principal and repayments stay excluded from spending and income; interest remains countable.
               </ThemedText>
-              {mixedDirection && (
-                <ThemedText type="small" style={{ color: theme.spend }}>
-                  All slices must move money the same way — you can mix repayment and interest, but not
-                  money-in with money-out.
-                </ThemedText>
-              )}
               <Button label="Save split" variant="primary" onPress={submitSplit} disabled={!canSplit} style={styles.saveBtn} />
             </>
           ) : attached ? (
             <>
-              <ThemedText type="default" style={styles.groupTitle}>
-                In loan: {currentLoanName ?? 'a loan'}
-              </ThemedText>
-              <Button label="Update" variant="primary" onPress={submitSingle} disabled={!canSubmitSingle} style={styles.saveBtn} />
+              <View style={[styles.currentLoan, { backgroundColor: theme.backgroundSelected, borderColor: theme.border }]}>
+                <ThemedText type="caption" themeColor="textSecondary">
+                  CURRENT LOAN
+                </ThemedText>
+                <ThemedText type="smallEmphasis" numberOfLines={1}>
+                  {currentLoanName ?? 'Loan'}
+                </ThemedText>
+              </View>
+              <Button
+                label="Update Money Lent"
+                variant="primary"
+                onPress={submitSingle}
+                disabled={!canSubmitSingle}
+                style={styles.saveBtn}
+              />
             </>
           ) : (
             <>
               <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
                 CHOOSE A LOAN
               </ThemedText>
-              {loans.map((l) => (
-                <Pressable
-                  key={l.id}
-                  onPress={() => {
-                    setSelectedLoanId(l.id);
-                    setCreatingNew(false);
-                  }}
-                  accessibilityRole="button"
-                  style={({ pressed }) => [
-                    styles.loanRow,
-                    { backgroundColor: selectedLoanId === l.id && !creatingNew ? theme.backgroundSelected : theme.backgroundElement, opacity: pressed ? 0.7 : 1 },
-                  ]}
-                >
-                  <ThemedText type="default" numberOfLines={1}>
-                    {loanLabel(l)}
+              {loans.length > 0 ? (
+                <View style={styles.loanList}>
+                  {loans.map((loan, index) => {
+                    const chosen = selectedLoanId === loan.id && !creatingNew;
+                    return (
+                      <Pressable
+                        key={loan.id}
+                        onPress={() => {
+                          setSelectedLoanId(loan.id);
+                          setCreatingNew(false);
+                        }}
+                        accessibilityRole="radio"
+                        accessibilityLabel={loanLabel(loan)}
+                        accessibilityState={{ checked: chosen }}
+                        style={({ pressed }) => [
+                          styles.loanRow,
+                          index > 0 && {
+                            borderTopColor: theme.border,
+                            borderTopWidth: StyleSheet.hairlineWidth,
+                          },
+                          {
+                            backgroundColor: chosen
+                              ? theme.backgroundSelected
+                              : theme.backgroundElement,
+                            opacity: pressed ? Opacity.pressed : 1,
+                          },
+                        ]}
+                      >
+                        <ThemedText type="small" numberOfLines={1} style={styles.loanOptionLabel}>
+                          {loanLabel(loan)}
+                        </ThemedText>
+                        {chosen ? (
+                          <ThemedText type="smallEmphasis" style={{ color: theme.accent }}>
+                            ✓
+                          </ThemedText>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Card padding="small">
+                  <ThemedText type="small" themeColor="textSecondary">
+                    No active loans. Create one below.
                   </ThemedText>
-                  {selectedLoanId === l.id && !creatingNew && (
-                    <ThemedText type="smallBold" style={{ color: theme.accent }}>
-                      ✓
-                    </ThemedText>
-                  )}
-                </Pressable>
-              ))}
-              <Pressable
+                </Card>
+              )}
+              <Button
+                label="Create a new loan"
+                icon={{ ios: 'plus', android: 'add', web: 'add' }}
+                variant={creatingNew ? 'primary' : 'secondary'}
+                size="small"
                 onPress={() => {
                   setCreatingNew(true);
                   setSelectedLoanId(null);
                 }}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.loanRow, { backgroundColor: creatingNew ? theme.backgroundSelected : theme.backgroundElement, opacity: pressed ? 0.7 : 1 }]}
-              >
-                <ThemedText type="smallBold" style={{ color: theme.accent }}>
-                  ＋ New loan
-                </ThemedText>
-              </Pressable>
+              />
 
               {creatingNew && (
-                <View style={styles.newLoan}>
-                  <View style={styles.chips}>
-                    <Chip label="I lent" selected={newKind === 'lent'} onPress={() => setNewKind('lent')} />
-                    <Chip label="I borrowed" selected={newKind === 'borrowed'} onPress={() => setNewKind('borrowed')} />
-                  </View>
+                <Card tone="subtle" padding="small" style={styles.newLoan}>
+                  <ThemedText type="overline" themeColor="textSecondary">
+                    NEW LOAN
+                  </ThemedText>
+                  <SegmentedControl
+                    accessibilityLabel="New loan direction"
+                    options={[
+                      { value: 'lent', label: 'I lent' },
+                      { value: 'borrowed', label: 'I borrowed' },
+                    ]}
+                    value={newKind}
+                    onChange={setNewKind}
+                  />
+                  <ThemedText type="caption" themeColor="textSecondary">
+                    Choose a person
+                  </ThemedText>
                   <View style={styles.chips}>
                     {people.map((p) => (
                       <Chip key={p.id} label={p.name} selected={p.id === newPersonId} onPress={() => setNewPersonId(p.id)} />
                     ))}
                   </View>
                   <View style={styles.addRow}>
-                    <TextInput
+                    <TextField
                       value={newPerson}
                       onChangeText={setNewPerson}
                       placeholder="Add a new person…"
-                      placeholderTextColor={theme.textSecondary}
                       returnKeyType="done"
                       onSubmitEditing={addPerson}
-                      style={[inputStyle, styles.flexInput]}
+                      containerStyle={styles.flexInput}
                     />
-                    <Button label="Add" onPress={addPerson} disabled={newPerson.trim() === ''} style={styles.addBtn} />
+                    <Button
+                      label="Add"
+                      size="small"
+                      onPress={addPerson}
+                      disabled={newPerson.trim() === ''}
+                      style={styles.addBtn}
+                    />
                   </View>
-                  <TextInput value={newName} onChangeText={setNewName} placeholder="Loan name (optional)" placeholderTextColor={theme.textSecondary} style={inputStyle} />
-                </View>
+                  <TextField
+                    label="Loan name (optional)"
+                    value={newName}
+                    onChangeText={setNewName}
+                    placeholder="e.g. Wedding or Emergency"
+                  />
+                </Card>
               )}
 
-              <Button label="Add to Money Lent" variant="primary" onPress={submitSingle} disabled={!canSubmitSingle} style={styles.saveBtn} />
+              <Button
+                label="Add to Money Lent"
+                variant="primary"
+                onPress={submitSingle}
+                disabled={!canSubmitSingle}
+                style={styles.saveBtn}
+              />
             </>
           )}
 
           {(attached || isSplit) && (
-            <Pressable onPress={onDetach} accessibilityRole="button" hitSlop={8} style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? 0.6 : 1 }]}>
-              <ThemedText type="small" style={{ color: theme.spend }}>
+            <Pressable
+              onPress={onDetach}
+              accessibilityRole="button"
+              accessibilityLabel="Remove this transaction from Money Lent"
+              hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+              style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? Opacity.pressed : 1 }]}
+            >
+              <ThemedText type="smallEmphasis" style={{ color: theme.spend }}>
                 Remove from Money Lent
               </ThemedText>
             </Pressable>
@@ -376,31 +708,95 @@ export function AddToMoneyLentSheet({
 }
 
 const styles = StyleSheet.create({
-  flexible: { flexShrink: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.two },
-  body: { paddingBottom: Spacing.four, gap: Spacing.one },
-  groupTitle: { marginTop: Spacing.three },
-  loanRow: {
+  // Content-sized sheet: a single attach stays short, and adding slices grows it to the cap where
+  // the body shrinks and scrolls rather than the sheet overflowing.
+  flexible: { flexShrink: 1, minHeight: 0 },
+  header: {
+    minHeight: 32,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Spacing.two,
+    marginBottom: Spacing.one,
+  },
+  headerAction: { minHeight: 32, justifyContent: 'center' },
+  body: { paddingBottom: Spacing.three, gap: Spacing.two },
+  grow: { flex: 1, minWidth: 0 },
+  transactionSummary: {
+    minHeight: TouchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  badge: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupTitle: { marginTop: Spacing.one },
+  splitHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: Spacing.one,
   },
-  newLoan: { marginTop: Spacing.two, gap: Spacing.one },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one, marginTop: Spacing.half },
+  sliceCard: { gap: Spacing.two },
+  sliceHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one },
+  loanSelector: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+  },
+  loanOptions: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: Radius.sm,
+    overflow: 'hidden',
+  },
+  loanOption: {
+    minHeight: TouchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+  },
+  loanOptionEmpty: { paddingHorizontal: Spacing.two, paddingVertical: Spacing.two },
+  loanOptionLabel: { flex: 1 },
+  allocationCard: { gap: Spacing.one },
+  allocationLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
+  progressTrack: { height: 4, borderRadius: Radius.pill, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: Radius.pill },
+  currentLoan: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.two,
+  },
+  loanList: { overflow: 'hidden' },
+  loanRow: {
+    minHeight: TouchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    paddingVertical: Spacing.one,
+  },
+  newLoan: { gap: Spacing.two },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one },
   addRow: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
   flexInput: { flex: 1 },
-  addBtn: { paddingHorizontal: Spacing.four },
-  input: { borderRadius: Spacing.two, paddingHorizontal: Spacing.three, paddingVertical: Spacing.three, fontSize: 16 },
-  sliceCard: { borderRadius: Spacing.two, padding: Spacing.three, marginTop: Spacing.two, gap: Spacing.one },
-  sliceHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sliceAmountRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.one },
-  sliceAmountLabel: { flex: 1 },
-  addSlice: { paddingVertical: Spacing.two },
-  splitInput: { width: 160, textAlign: 'right' },
-  saveBtn: { marginTop: Spacing.four },
-  removeBtn: { marginTop: Spacing.two, alignItems: 'center', paddingVertical: Spacing.one },
+  addBtn: { paddingHorizontal: Spacing.three },
+  saveBtn: { marginTop: Spacing.one },
+  removeBtn: {
+    minHeight: TouchTarget,
+    marginTop: Spacing.half,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

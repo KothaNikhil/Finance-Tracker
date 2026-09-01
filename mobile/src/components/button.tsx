@@ -1,3 +1,5 @@
+import { SymbolView } from 'expo-symbols';
+import type { ComponentProps } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -7,36 +9,67 @@ import {
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-type Variant = 'primary' | 'secondary' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+export type ButtonSize = 'small' | 'default';
+type SymbolName = ComponentProps<typeof SymbolView>['name'];
 
 /**
- * The app's single button. `primary` is the accent fill, `secondary` is a subtle fill, `danger`
- * tints the label with the spend/red colour. When `loading`, the label is swapped for a spinner
- * and the button is disabled. Colours come from the theme so light/dark both look right.
+ * The app's single action primitive. Every variant has a visible shape or semantic label and keeps
+ * a minimum touch target in light and dark themes.
  */
 export function Button({
   label,
   onPress,
   variant = 'secondary',
+  size = 'default',
   disabled,
   loading,
   style,
   accessibilityLabel,
+  accessibilityHint,
+  icon,
+  testID,
 }: {
   label: string;
   onPress: () => void;
-  variant?: Variant;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   disabled?: boolean;
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
+  accessibilityHint?: string;
+  icon?: SymbolName;
+  testID?: string;
 }) {
   const theme = useTheme();
-  const bg = variant === 'primary' ? theme.accent : theme.backgroundSelected;
-  const fg = variant === 'primary' ? theme.onAccent : variant === 'danger' ? theme.spend : theme.text;
+  const bg =
+    variant === 'primary'
+      ? theme.accent
+      : variant === 'danger'
+        ? theme.spendMuted
+        : variant === 'ghost'
+          ? 'transparent'
+          : theme.backgroundElement;
+  const fg =
+    variant === 'primary'
+      ? theme.onAccent
+      : variant === 'danger'
+        ? theme.spend
+        : variant === 'ghost'
+          ? theme.accent
+          : theme.text;
+  const border =
+    variant === 'primary'
+      ? theme.accent
+      : variant === 'danger'
+        ? theme.spend
+        : variant === 'ghost'
+          ? 'transparent'
+          : theme.borderStrong;
   const isDisabled = disabled || loading;
 
   return (
@@ -45,32 +78,66 @@ export function Button({
       disabled={isDisabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: !!isDisabled, busy: !!loading }}
+      testID={testID}
+      // Both boxes are under 44px tall, so extend the touch area back up to the floor.
+      hitSlop={size === 'small' ? SMALL_HIT_SLOP : DEFAULT_HIT_SLOP}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: bg, opacity: pressed || isDisabled ? 0.6 : 1 },
+        size === 'small' ? styles.small : styles.default,
+        {
+          backgroundColor: bg,
+          borderColor: border,
+          opacity: isDisabled ? Opacity.disabled : pressed ? Opacity.pressed : 1,
+        },
         style,
       ]}
     >
       {loading ? (
         <ActivityIndicator color={fg} />
       ) : (
-        <ThemedText type="smallBold" style={{ color: fg }}>
-          {label}
-        </ThemedText>
+        <>
+          {icon ? <SymbolView name={icon} size={size === 'small' ? 14 : 16} tintColor={fg} /> : null}
+          <ThemedText type="smallEmphasis" style={{ color: fg }}>
+            {label}
+          </ThemedText>
+        </>
       )}
     </Pressable>
   );
 }
 
+const DEFAULT_BUTTON_HEIGHT = 40;
+const SMALL_BUTTON_HEIGHT = 32;
+const hitSlopFor = (height: number) => ({
+  top: Math.ceil((TouchTarget - height) / 2),
+  bottom: Math.ceil((TouchTarget - height) / 2),
+  left: Spacing.one,
+  right: Spacing.one,
+});
+const DEFAULT_HIT_SLOP = hitSlopFor(DEFAULT_BUTTON_HEIGHT);
+const SMALL_HIT_SLOP = hitSlopFor(SMALL_BUTTON_HEIGHT);
+
 const styles = StyleSheet.create({
   // No `flex: 1` here — in a column it collapses the label's layout. Callers in a row pass
   // `style={{ flex: 1 }}` for equal widths; in a column the button fills width via align-stretch.
   button: {
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Spacing.two,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: Spacing.one,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: Radius.md,
+  },
+  default: {
+    minHeight: DEFAULT_BUTTON_HEIGHT,
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.three,
+  },
+  small: {
+    minHeight: SMALL_BUTTON_HEIGHT,
+    paddingVertical: Spacing.half,
+    paddingHorizontal: Spacing.two,
   },
 });

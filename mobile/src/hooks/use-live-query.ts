@@ -15,7 +15,7 @@
 import { is } from 'drizzle-orm';
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { addDatabaseChangeListener } from 'expo-sqlite';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /** Collapse a burst of per-row change events into one re-query after this many ms of quiet. */
 const COALESCE_MS = 50;
@@ -23,29 +23,42 @@ const COALESCE_MS = 50;
 export function useLiveQuery<T extends PromiseLike<unknown> & { config?: { table?: unknown } }>(
   query: T,
   deps: readonly unknown[] = [],
-): { data: Awaited<T>; error: Error | undefined; updatedAt: Date | undefined } {
+): {
+  data: Awaited<T>;
+  error: Error | undefined;
+  updatedAt: Date | undefined;
+  retry: () => void;
+} {
   const [data, setData] = useState<Awaited<T>>([] as Awaited<T>);
   const [error, setError] = useState<Error | undefined>(undefined);
   const [updatedAt, setUpdatedAt] = useState<Date | undefined>(undefined);
+  const runRef = useRef<() => void>(() => {});
+  const retry = useCallback(() => runRef.current(), []);
 
   useEffect(() => {
     const entity = query.config?.table;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let latestRun = 0;
 
     const run = () => {
+      const runNumber = ++latestRun;
       query.then(
         (d) => {
-          if (cancelled) return;
+          if (cancelled || runNumber !== latestRun) return;
           setData(d as Awaited<T>);
+          setError(undefined);
           setUpdatedAt(new Date());
         },
-        (e: Error) => {
-          if (!cancelled) setError(e);
+        (e: unknown) => {
+          if (!cancelled && runNumber === latestRun) {
+            setError(e instanceof Error ? e : new Error(String(e)));
+          }
         },
       );
     };
 
+    runRef.current = run;
     run(); // initial fetch
 
     let listener: { remove: () => void } | undefined;
@@ -65,9 +78,10 @@ export function useLiveQuery<T extends PromiseLike<unknown> & { config?: { table
       cancelled = true;
       if (timer) clearTimeout(timer);
       listener?.remove();
+      if (runRef.current === run) runRef.current = () => {};
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are supplied by the caller (query params)
   }, deps);
 
-  return { data, error, updatedAt };
+  return { data, error, updatedAt, retry };
 }

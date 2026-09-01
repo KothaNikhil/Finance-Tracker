@@ -31,14 +31,14 @@ export function DebugLogScreen({ visible, onClose }: { visible: boolean; onClose
       <ThemedView style={styles.fill}>
         <SafeAreaView style={styles.fill} edges={['top', 'bottom']}>
           <View style={[styles.header, { borderColor: theme.border }]}>
-            <ThemedText type="subtitle">Debug logs</ThemedText>
+            <ThemedText type="heading">Debug logs</ThemedText>
             <View style={styles.headerActions}>
-              <Pressable onPress={() => resetImportLog()} hitSlop={8} accessibilityRole="button">
+              <Pressable onPress={() => resetImportLog()} hitSlop={14} accessibilityRole="button">
                 <ThemedText type="link" style={{ color: theme.spend }}>
                   Clear
                 </ThemedText>
               </Pressable>
-              <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button">
+              <Pressable onPress={onClose} hitSlop={14} accessibilityRole="button">
                 <ThemedText type="link" themeColor="textSecondary">
                   Close
                 </ThemedText>

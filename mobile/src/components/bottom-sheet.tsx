@@ -35,7 +35,8 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } fr
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { SheetHandle } from '@/components/sheet-handle';
-import { Spacing } from '@/constants/theme';
+import { Motion, Radius, Spacing } from '@/constants/theme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
 
 export interface BottomSheetProps {
@@ -62,6 +63,7 @@ export function BottomSheet({
   sheetStyle,
 }: BottomSheetProps) {
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
   const height = heightFraction != null ? Math.round(Dimensions.get('window').height * heightFraction) : undefined;
   const translateY = useSharedValue(0);
   const screenHeight = Dimensions.get('window').height;
@@ -96,12 +98,16 @@ export function BottomSheet({
     .onEnd((e) => {
       'worklet';
       if (e.translationY > DISMISS_DISTANCE || e.velocityY > FLICK_VELOCITY) {
-        translateY.value = withTiming(screenHeight, { duration: 160 }, (finished) => {
-          'worklet';
-          if (finished) scheduleOnRN(onClose);
-        });
+        if (reducedMotion) {
+          scheduleOnRN(onClose);
+        } else {
+          translateY.value = withTiming(screenHeight, { duration: Motion.normal }, (finished) => {
+            'worklet';
+            if (finished) scheduleOnRN(onClose);
+          });
+        }
       } else {
-        translateY.value = withSpring(0, { damping: 20, stiffness: 220 });
+        translateY.value = reducedMotion ? 0 : withSpring(0, { damping: 20, stiffness: 220 });
       }
     });
 
@@ -111,14 +117,32 @@ export function BottomSheet({
   });
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose} onShow={reset}>
+    <Modal
+      visible={visible}
+      animationType={reducedMotion ? 'none' : 'slide'}
+      transparent
+      statusBarTranslucent
+      onRequestClose={onClose}
+      onShow={reset}
+    >
       <GestureHandlerRootView style={styles.grow}>
-        <View style={[styles.backdrop, kbHeight > 0 ? { paddingBottom: kbHeight } : null]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+        <View
+          style={[
+            styles.backdrop,
+            { backgroundColor: theme.overlay },
+            kbHeight > 0 ? { paddingBottom: kbHeight } : null,
+          ]}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close sheet"
+          />
           <Animated.View
             style={[
               styles.sheet,
-              { backgroundColor: theme.background },
+              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
               // Clamp a fixed-height sheet to the space above the keyboard so it never runs off the top.
               height != null ? { height, maxHeight: '100%' } : styles.maxHeight,
               sheetStyle,
@@ -139,12 +163,14 @@ export function BottomSheet({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  backdrop: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 0,
     paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three,
+    paddingTop: Spacing.two,
   },
   // Cap at 90% and let children (e.g. a ScrollView with flexShrink) shrink to fit instead of
   // overflowing past the sheet's bottom edge.

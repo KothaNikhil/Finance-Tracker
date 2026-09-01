@@ -4,6 +4,13 @@
  * database save (Step 2) plug in on top of this later.
  */
 
+import { categorize } from '../categorize/categorize';
+import type {
+  CategoryIndex,
+  Confidence,
+  LearnedRule,
+  SuggestionVia,
+} from '../categorize/types';
 import { partitionDuplicates } from './dedupe';
 import type { NormalizedTxn, SheetLike, SourceAdapter } from './types';
 
@@ -34,8 +41,27 @@ export interface ImportPreview {
   totalCreditPaise: number;
 }
 
+/** One side-effect-free category/review projection shown before Save. */
+export interface ImportPreviewRow {
+  txn: NormalizedTxn;
+  categoryId: number | null;
+  subcategoryId: number | null;
+  /** Resolved category name at preview time, including emoji/subcategory when available. */
+  categoryLabel: string | null;
+  confidence: Confidence;
+  needsReview: boolean;
+  via: SuggestionVia;
+  reason: string;
+}
+
+/** Dry-run enrichment for all new rows. It never writes transactions or learned rules. */
+export interface ImportDryRun {
+  rows: ImportPreviewRow[];
+  reviewCount: number;
+}
+
 /** Pick the adapter that recognizes these sheets. */
-export function chooseAdapter(sheets: SheetLike[], adapters: SourceAdapter[]): SourceAdapter {
+export function chooseAdapter(sheets: SheetLike[], adapters: readonly SourceAdapter[]): SourceAdapter {
   const adapter = adapters.find((a) => a.detect(sheets));
   if (!adapter) {
     throw new Error('Could not recognize this file. No matching statement reader was found.');
@@ -53,7 +79,7 @@ export function chooseAdapter(sheets: SheetLike[], adapters: SourceAdapter[]): S
  */
 export function runImport(
   sheets: SheetLike[],
-  adapters: SourceAdapter[],
+  adapters: readonly SourceAdapter[],
   existingKeys: ReadonlySet<string> = new Set(),
 ): ImportPreview {
   const adapter = chooseAdapter(sheets, adapters);
@@ -101,4 +127,63 @@ export function runImport(
     totalDebitPaise,
     totalCreditPaise,
   };
+}
+
+/**
+ * Apply the same pure categorizer inputs used by the save path without touching the database.
+ *
+ * Callers provide snapshots of the current category index and learned rules. Self-transfers and
+ * person-to-person sends are forced into review here exactly as they are in `saveTransactions`, so
+ * the preview count remains honest while Save stays the only operation that persists anything.
+ */
+export function dryRunImportPreview(
+  preview: Pick<ImportPreview, 'newTxns'>,
+  index: CategoryIndex,
+  learned: readonly LearnedRule[] = [],
+): ImportDryRun {
+  let reviewCount = 0;
+  const learnedRules = [...learned];
+  const rows = preview.newTxns.map((txn): ImportPreviewRow => {
+    const suggestion = categorize(
+      {
+        kind: txn.kind,
+        direction: txn.direction,
+        rawTag: txn.rawTag,
+        counterpartyName: txn.counterpartyName,
+        counterpartyVpa: txn.counterpartyVpa,
+        rawDetails: txn.rawDetails,
+        remarks: txn.remarks,
+      },
+      index,
+      learnedRules,
+    );
+    const needsReview =
+      suggestion.needsReview || txn.kind === 'self' || txn.kind === 'sent';
+    if (needsReview) reviewCount++;
+
+    const category =
+      suggestion.categoryId == null ? null : index.byId.get(suggestion.categoryId) ?? null;
+    const subcategory =
+      category && suggestion.subcategoryId != null
+        ? category.subcategories.find((item) => item.id === suggestion.subcategoryId) ?? null
+        : null;
+    const categoryLabel = category
+      ? `${category.emoji ? `${category.emoji} ` : ''}${category.name}${
+          subcategory ? ` · ${subcategory.name}` : ''
+        }`
+      : null;
+
+    return {
+      txn,
+      categoryId: suggestion.categoryId,
+      subcategoryId: suggestion.subcategoryId,
+      categoryLabel,
+      confidence: suggestion.confidence,
+      needsReview,
+      via: suggestion.via,
+      reason: suggestion.reason,
+    };
+  });
+
+  return { rows, reviewCount };
 }

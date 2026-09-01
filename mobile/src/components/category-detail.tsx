@@ -6,12 +6,15 @@
  * Follows the same bottom-sheet pattern as `TransactionDetail`.
  */
 
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
 import { Button } from '@/components/button';
+import { Card } from '@/components/card';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
+import { IconButton } from '@/components/icon-button';
+import { ScreenHeader } from '@/components/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { formatINR } from '@/core/domain/money';
@@ -29,9 +32,9 @@ export interface CategoryDetailProps {
   rows: CategoryBreakdownRow[];
   color: string;
   onClose: () => void;
-  /** Open this category's transactions in Reports (pre-filtered). */
+  /** Open this category's transactions in Activity (pre-filtered). */
   onViewTransactions?: () => void;
-  /** Open one sub-category's transactions in Reports (pre-filtered to category + sub-category). */
+  /** Open one sub-category's transactions in Activity (pre-filtered to category + sub-category). */
   onSubcategoryPress?: (subcategoryId: number) => void;
 }
 
@@ -50,46 +53,51 @@ export function CategoryDetail({
   return (
     <BottomSheet visible={visible} onClose={onClose}>
       <SafeAreaView edges={['bottom']} style={styles.flexible}>
-        <View style={styles.header}>
-          <ThemedText type="smallBold">Category</ThemedText>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <ThemedText type="link" themeColor="textSecondary">
-              Close
-            </ThemedText>
-          </Pressable>
-        </View>
+        <ScreenHeader
+          compact
+          title={title ?? 'Category'}
+          action={
+            <IconButton
+              name={{ ios: 'xmark', android: 'close', web: 'close' }}
+              label="Close category breakdown"
+              onPress={onClose}
+              variant="plain"
+            />
+          }
+        />
 
         <ScrollView style={styles.flexible} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-              <ThemedText type="subtitle" numberOfLines={2}>
-                {title ?? 'Category'}
-              </ThemedText>
-              <ThemedText type="amountLarge" style={{ color }}>
-                {formatINR(totalPaise)}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                Spent · {periodLabel} · {txnCount} transaction{txnCount === 1 ? '' : 's'}
-              </ThemedText>
+          <Card padding="small" style={styles.summary}>
+            <ThemedText type="amount" style={{ color }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+              {formatINR(totalPaise)}
+            </ThemedText>
+            <ThemedText type="caption" themeColor="textSecondary">
+              Spent · {periodLabel} · {txnCount} transaction{txnCount === 1 ? '' : 's'}
+            </ThemedText>
+          </Card>
 
-              <ThemedText type="overline" themeColor="textSecondary" style={styles.sectionTitle}>
-                SUB-CATEGORIES
-              </ThemedText>
-              <CategoryBreakdown
-                rows={rows}
-                total={totalPaise}
-                color={color}
-                onRowPress={(row) => {
-                  if (row.id != null && onSubcategoryPress) onSubcategoryPress(row.id);
-                }}
-              />
+          <ThemedText type="overline" themeColor="textSecondary" style={styles.sectionTitle}>
+            SUB-CATEGORIES
+          </ThemedText>
+          <Card padding="small">
+            <CategoryBreakdown
+              rows={rows}
+              total={totalPaise}
+              color={color}
+              onRowPress={(row) => {
+                if (row.id != null && onSubcategoryPress) onSubcategoryPress(row.id);
+              }}
+            />
+          </Card>
 
-              {onViewTransactions && (
-                <Button
-                  label="View transactions"
-                  variant="secondary"
-                  onPress={onViewTransactions}
-                  style={styles.viewBtn}
-                />
-              )}
+          {onViewTransactions ? (
+            <Button
+              label="View in Activity"
+              variant="primary"
+              onPress={onViewTransactions}
+              style={styles.viewBtn}
+            />
+          ) : null}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>
@@ -98,13 +106,8 @@ export function CategoryDetail({
 
 const styles = StyleSheet.create({
   flexible: { flexShrink: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.two,
-  },
-  body: { paddingBottom: Spacing.four, gap: Spacing.one },
-  sectionTitle: { marginTop: Spacing.three, marginBottom: Spacing.two },
-  viewBtn: { marginTop: Spacing.three },
+  body: { paddingTop: Spacing.two, paddingBottom: Spacing.four, gap: Spacing.one },
+  summary: { gap: 0 },
+  sectionTitle: { marginTop: Spacing.two, marginBottom: Spacing.one },
+  viewBtn: { marginTop: Spacing.two },
 });

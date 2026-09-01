@@ -57,20 +57,26 @@ export interface Summary {
   savedCount: number;
   /** True until the first result lands (so the screen doesn't flash zeroes / empty on mount). */
   loading: boolean;
+  /** Query failure, surfaced so screens can show a retry state instead of stale zeroes. */
+  error: Error | undefined;
+  /** Re-run the summary query after a recoverable failure. */
+  retry: () => void;
 }
 
 /** A live summary (canonical Spent/Received + review & row counts) for the filtered set. */
 export function useSummary(filter: TxnFilter = {}): Summary {
   const db = getDb();
   const key = JSON.stringify(filter);
-  const { data, updatedAt } = useLiveQuery(summaryQuery(db, filter), [key]);
+  const { data, error, retry, updatedAt } = useLiveQuery(summaryQuery(db, filter), [key]);
   const row = data?.[0];
   return {
     spentPaise: row?.spentPaise ?? 0,
     receivedPaise: row?.receivedPaise ?? 0,
     reviewCount: row?.reviewCount ?? 0,
     savedCount: row?.savedCount ?? 0,
-    loading: updatedAt === undefined,
+    loading: updatedAt === undefined && error === undefined,
+    error,
+    retry,
   };
 }
 

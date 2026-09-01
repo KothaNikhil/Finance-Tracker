@@ -7,7 +7,7 @@
  * means "all time" (the reports screen offers an "All years" option the dashboards don't).
  */
 
-import { matchesPeriod } from './analytics';
+import { countablePaise, matchesPeriod } from './analytics';
 import type {
   AnalyticsTxn,
   CashbackSummary,
@@ -26,10 +26,12 @@ function groupSpend(
   for (const txn of txns) {
     if (txn.direction !== 'out') continue;
     if (!matchesPeriod(txn.isoDate, filter)) continue;
+    const paise = countablePaise(txn);
+    if (paise <= 0) continue;
     const key = keyOf(txn);
     let g = byKey.get(key);
     if (!g) byKey.set(key, (g = { key, spentPaise: 0, txnCount: 0 }));
-    g.spentPaise += txn.paise;
+    g.spentPaise += paise;
     g.txnCount += 1;
   }
   return [...byKey.values()].sort((a, b) => b.spentPaise - a.spentPaise);
@@ -58,10 +60,12 @@ export function personSpend(txns: AnalyticsTxn[], filter: PeriodFilter | null): 
   for (const txn of txns) {
     if (txn.direction !== 'out') continue;
     if (!matchesPeriod(txn.isoDate, filter)) continue;
+    const paise = countablePaise(txn);
+    if (paise <= 0) continue;
     const key = txn.personId ?? null;
     let p = byPerson.get(key);
     if (!p) byPerson.set(key, (p = { personId: key, spentPaise: 0, txnCount: 0 }));
-    p.spentPaise += txn.paise;
+    p.spentPaise += paise;
     p.txnCount += 1;
   }
   return [...byPerson.values()].sort((a, b) => b.spentPaise - a.spentPaise);
@@ -74,7 +78,9 @@ export function cashbackTotals(txns: AnalyticsTxn[], filter: PeriodFilter | null
   for (const txn of txns) {
     if (txn.direction !== 'in' || !txn.isRefund) continue;
     if (!matchesPeriod(txn.isoDate, filter)) continue;
-    totalPaise += txn.paise;
+    const paise = countablePaise(txn);
+    if (paise <= 0) continue;
+    totalPaise += paise;
     count += 1;
   }
   return { totalPaise, count };

@@ -47,6 +47,8 @@ export interface ExportTxn {
   isoDate: string; // YYYY-MM-DD
   time: string; // '' when unknown
   paise: number; // positive magnitude
+  /** Portion included in totals; defaults to the full amount for backwards-compatible callers. */
+  countablePaise?: number;
   direction: Direction; // in | out | self
   isRefund: boolean;
   counterparty: string;

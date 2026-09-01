@@ -18,6 +18,8 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { authenticate, canUseAppLock } from '@/services/auth/app-lock';
 
 interface LockState {
+  /** True after device lock capability has been checked. */
+  ready: boolean;
   /** True if a device lock is available and in use. */
   enabled: boolean;
   /** True while the app is locked and awaiting an unlock. */
@@ -26,7 +28,12 @@ interface LockState {
   unlock: () => Promise<void>;
 }
 
-const LockContext = createContext<LockState>({ enabled: false, locked: false, unlock: async () => {} });
+const LockContext = createContext<LockState>({
+  ready: false,
+  enabled: false,
+  locked: false,
+  unlock: async () => {},
+});
 
 export function AppLockProvider({ children }: { children: ReactNode }) {
   const [enabled, setEnabled] = useState(false);
@@ -36,12 +43,20 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    canUseAppLock().then((ok) => {
-      if (!active) return;
-      setEnabled(ok);
-      if (!ok) setLocked(false); // no biometrics/PIN → nothing to lock behind
-      setReady(true);
-    });
+    canUseAppLock()
+      .then((ok) => {
+        if (!active) return;
+        setEnabled(ok);
+        if (!ok) setLocked(false); // no biometrics/PIN → nothing to lock behind
+        setReady(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        // Capability checks should fail closed to app-lock setup but never strand startup forever.
+        setEnabled(false);
+        setLocked(false);
+        setReady(true);
+      });
     return () => {
       active = false;
     };
@@ -64,9 +79,8 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
     if (ok) setLocked(false);
   }, []);
 
-  // Until we've checked device capability, treat as not-locked to avoid a flash of the lock screen.
   return (
-    <LockContext.Provider value={{ enabled, locked: ready ? locked : false, unlock }}>
+    <LockContext.Provider value={{ ready, enabled, locked: ready ? locked : false, unlock }}>
       {children}
     </LockContext.Provider>
   );

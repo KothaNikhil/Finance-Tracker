@@ -4,16 +4,21 @@
  */
 
 import { useState } from 'react';
-import { Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
+import { InfoDisclosure } from '@/components/info-disclosure';
+import { SegmentedControl } from '@/components/segmented-control';
+import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import type { LoanKind } from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
+
+const LOAN_NOTE = 'A loan groups principal, repayments and interest with one person.';
 
 export interface LoanFormValues {
   name: string;
@@ -63,28 +68,41 @@ export function LoanFormModal({ visible, mode, initial, people, onAddPerson, onS
     onSubmit({ name: name.trim(), personId, kind });
   };
 
-  const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }];
-
   return (
-    <BottomSheet visible={visible} onClose={onClose} heightFraction={0.85}>
+    <BottomSheet visible={visible} onClose={onClose}>
       <SafeAreaView edges={['bottom']} style={styles.flexible}>
         <View style={styles.header}>
-          <ThemedText type="smallBold">{mode === 'create' ? 'New loan' : 'Edit loan'}</ThemedText>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <ThemedText type="link" themeColor="textSecondary">
+          <InfoDisclosure label="What a loan groups together" text={LOAN_NOTE} style={styles.grow}>
+            <ThemedText type="smallEmphasis">{mode === 'create' ? 'New loan' : 'Edit loan'}</ThemedText>
+          </InfoDisclosure>
+          <Pressable onPress={onClose} hitSlop={14} accessibilityRole="button" accessibilityLabel="Close loan form">
+            <ThemedText type="link" style={{ color: theme.accent }}>
               Close
             </ThemedText>
           </Pressable>
         </View>
 
-        <ScrollView style={styles.flexible} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.flexible}
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           <ThemedText type="overline" themeColor="textSecondary">
             DIRECTION
           </ThemedText>
-          <View style={styles.chips}>
-            <Chip label="I lent (they owe me)" selected={kind === 'lent'} onPress={() => setKind('lent')} />
-            <Chip label="I borrowed (I owe them)" selected={kind === 'borrowed'} onPress={() => setKind('borrowed')} />
-          </View>
+          <SegmentedControl
+            accessibilityLabel="Loan direction"
+            options={[
+              { value: 'lent', label: 'I lent' },
+              { value: 'borrowed', label: 'I borrowed' },
+            ]}
+            value={kind}
+            onChange={setKind}
+          />
+          <ThemedText type="caption" themeColor="textSecondary">
+            {kind === 'lent' ? 'They owe the outstanding principal to you.' : 'You owe the outstanding principal to them.'}
+          </ThemedText>
 
           <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
             WITH WHOM
@@ -95,14 +113,13 @@ export function LoanFormModal({ visible, mode, initial, people, onAddPerson, onS
             ))}
           </View>
           <View style={styles.addRow}>
-            <TextInput
+            <TextField
               value={newPerson}
               onChangeText={setNewPerson}
               placeholder="Add a new person…"
-              placeholderTextColor={theme.textSecondary}
               returnKeyType="done"
               onSubmitEditing={addPerson}
-              style={[inputStyle, styles.flexInput]}
+              containerStyle={styles.flexInput}
             />
             <Button label="Add" onPress={addPerson} disabled={newPerson.trim() === ''} style={styles.addBtn} />
           </View>
@@ -110,15 +127,20 @@ export function LoanFormModal({ visible, mode, initial, people, onAddPerson, onS
           <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
             NAME (OPTIONAL)
           </ThemedText>
-          <TextInput
+          <TextField
             value={name}
             onChangeText={setName}
-            placeholder="e.g. interest loan"
-            placeholderTextColor={theme.textSecondary}
-            style={inputStyle}
+            placeholder="e.g. Wedding or Emergency"
+            accessibilityLabel="Loan name, optional"
           />
 
-          <Button label={mode === 'create' ? 'Create loan' : 'Save'} variant="primary" onPress={submit} disabled={personId == null} style={styles.saveBtn} />
+          <Button
+            label={mode === 'create' ? 'Create loan' : 'Save changes'}
+            variant="primary"
+            onPress={submit}
+            disabled={personId == null}
+            style={styles.saveBtn}
+          />
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>
@@ -132,8 +154,8 @@ const styles = StyleSheet.create({
   groupTitle: { marginTop: Spacing.three },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one, marginTop: Spacing.half },
   addRow: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two, alignItems: 'center' },
+  grow: { flex: 1 },
   flexInput: { flex: 1 },
   addBtn: { paddingHorizontal: Spacing.four },
-  input: { borderRadius: Spacing.two, paddingHorizontal: Spacing.three, paddingVertical: Spacing.three, fontSize: 16 },
   saveBtn: { marginTop: Spacing.four },
 });

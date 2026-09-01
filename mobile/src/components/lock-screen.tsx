@@ -6,6 +6,7 @@
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { AnimatedIcon } from '@/components/animated-icon';
 import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -23,8 +24,10 @@ export function LockScreen() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.center}>
-        <ThemedText style={styles.emoji}>🔒</ThemedText>
-        <ThemedText type="smallBold">Finance Tracker is locked</ThemedText>
+        <AnimatedIcon />
+        <ThemedText type="heading" style={styles.title}>
+          Finance Tracker is locked
+        </ThemedText>
         <ThemedText type="small" themeColor="textSecondary" style={styles.msg}>
           Unlock with your fingerprint, face, or device PIN.
         </ThemedText>
@@ -44,7 +47,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     gap: Spacing.two,
   },
-  emoji: { fontSize: 40, lineHeight: 48 },
+  title: { marginTop: Spacing.two, textAlign: 'center' },
   msg: { textAlign: 'center' },
-  btn: { marginTop: Spacing.three, minWidth: 160, flexGrow: 0 },
+  btn: { width: '100%', maxWidth: 320, marginTop: Spacing.two, flexGrow: 0 },
 });

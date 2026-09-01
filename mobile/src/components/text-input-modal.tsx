@@ -5,12 +5,13 @@
  */
 
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
+import { Card } from '@/components/card';
+import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export interface TextInputModalProps {
@@ -53,24 +54,34 @@ export function TextInputModal({
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
       {/* Lift the centered card above the keyboard. Both platforms: iOS never resizes for the
           keyboard, and this app is edge-to-edge so Android's Modal doesn't resize either. */}
-      <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityLabel="Cancel" />
-        <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="subtitle">{title}</ThemedText>
+      <KeyboardAvoidingView
+        style={[styles.backdrop, { backgroundColor: theme.overlay }]}
+        behavior="padding"
+        accessibilityViewIsModal
+      >
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onCancel}
+          accessibilityRole="button"
+          accessibilityLabel={`Cancel ${title}`}
+        />
+        <Card style={styles.card}>
+          <ThemedText type="heading">{title}</ThemedText>
           {message && (
             <ThemedText type="small" themeColor="textSecondary">
               {message}
             </ThemedText>
           )}
-          <TextInput
+          <TextField
+            label={secureTextEntry ? 'Password' : 'File name'}
             value={value}
             onChangeText={setValue}
             autoFocus
             autoCapitalize="none"
             autoCorrect={false}
             secureTextEntry={secureTextEntry}
+            selectTextOnFocus={!secureTextEntry}
             onSubmitEditing={() => submit !== '' && onConfirm(submit)}
-            style={[styles.input, { color: theme.text, backgroundColor: theme.background, borderColor: theme.backgroundSelected }]}
           />
           <View style={styles.actions}>
             <Button label="Cancel" variant="secondary" onPress={onCancel} style={styles.grow} />
@@ -82,23 +93,15 @@ export function TextInputModal({
               style={styles.grow}
             />
           </View>
-        </ThemedView>
+        </Card>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.four, backgroundColor: 'rgba(0,0,0,0.5)' },
-  card: { width: '100%', maxWidth: 420, borderRadius: Spacing.four, padding: Spacing.four, gap: Spacing.two },
-  input: {
-    borderRadius: Spacing.two,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    fontSize: 16,
-    marginTop: Spacing.one,
-  },
-  actions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
+  backdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.four },
+  card: { width: '100%', maxWidth: 420, borderRadius: Radius.lg, padding: Spacing.three, gap: Spacing.two },
+  actions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.one },
   grow: { flex: 1 },
 });

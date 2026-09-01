@@ -109,4 +109,34 @@ describe('buildFilteredWorkbook', () => {
     const total = wb.sheets[0].rows.find((r) => r[0].value === 'Total')!;
     expect(total[1].value).toBe(45000 / 100); // just the one Zomato row
   });
+
+  it('keeps full rows in the log while totals use only their countable portion', () => {
+    const wb = buildFilteredWorkbook(
+      [
+        txn({
+          isoDate: '2026-05-01',
+          paise: 10_000,
+          countablePaise: 4_000,
+          direction: 'in',
+          counterparty: 'Split repayment',
+        }),
+        txn({
+          isoDate: '2026-05-02',
+          paise: 5_000,
+          countablePaise: 0,
+          direction: 'out',
+          counterparty: 'Loan principal',
+        }),
+      ],
+      'Lending.xlsx',
+    );
+    const may = wb.sheets.find((sheet) => sheet.name === 'May')!;
+    const summary = wb.sheets[0].rows.find((row) => row[0].value === 'May')!;
+
+    expect(may.rows[0][8].value).toBe(100);
+    expect(may.rows[1][8].value).toBe(50);
+    expect(summary[1].value).toBe(0);
+    expect(summary[2].value).toBe(40);
+    expect(summary[5].value).toBe(1);
+  });
 });

@@ -14,9 +14,13 @@ import { useMemo, useState } from 'react';
 import { AddToMoneyLentSheet, type LoanChoice } from '@/components/add-to-money-lent-sheet';
 import { CardBillSheet, cardStatementLabel } from '@/components/card-bill-sheet';
 import { CategoryPicker } from '@/components/category-picker';
+import { lendingRowLabel, type LendingLoanRef } from '@/components/lending-row-label';
 import { TransactionDetail } from '@/components/transaction-detail';
+import type { MoneyLentSummary } from '@/components/transaction-counting-actions';
 import type { ImportRow, TransactionRow } from '@/core/db/schema';
-import { loanPartOf, type LoanPart } from '@/core/lending/roles';
+import { isTransferRole, LOAN_PARTS, loanPartOf, roleLabel, type LoanPart } from '@/core/lending/roles';
+import { formatINR } from '@/core/domain/money';
+import { firstText } from '@/core/domain/text';
 import { useLoans } from '@/hooks/use-lending';
 import { useLiveQuery } from '@/hooks/use-live-query';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
@@ -85,10 +89,63 @@ export function TransactionDetailController() {
   );
 
   const loan = txn?.loanId != null ? loanById(txn.loanId) : null;
-  const loanLabel = loan
-    ? `${loan.personName}${loan.name ? ` · ${loan.name}` : ''}`
+  const directLoanLabel = loan ? `${loan.personName}${loan.name ? ` · ${loan.name}` : ''}` : null;
+
+  // A lending row added in-app carries no merchant (`counterparty_name` is never written and
+  // `raw_details` defaults to ''), so its name comes from the person and loan behind it — resolved
+  // by the same helper the Activity row uses, so tapping a row into a sheet keeps one identity.
+  const splitLoans: LendingLoanRef[] = [...new Set(allocations.map((allocation) => allocation.loanId))].flatMap(
+    (allocationLoanId) => {
+      const allocationLoan = loanById(allocationLoanId);
+      return allocationLoan
+        ? [{ id: allocationLoan.id, name: allocationLoan.name, personName: allocationLoan.personName }]
+        : [];
+    },
+  );
+  const lendingLabel = txn
+    ? lendingRowLabel(txn, {
+        personName: txn.personId != null ? (personNames.get(txn.personId) ?? null) : null,
+        loan: loan ? { id: loan.id, name: loan.name, personName: loan.personName } : null,
+        splitLoans,
+      })
+    : null;
+  const txnTitle = txn
+    ? (firstText(
+        txn.counterpartyName,
+        txn.rawDetails,
+        lendingLabel?.title,
+        isTransferRole(txn.transferRole) ? roleLabel(txn.transferRole) : null,
+      ) ?? 'Transaction')
+    : undefined;
+  const partLabel = (part: LoanPart | null) =>
+    LOAN_PARTS.find((candidate) => candidate.part === part)?.label ?? 'Loan entry';
+  const uniqueAllocationLoans = new Set(allocations.map((allocation) => allocation.loanId)).size;
+  const directPart = loanPartOf(txn?.transferRole);
+  const splitExcludedPaise = allocations.reduce((sum, allocation) => {
+    const allocationPart = allocation.part ?? directPart;
+    return allocationPart === 'principal' || allocationPart === 'repayment'
+      ? sum + allocation.paise
+      : sum;
+  }, 0);
+  const splitCountablePaise = Math.max(0, (txn?.paise ?? 0) - splitExcludedPaise);
+  const moneyLent: MoneyLentSummary | null = loan
+    ? {
+        label: `One loan · ${directLoanLabel}`,
+        detailLines: [`${partLabel(directPart)} · ${formatINR(txn?.paise ?? 0)}`],
+        excluded: directPart !== 'interest',
+        countablePaise: directPart === 'interest' ? (txn?.paise ?? 0) : 0,
+      }
     : allocations.length > 0
-      ? `Split across ${allocations.length} loans`
+      ? {
+          label: `Split across ${uniqueAllocationLoans} loan${uniqueAllocationLoans === 1 ? '' : 's'} · ${allocations.length} slice${allocations.length === 1 ? '' : 's'}`,
+          detailLines: allocations.map((allocation) => {
+            const allocationLoan = loanById(allocation.loanId);
+            const name = allocationLoan?.name || allocationLoan?.personName || `Loan #${allocation.loanId}`;
+            return `${name} · ${partLabel(allocation.part)} ${formatINR(allocation.paise)}`;
+          }),
+          excluded: splitExcludedPaise > 0,
+          countablePaise: splitCountablePaise,
+        }
       : null;
 
   // --- Credit-card bill linking ---
@@ -104,6 +161,15 @@ export function TransactionDetailController() {
   const { data: matchData } = useLiveQuery(matchingCardStatementsQuery(db, txn?.paise ?? -1), [txn?.paise ?? -1]);
   const matchingStatements = (matchData ?? []) as ImportRow[];
   const suggestedIds = matchingStatements.map((s) => s.id);
+
+  // The import batch that originally produced this transaction. This is separate from a linked
+  // card statement: a bank payment can originate in one import and link to another.
+  const provenanceImportId = txn?.importId ?? null;
+  const { data: provenanceData } = useLiveQuery(
+    cardStatementByIdQuery(db, provenanceImportId ?? -1),
+    [provenanceImportId],
+  );
+  const provenance = (provenanceData?.[0] as ImportRow | undefined) ?? null;
 
   // Show the section for an already-linked row, or a money-out row once any card statement exists.
   const cardBillEligible =
@@ -126,11 +192,17 @@ export function TransactionDetailController() {
         categoryLabel={txn ? categoryLabelFor(txn, index.byId, subNames) : null}
         paymentModeName={txn?.paymentModeId != null ? (pmNames.get(txn.paymentModeId) ?? null) : null}
         personName={txn?.personId != null ? (personNames.get(txn.personId) ?? null) : null}
-        moneyLentLabel={loanLabel}
+        lendingTitle={lendingLabel?.title ?? null}
+        provenance={provenance}
+        moneyLent={moneyLent}
+        cardBillLinked={linkedImportId != null}
         cardBillLabel={cardBillLabel}
         cardSpendCount={cardItems.length}
         cardBillSuggestion={cardBillSuggestion}
-        onManageCardBill={cardBillEligible ? () => setCardBillOpen(true) : undefined}
+        hasCardStatements={cardStatements.length > 0}
+        onManageCardBill={() => {
+          if (cardBillEligible) setCardBillOpen(true);
+        }}
         onSaveNote={(note, recategorize) => {
           if (openId != null) {
             setTransactionNote(openId, note);
@@ -185,13 +257,14 @@ export function TransactionDetailController() {
         loans={loanChoices}
         people={lists.people}
         currentLoanId={txn?.loanId ?? null}
-        currentLoanName={loanLabel ?? undefined}
+        currentLoanName={directLoanLabel ?? undefined}
         currentPart={txn ? loanPartOf(txn.transferRole) : null}
         currentAllocations={allocations}
         onAddPerson={(name) => addPerson(name)}
         onCreateLoan={(input) => createLoan(input)}
         onAttach={(loanId, part) => {
           if (openId != null) {
+            if (txn?.linkedImportId != null) unlinkCardStatement(openId);
             attachTransactionToLoan(openId, loanId, part);
             noteEdited(openId);
           }
@@ -199,6 +272,7 @@ export function TransactionDetailController() {
         }}
         onSplit={(allocs) => {
           if (openId != null) {
+            if (txn?.linkedImportId != null) unlinkCardStatement(openId);
             splitTransactionAcrossLoans(openId, allocs);
             noteEdited(openId);
           }
@@ -216,10 +290,12 @@ export function TransactionDetailController() {
 
       <CardBillSheet
         visible={txn !== null && cardBillOpen}
+        linkedImportId={linkedImportId}
         linkedStatement={linkedStatement}
         items={cardItems}
         statements={cardStatements}
         suggestedIds={suggestedIds}
+        paymentPaise={txn?.paise ?? 0}
         onLink={(importId) => {
           if (openId != null) {
             linkTxnToCardStatement(openId, importId);
@@ -244,7 +320,9 @@ export function TransactionDetailController() {
       <CategoryPicker
         visible={txn !== null && pickerOpen}
         categories={index.categories}
-        title={txn ? (txn.counterpartyName ?? txn.rawDetails) : undefined}
+        title={txnTitle}
+        selectedCategoryId={txn?.categoryId ?? null}
+        selectedSubcategoryId={txn?.subcategoryId ?? null}
         onClose={() => setPickerOpen(false)}
         onPick={(categoryId, subcategoryId) => {
           if (openId != null) {

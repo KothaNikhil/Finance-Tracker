@@ -1,6 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 import { useThemePreference } from '@/hooks/use-theme-preference';
+
+const subscribeToHydration = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
 
 /**
  * Web variant. Same source of truth as native (the theme preference), but guarded for static
@@ -8,12 +12,11 @@ import { useThemePreference } from '@/hooks/use-theme-preference';
  * switch to the resolved scheme after hydration.
  */
 export function useColorScheme(): 'light' | 'dark' {
-  const [hasHydrated, setHasHydrated] = useState(false);
-
-  useEffect(() => {
-    setHasHydrated(true);
-  }, []);
-
+  const hasHydrated = useSyncExternalStore(
+    subscribeToHydration,
+    getClientSnapshot,
+    getServerSnapshot,
+  );
   const { scheme } = useThemePreference();
   return hasHydrated ? scheme : 'light';
 }

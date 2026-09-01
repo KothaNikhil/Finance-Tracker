@@ -59,12 +59,14 @@ function emptyTotals(): Totals {
 
 /** Fold a transaction into a totals accumulator (self-transfers contribute nothing). */
 function addTotals(t: Totals, txn: ExportTxn): void {
+  const paise = txn.countablePaise ?? txn.paise;
+  if (paise <= 0) return;
   if (txn.direction === 'out') {
-    t.spent += txn.paise;
+    t.spent += paise;
     t.count += 1;
   } else if (txn.direction === 'in') {
-    if (txn.isRefund) t.refunds += txn.paise;
-    else t.received += txn.paise;
+    if (txn.isRefund) t.refunds += paise;
+    else t.received += paise;
     t.count += 1;
   }
 }

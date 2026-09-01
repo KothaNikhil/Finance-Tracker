@@ -43,7 +43,7 @@ function escapeLike(term: string): string {
 /** A case-insensitive LIKE across the searchable text columns (raw `sql` so we get ESCAPE). */
 function searchCondition(term: string): SQL {
   const like = `%${escapeLike(term)}%`;
-  return sql`(${t.counterpartyName} like ${like} escape '\\' or ${t.rawDetails} like ${like} escape '\\' or ${t.counterpartyVpa} like ${like} escape '\\' or ${t.remarks} like ${like} escape '\\' or ${t.rawTag} like ${like} escape '\\')`;
+  return sql`(${t.counterpartyName} like ${like} escape '\\' or ${t.rawDetails} like ${like} escape '\\' or ${t.counterpartyVpa} like ${like} escape '\\' or ${t.note} like ${like} escape '\\' or ${t.remarks} like ${like} escape '\\' or ${t.rawTag} like ${like} escape '\\')`;
 }
 
 /** An equality/`IS NULL` condition honouring the `null = empty bucket` convention. */

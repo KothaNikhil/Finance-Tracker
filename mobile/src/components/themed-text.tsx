@@ -1,14 +1,19 @@
-import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
+import { StyleSheet, Text, type TextProps } from 'react-native';
 
-import { Fonts, ThemeColor } from '@/constants/theme';
+import { Fonts, type ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
   type?:
     | 'default'
+    | 'display'
     | 'title'
+    | 'heading'
+    | 'label'
     | 'small'
-    | 'smallBold'
+    // One step up from `small` in weight only (500 vs 400) — the app caps every weight at 500, so
+    // hierarchy is carried by size, colour and alignment rather than by boldness.
+    | 'smallEmphasis'
     | 'subtitle'
     | 'link'
     | 'code'
@@ -17,7 +22,7 @@ export type ThemedTextProps = TextProps & {
     | 'amountLarge'
     // The value of a StatTile (e.g. "₹1,234").
     | 'stat'
-    // An uppercase-ish section label (12px, tracked). Replaces the inline 12/letterSpacing pattern.
+    // An uppercase-ish section label (11px, tracked). Replaces the inline 12/letterSpacing pattern.
     | 'overline'
     // The smallest label: badges, chart value/axis labels.
     | 'caption';
@@ -30,11 +35,15 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
   return (
     <Text
       style={[
+        styles.base,
         { color: theme[themeColor ?? 'text'] },
         type === 'default' && styles.default,
+        type === 'display' && styles.display,
         type === 'title' && styles.title,
+        type === 'heading' && styles.heading,
+        type === 'label' && styles.label,
         type === 'small' && styles.small,
-        type === 'smallBold' && styles.smallBold,
+        type === 'smallEmphasis' && styles.smallEmphasis,
         type === 'subtitle' && styles.subtitle,
         type === 'link' && styles.link,
         type === 'code' && styles.code,
@@ -50,66 +59,100 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
   );
 }
 
+/**
+ * Nothing in the app is heavier than 500. Hierarchy comes from size, from `text` versus
+ * `textSecondary`, and from the semantic spend/income colours — never from weight.
+ */
+export const MAX_FONT_WEIGHT = 500;
+
 const styles = StyleSheet.create({
-  small: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: 500,
+  base: {
+    fontFamily: Fonts.sans,
   },
-  smallBold: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: 700,
+  display: {
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: 500,
+    letterSpacing: -0.6,
+  },
+  small: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: 400,
+  },
+  smallEmphasis: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: 500,
   },
   default: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: 500,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: 400,
   },
   title: {
-    fontSize: 48,
-    fontWeight: 600,
-    lineHeight: 52,
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: 500,
+    letterSpacing: -0.4,
   },
   subtitle: {
-    fontSize: 32,
-    lineHeight: 44,
-    fontWeight: 600,
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: 500,
+    letterSpacing: -0.3,
+  },
+  heading: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: 500,
+  },
+  label: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: 500,
   },
   link: {
-    fontSize: 14,
-    lineHeight: 22,
-    fontWeight: 600,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: 500,
   },
   code: {
     fontFamily: Fonts.mono,
-    fontWeight: Platform.select({ android: 700 }) ?? 500,
-    fontSize: 12,
+    fontWeight: 400,
+    fontSize: 11,
   },
   amount: {
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: 700,
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: 500,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.2,
   },
   amountLarge: {
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: 700,
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: 500,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.4,
   },
   stat: {
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: 700,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: 500,
+    fontVariant: ['tabular-nums'],
   },
   overline: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: 700,
-    letterSpacing: 0.5,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: 500,
+    letterSpacing: 0.6,
   },
   caption: {
     fontSize: 11,
-    lineHeight: 16,
-    fontWeight: 700,
+    lineHeight: 14,
+    fontWeight: 400,
   },
 });
+
+export const TEXT_STYLES = styles;

@@ -4,15 +4,17 @@
  */
 
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
+import { DateField, todayIso } from '@/components/date-field';
+import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { decimalStringToPaise } from '@/core/domain/money';
+import { decimalStringToPaise, paiseToRupees } from '@/core/domain/money';
 import { LOAN_PARTS, type LoanPart } from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -25,35 +27,51 @@ export interface LoanTxnFormValues {
 
 export interface LoanTxnFormProps {
   visible: boolean;
+  mode?: 'create' | 'edit';
+  /** Seeds the form when correcting an existing hand-entered row. */
+  initial?: { part: LoanPart; paise: number; isoDate: string; remarks: string | null };
   onSubmit: (values: LoanTxnFormValues) => void;
+  /** Offered only in edit mode; the caller confirms before removing the entry. */
+  onDelete?: () => void;
   onClose: () => void;
 }
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function todayIso(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-export function LoanTxnForm({ visible, onSubmit, onClose }: LoanTxnFormProps) {
+export function LoanTxnForm({
+  visible,
+  mode = 'create',
+  initial,
+  onSubmit,
+  onDelete,
+  onClose,
+}: LoanTxnFormProps) {
   const theme = useTheme();
-  const [amount, setAmount] = useState('');
-  const [part, setPart] = useState<LoanPart | null>(null);
-  const [date, setDate] = useState(todayIso());
-  const [note, setNote] = useState('');
+  const editing = mode === 'edit';
+  const [amount, setAmount] = useState(() => (initial ? paiseToRupees(initial.paise).toFixed(2) : ''));
+  const [part, setPart] = useState<LoanPart | null>(initial?.part ?? null);
+  const [date, setDate] = useState<string | null>(initial?.isoDate ?? todayIso());
+  const [note, setNote] = useState(initial?.remarks ?? '');
 
   const [prevVisible, setPrevVisible] = useState(visible);
   if (visible !== prevVisible) {
     setPrevVisible(visible);
     if (visible) {
-      setAmount('');
-      setPart(null);
-      setDate(todayIso());
-      setNote('');
+      setAmount(initial ? paiseToRupees(initial.paise).toFixed(2) : '');
+      setPart(initial?.part ?? null);
+      setDate(initial?.isoDate ?? todayIso());
+      setNote(initial?.remarks ?? '');
     }
   }
+
+  const confirmDelete = () => {
+    Alert.alert(
+      'Delete this entry?',
+      'This removes the entry you added by hand. The loan balance updates to match.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => onDelete?.() },
+      ],
+    );
+  };
 
   const submit = () => {
     let paise: number;
@@ -65,35 +83,35 @@ export function LoanTxnForm({ visible, onSubmit, onClose }: LoanTxnFormProps) {
     }
     if (paise <= 0) return Alert.alert('Enter an amount', 'The amount must be more than zero.');
     if (part == null) return Alert.alert('Pick a type', 'Choose principal, repayment or interest.');
-    if (!ISO_DATE_RE.test(date.trim())) return Alert.alert('Check the date', 'Use the format YYYY-MM-DD.');
-    onSubmit({ part, paise, isoDate: date.trim(), remarks: note.trim() || null });
+    if (date == null) return Alert.alert('Check the date', 'Choose the date for this entry.');
+    onSubmit({ part, paise, isoDate: date, remarks: note.trim() || null });
   };
 
-  const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }];
-
   return (
-    <BottomSheet visible={visible} onClose={onClose} heightFraction={0.85}>
+    <BottomSheet visible={visible} onClose={onClose}>
       <SafeAreaView edges={['bottom']} style={styles.flexible}>
         <View style={styles.header}>
-          <ThemedText type="smallBold">Add to this loan</ThemedText>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <ThemedText type="link" themeColor="textSecondary">
+          <ThemedText type="smallEmphasis">{editing ? 'Edit entry' : 'Add manual entry'}</ThemedText>
+          <Pressable onPress={onClose} hitSlop={14} accessibilityRole="button" accessibilityLabel="Close manual entry form">
+            <ThemedText type="link" style={{ color: theme.accent }}>
               Close
             </ThemedText>
           </Pressable>
         </View>
 
-        <ScrollView style={styles.flexible} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          <ThemedText type="overline" themeColor="textSecondary">
-            AMOUNT (₹)
-          </ThemedText>
-          <TextInput
+        <ScrollView
+          style={styles.flexible}
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <TextField
+            label="Amount (₹)"
             value={amount}
             onChangeText={setAmount}
             placeholder="0.00"
-            placeholderTextColor={theme.textSecondary}
             keyboardType="decimal-pad"
-            style={inputStyle}
+            accessibilityLabel="Entry amount in rupees"
           />
 
           <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
@@ -105,25 +123,34 @@ export function LoanTxnForm({ visible, onSubmit, onClose }: LoanTxnFormProps) {
             ))}
           </View>
 
-          <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
-            DATE
-          </ThemedText>
-          <TextInput
-            value={date}
-            onChangeText={setDate}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={theme.textSecondary}
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={inputStyle}
+          <View style={styles.groupTitle}>
+            <DateField label="Date" value={date} onChange={setDate} testID="loan-txn-date" />
+          </View>
+
+          <TextField
+            label="Note (optional)"
+            value={note}
+            onChangeText={setNote}
+            placeholder="e.g. Cash repayment"
+            containerStyle={styles.groupTitle}
           />
 
-          <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
-            NOTE (OPTIONAL)
-          </ThemedText>
-          <TextInput value={note} onChangeText={setNote} placeholder="e.g. cash repayment" placeholderTextColor={theme.textSecondary} style={inputStyle} />
-
-          <Button label="Add" variant="primary" onPress={submit} style={styles.saveBtn} />
+          <Button
+            label={editing ? 'Save changes' : 'Add entry'}
+            variant="primary"
+            onPress={submit}
+            style={styles.saveBtn}
+          />
+          {editing && onDelete ? (
+            <Button
+              label="Delete entry"
+              icon={{ ios: 'trash', android: 'delete', web: 'delete' }}
+              variant="danger"
+              onPress={confirmDelete}
+              accessibilityHint="Opens a confirmation before removing this entry"
+              style={styles.deleteBtn}
+            />
+          ) : null}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>
@@ -136,6 +163,6 @@ const styles = StyleSheet.create({
   body: { paddingBottom: Spacing.four, gap: Spacing.one },
   groupTitle: { marginTop: Spacing.three },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one, marginTop: Spacing.half },
-  input: { borderRadius: Spacing.two, paddingHorizontal: Spacing.three, paddingVertical: Spacing.three, fontSize: 16 },
   saveBtn: { marginTop: Spacing.four },
+  deleteBtn: { marginTop: Spacing.two },
 });

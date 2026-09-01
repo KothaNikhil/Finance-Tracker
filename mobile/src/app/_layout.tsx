@@ -11,6 +11,7 @@ import { LastEditedPill } from '@/components/last-edited-pill';
 import { LockScreen } from '@/components/lock-screen';
 import { LoginScreen } from '@/components/login-screen';
 import { TransactionDetailController } from '@/components/transaction-detail-controller';
+import { Colors } from '@/constants/theme';
 import { AppLockProvider, useAppLock } from '@/hooks/use-app-lock';
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -57,6 +58,8 @@ function Gate() {
   if (auth.configured && !auth.session) return <LoginScreen />;
   // Wait for the SQLite worker (web) before mounting any screen that reads the DB.
   if (!dbReady) return null;
+  // Never mount finance data before device-lock capability is known.
+  if (!lock.ready) return null;
   if (lock.locked) return <LockScreen />;
   // Key the DB-backed app on the account id: switching accounts remounts every screen so their
   // live queries re-bind to that account's own database (AuthProvider already pointed the DB at it).
@@ -80,7 +83,28 @@ function Gate() {
  */
 function Themed({ children }: { children: ReactNode }) {
   const scheme = useColorScheme();
-  const navTheme = scheme === 'dark' ? DarkTheme : DefaultTheme;
+  const colors = Colors[scheme];
+  const baseTheme = scheme === 'dark' ? DarkTheme : DefaultTheme;
+  const navTheme = {
+    ...baseTheme,
+    dark: scheme === 'dark',
+    colors: {
+      ...baseTheme.colors,
+      primary: colors.accent,
+      background: colors.background,
+      card: colors.backgroundElement,
+      text: colors.text,
+      border: colors.border,
+      notification: colors.review,
+    },
+  };
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    document.documentElement.dataset.theme = scheme;
+    document.documentElement.style.colorScheme = scheme;
+  }, [scheme]);
+
   return (
     <ThemeProvider value={navTheme}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />

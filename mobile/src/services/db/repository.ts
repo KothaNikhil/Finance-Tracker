@@ -30,7 +30,15 @@ import {
   type MatcherType,
 } from '@/core/categorize';
 import type { NormalizedTxn } from '@/core/import/types';
-import { isPrincipal, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@/core/lending/roles';
+import {
+  isPrincipal,
+  isTransferRole,
+  loanPartOf,
+  roleDirection,
+  roleForLoanPart,
+  type LoanKind,
+  type LoanPart,
+} from '@/core/lending/roles';
 
 /** All dedupe keys already stored — passed to the import pipeline to skip duplicates. */
 export function getExistingDedupeKeys(): Set<string> {
@@ -509,13 +517,53 @@ export function createLoan(input: { name?: string; personId: number; kind: LoanK
   return inserted[0].id;
 }
 
-/** Update a loan's editable fields (name / person / kind). */
+/**
+ * Update a loan's editable fields (name / person / kind).
+ *
+ * Direction and person are baked into every attached transaction's role, so changing either has to
+ * re-derive them or the per-person ledger keeps signing against the old side. Each row keeps its
+ * part; only the role that encodes the loan's direction moves. A hand-entered row's `direction`
+ * follows its new role, while an imported row keeps the direction its statement reported.
+ */
 export function updateLoan(loanId: number, patch: { name?: string; personId?: number; kind?: LoanKind }): void {
+  const db = getDb();
+  const before = getLoanMeta(loanId);
+  if (!before) return;
+
   const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (patch.name !== undefined) set.name = patch.name.trim();
   if (patch.personId !== undefined) set.personId = patch.personId;
   if (patch.kind !== undefined) set.kind = patch.kind;
-  getDb().update(loans).set(set).where(eq(loans.id, loanId)).run();
+  db.update(loans).set(set).where(eq(loans.id, loanId)).run();
+
+  const kindChanged = patch.kind !== undefined && patch.kind !== before.kind;
+  const personChanged = patch.personId !== undefined && patch.personId !== before.personId;
+  if (kindChanged || personChanged) {
+    const kind = patch.kind ?? before.kind;
+    const personId = patch.personId ?? before.personId;
+    const attached = db
+      .select({ id: transactions.id, transferRole: transactions.transferRole, source: transactions.source })
+      .from(transactions)
+      .where(eq(transactions.loanId, loanId))
+      .all();
+    for (const row of attached) {
+      const rowPatch: Partial<NewTransactionRow> = {};
+      if (personChanged) rowPatch.personId = personId;
+      if (kindChanged) {
+        const role = roleForLoanPart(kind, loanPartOf(row.transferRole) ?? 'principal');
+        rowPatch.transferRole = role;
+        if (row.source === 'manual') rowPatch.direction = roleDirection(role);
+      }
+      db.update(transactions).set(rowPatch).where(eq(transactions.id, row.id)).run();
+    }
+
+    const sliced = db
+      .select({ txnId: loanAllocations.txnId })
+      .from(loanAllocations)
+      .where(eq(loanAllocations.loanId, loanId))
+      .all();
+    for (const txnId of new Set(sliced.map((row) => row.txnId))) resyncSplitTxn(txnId);
+  }
   touchDataUpdatedAt();
 }
 
@@ -534,14 +582,64 @@ export function deleteLoan(loanId: number): void {
   // role on any split txn left with no remaining allocation (it's no longer part of any loan).
   const affected = db.select({ txnId: loanAllocations.txnId }).from(loanAllocations).where(eq(loanAllocations.loanId, loanId)).all();
   db.delete(loanAllocations).where(eq(loanAllocations.loanId, loanId)).run();
-  for (const { txnId } of affected) {
-    const remaining = db.select({ n: sql<number>`count(*)` }).from(loanAllocations).where(eq(loanAllocations.txnId, txnId)).get();
-    if ((remaining?.n ?? 0) === 0) {
-      db.update(transactions).set({ transferRole: null }).where(and(eq(transactions.id, txnId), isNull(transactions.loanId))).run();
-    }
-  }
+  for (const txnId of new Set(affected.map((row) => row.txnId))) resyncSplitTxn(txnId);
   db.delete(loans).where(eq(loans.id, loanId)).run();
   touchDataUpdatedAt();
+}
+
+/**
+ * Recompute a split transaction's representative role and person from the slices it still has, so a
+ * loan edit or deletion cannot leave it signed against the wrong side of the ledger.
+ */
+function resyncSplitTxn(txnId: number): void {
+  const db = getDb();
+  const remaining = db
+    .select({
+      loanId: loanAllocations.loanId,
+      part: loanAllocations.part,
+    })
+    .from(loanAllocations)
+    .where(eq(loanAllocations.txnId, txnId))
+    .all();
+  if (remaining.length === 0) {
+    db.update(transactions).set({ transferRole: null }).where(and(eq(transactions.id, txnId), isNull(transactions.loanId))).run();
+    return;
+  }
+
+  const current = db
+    .select({ transferRole: transactions.transferRole })
+    .from(transactions)
+    .where(eq(transactions.id, txnId))
+    .get();
+  const fallbackPart = loanPartOf(current?.transferRole);
+  const resolved = remaining.map((allocation) => {
+    const meta = getLoanMeta(allocation.loanId);
+    const part: LoanPart | null =
+      allocation.part === 'principal' ||
+      allocation.part === 'repayment' ||
+      allocation.part === 'interest'
+        ? allocation.part
+        : fallbackPart;
+    return meta && part
+      ? { role: roleForLoanPart(meta.kind, part), personId: meta.personId }
+      : null;
+  });
+  const roles = resolved.flatMap((entry) => (entry ? [entry.role] : []));
+  const representative =
+    roles.find((role) => isPrincipal(role)) ??
+    roles[0] ??
+    (isTransferRole(current?.transferRole) ? current.transferRole : null);
+  const personIds = new Set(
+    resolved.flatMap((entry) => (entry ? [entry.personId] : [])),
+  );
+  db.update(transactions)
+    .set({
+      transferRole: representative,
+      personId:
+        personIds.size === 1 ? resolved.find((entry) => entry)?.personId ?? null : null,
+    })
+    .where(and(eq(transactions.id, txnId), isNull(transactions.loanId)))
+    .run();
 }
 
 /**
@@ -556,6 +654,7 @@ export function attachTransactionToLoan(txnId: number, loanId: number, part: Loa
   const db = getDb();
   const patch: Partial<NewTransactionRow> = {
     loanId,
+    linkedImportId: null,
     transferRole: role,
     personId: meta.personId,
     needsReview: false,
@@ -582,23 +681,68 @@ export function splitTransactionAcrossLoans(
   txnId: number,
   allocations: { loanId: number; part: LoanPart; paise: number }[],
 ): void {
-  const slices = allocations.filter((a) => a.paise > 0);
-  if (slices.length === 0) return;
+  const db = getDb();
+  const source = db
+    .select({
+      source: transactions.source,
+      direction: transactions.direction,
+      paise: transactions.paise,
+    })
+    .from(transactions)
+    .where(eq(transactions.id, txnId))
+    .get();
+  if (!source) throw new Error('Source transaction not found.');
+  if (!Number.isSafeInteger(source.paise) || source.paise <= 0) {
+    throw new Error('Source transaction amount must be a positive integer in paise.');
+  }
+  if (allocations.length === 0) {
+    throw new Error('Add at least one split allocation.');
+  }
+  if (
+    allocations.some(
+      (allocation) =>
+        !Number.isSafeInteger(allocation.paise) ||
+        allocation.paise <= 0 ||
+        !['principal', 'repayment', 'interest'].includes(allocation.part),
+    )
+  ) {
+    throw new Error('Every split allocation must have a valid part and a positive integer amount.');
+  }
+
+  const allocatedPaise = allocations.reduce((sum, allocation) => sum + allocation.paise, 0);
+  if (!Number.isSafeInteger(allocatedPaise) || allocatedPaise > source.paise) {
+    throw new Error('Allocated total cannot exceed the source transaction.');
+  }
+
+  const slices = allocations;
   const metas = slices.map((a) => ({ ...a, meta: getLoanMeta(a.loanId) }));
-  if (metas.some((m) => m.meta == null)) return;
+  if (metas.some((m) => m.meta == null)) throw new Error('Every split allocation must reference an existing loan.');
   const roles = metas.map((m) => roleForLoanPart(m.meta!.kind, m.part));
-  if (new Set(roles.map(roleDirection)).size > 1) return; // one txn moves money one way only
+  const directions = roles.map(roleDirection);
+  if (new Set(directions).size > 1) {
+    throw new Error('All split allocations must move money in the same direction.');
+  }
+  if (
+    source.source !== 'manual' &&
+    (source.direction !== 'in' && source.direction !== 'out' || directions[0] !== source.direction)
+  ) {
+    throw new Error('Split allocation direction must match the source transaction.');
+  }
+
   // Representative role for the whole txn (drives analytics + labelling). Prefer a principal/repayment
   // (excluded-from-totals) role when the split mixes parts, so returned principal isn't counted as income.
   const role = roles.find((r) => isPrincipal(r)) ?? roles[0];
   const personIds = new Set(metas.map((m) => m.meta!.personId));
-  const db = getDb();
   const now = new Date().toISOString();
 
-  const patch: Partial<NewTransactionRow> = { loanId: null, transferRole: role, needsReview: false };
-  if (personIds.size === 1) patch.personId = metas[0].meta!.personId; // all slices to one person
-  const row = db.select({ source: transactions.source }).from(transactions).where(eq(transactions.id, txnId)).get();
-  if (row?.source === 'manual') patch.direction = roleDirection(role);
+  const patch: Partial<NewTransactionRow> = {
+    loanId: null,
+    linkedImportId: null,
+    transferRole: role,
+    personId: personIds.size === 1 ? metas[0].meta!.personId : null,
+    needsReview: false,
+  };
+  if (source.source === 'manual') patch.direction = roleDirection(role);
 
   db.delete(loanAllocations).where(eq(loanAllocations.txnId, txnId)).run();
   db.update(transactions).set(patch).where(eq(transactions.id, txnId)).run();
@@ -649,6 +793,110 @@ export function addLoanTransaction(input: LoanTxnInput): number {
   const inserted = getDb().insert(transactions).values(row).returning({ id: transactions.id }).all();
   touchDataUpdatedAt();
   return inserted[0].id;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The fields of a hand-entered loan entry the user may correct afterwards. */
+export interface LoanTxnPatch {
+  part?: LoanPart;
+  paise?: number;
+  isoDate?: string;
+  remarks?: string | null;
+}
+
+/**
+ * Read back a hand-entered loan entry so it can be edited. Returns null for an imported row: its
+ * parsed facts are a record of what the bank reported, not the user's own data.
+ */
+export function getEditableLoanTransaction(
+  txnId: number,
+): { loanId: number; part: LoanPart; paise: number; isoDate: string; remarks: string | null } | null {
+  const row = getDb()
+    .select({
+      loanId: transactions.loanId,
+      transferRole: transactions.transferRole,
+      paise: transactions.paise,
+      isoDate: transactions.isoDate,
+      remarks: transactions.remarks,
+      source: transactions.source,
+    })
+    .from(transactions)
+    .where(eq(transactions.id, txnId))
+    .get();
+  if (!row || row.source !== 'manual' || row.loanId == null) return null;
+  return {
+    loanId: row.loanId,
+    part: loanPartOf(row.transferRole) ?? 'principal',
+    paise: row.paise,
+    isoDate: row.isoDate,
+    remarks: row.remarks,
+  };
+}
+
+/**
+ * Correct a hand-entered loan entry. Only rows the user typed in themselves are editable — an
+ * imported row's amount, date and statement text stay exactly as the bank reported them, and are
+ * rejected here rather than in the UI so no caller can bypass the rule.
+ */
+export function updateLoanTransaction(txnId: number, patch: LoanTxnPatch): void {
+  const db = getDb();
+  const row = db
+    .select({
+      loanId: transactions.loanId,
+      transferRole: transactions.transferRole,
+      source: transactions.source,
+    })
+    .from(transactions)
+    .where(eq(transactions.id, txnId))
+    .get();
+  if (!row) throw new Error('Transaction not found.');
+  if (row.source !== 'manual') throw new Error('Only a manually added entry can be edited.');
+  if (row.loanId == null) throw new Error('This entry is not attached to a loan.');
+
+  const meta = getLoanMeta(row.loanId);
+  if (!meta) throw new Error('Loan not found');
+
+  const update: Partial<NewTransactionRow> = {};
+  if (patch.paise !== undefined) {
+    if (!Number.isSafeInteger(patch.paise) || patch.paise <= 0) {
+      throw new Error('Amount must be a positive integer in paise.');
+    }
+    update.paise = patch.paise;
+  }
+  if (patch.isoDate !== undefined) {
+    if (!ISO_DATE.test(patch.isoDate)) throw new Error('Date must be an ISO YYYY-MM-DD string.');
+    update.isoDate = patch.isoDate;
+  }
+  if (patch.remarks !== undefined) update.remarks = patch.remarks;
+  if (patch.part !== undefined) {
+    const role = roleForLoanPart(meta.kind, patch.part);
+    update.transferRole = role;
+    update.direction = roleDirection(role);
+  }
+
+  db.update(transactions).set(update).where(eq(transactions.id, txnId)).run();
+  touchDataUpdatedAt();
+}
+
+/**
+ * Remove a hand-entered loan entry outright. An imported row is never deleted here — detaching it
+ * from the loan is the correct action and leaves the bank's record in Activity.
+ */
+export function deleteLoanTransaction(txnId: number): void {
+  const db = getDb();
+  const row = db
+    .select({ source: transactions.source, loanId: transactions.loanId })
+    .from(transactions)
+    .where(eq(transactions.id, txnId))
+    .get();
+  if (!row) throw new Error('Transaction not found.');
+  if (row.source !== 'manual') throw new Error('Only a manually added entry can be deleted here.');
+  if (row.loanId == null) throw new Error('This entry is not attached to a loan.');
+
+  db.delete(loanAllocations).where(eq(loanAllocations.txnId, txnId)).run();
+  db.delete(transactions).where(eq(transactions.id, txnId)).run();
+  touchDataUpdatedAt();
 }
 
 /** Teach the categorizer from a confirmed row: payee (VPA + merchant) → category, concise note → sub. */
@@ -826,8 +1074,6 @@ export function addSubcategory(categoryId: number, name: string): number {
 // references the row we archive it (hide it) instead of dropping it; otherwise we hard-delete.
 // ---------------------------------------------------------------------------
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 /** Count transactions matching a condition — used to decide delete-vs-archive. */
 function txnCount(where: any): number {
   return getDb().select({ n: sql<number>`count(*)` }).from(transactions).where(where).get()?.n ?? 0;
@@ -864,8 +1110,6 @@ function addRow(table: any, name: string): number {
   touchDataUpdatedAt();
   return inserted[0].id;
 }
-
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // --- Categories ---
 export const renameCategory = (id: number, name: string): void => renameRow(categories, id, name);

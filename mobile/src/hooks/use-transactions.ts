@@ -30,6 +30,10 @@ export interface TransactionListResult {
   loadMore: () => void;
   /** True until the first result lands (distinguishes "loading" from "genuinely empty"). */
   loading: boolean;
+  /** First list/count query failure, if either query could not be read. */
+  error: Error | undefined;
+  /** Re-run both list and count queries after a recoverable failure. */
+  retry: () => void;
 }
 
 export function useTransactionList(filter: TxnFilter, pageSize = 50): TransactionListResult {
@@ -52,26 +56,43 @@ export function useTransactionList(filter: TxnFilter, pageSize = 50): Transactio
 
   const rows = (list.data ?? []) as TransactionRow[];
   const count = countRes.data?.[0]?.n ?? 0;
-  const loading = list.updatedAt === undefined;
+  const error = list.error ?? countRes.error;
+  const loading =
+    error === undefined &&
+    (list.updatedAt === undefined || countRes.updatedAt === undefined);
   // A full window (rows filled the limit) with more rows beyond it means there's another page.
   const hasMore = rows.length >= limit && limit < count;
 
   const loadMore = () => {
     setPages((p) => (p * pageSize < count ? p + 1 : p));
   };
+  const retry = () => {
+    list.retry();
+    countRes.retry();
+  };
 
-  return { rows, count, hasMore, loadMore, loading };
+  return { rows, count, hasMore, loadMore, loading, error, retry };
 }
 
 /**
  * Live count of transactions matching a filter (default: all), with a `loading` flag so callers can
  * tell "still loading" from "genuinely zero" and avoid flashing an empty state on first render.
  */
-export function useTransactionCount(filter: TxnFilter = {}): { count: number; loading: boolean } {
+export function useTransactionCount(filter: TxnFilter = {}): {
+  count: number;
+  loading: boolean;
+  error: Error | undefined;
+  retry: () => void;
+} {
   const db = getDb();
   const key = JSON.stringify(filter);
-  const { data, updatedAt } = useLiveQuery(txnCountQuery(db, filter), [key]);
-  return { count: data?.[0]?.n ?? 0, loading: updatedAt === undefined };
+  const { data, error, retry, updatedAt } = useLiveQuery(txnCountQuery(db, filter), [key]);
+  return {
+    count: data?.[0]?.n ?? 0,
+    loading: updatedAt === undefined && error === undefined,
+    error,
+    retry,
+  };
 }
 
 /** The most recent import batch, live (null until the first import). Backs "revert last import". */

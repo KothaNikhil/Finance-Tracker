@@ -84,6 +84,7 @@ export interface LoansOverview {
   byId: (id: number | null) => LoanView | null;
   personName: (id: number | null) => string;
   loading: boolean;
+  error: Error | undefined;
 }
 
 export function useLoans(): LoansOverview {
@@ -121,7 +122,7 @@ export function useLoans(): LoansOverview {
         // The slice's own part; legacy rows (null) fall back to the txn's single transfer_role.
         part: (a.part as LoanPart | null) ?? loanPartOf(a.transferRole),
         isoDate: a.isoDate,
-        label: a.counterpartyName ?? a.remarks ?? '',
+        label: a.counterpartyName || a.remarks || '',
         direction: a.direction,
       };
       const list = allocsByLoan.get(a.loanId) ?? [];
@@ -186,15 +187,48 @@ export function useLoans(): LoansOverview {
       iOwePaise,
       byId,
       personName,
-      loading: loansRes.updatedAt === undefined,
+      loading:
+        (loansRes.updatedAt === undefined && loansRes.error === undefined) ||
+        (txnsRes.updatedAt === undefined && txnsRes.error === undefined) ||
+        (allocsRes.updatedAt === undefined && allocsRes.error === undefined) ||
+        (peopleRes.updatedAt === undefined && peopleRes.error === undefined),
+      error: loansRes.error ?? txnsRes.error ?? allocsRes.error ?? peopleRes.error,
     };
-  }, [loansRes.data, loansRes.updatedAt, txnsRes.data, allocsRes.data, peopleRes.data]);
+  }, [
+    loansRes.data,
+    loansRes.updatedAt,
+    loansRes.error,
+    txnsRes.data,
+    txnsRes.updatedAt,
+    txnsRes.error,
+    allocsRes.data,
+    allocsRes.updatedAt,
+    allocsRes.error,
+    peopleRes.data,
+    peopleRes.updatedAt,
+    peopleRes.error,
+  ]);
 }
 
 /** Live list of unattached transactions (candidates to attach to a loan), narrowed by a filter. */
 export function useUnattachedTxns(filter: TxnFilter = {}, limit = 100): TransactionRow[] {
+  return useUnattachedTxnsState(filter, limit).data;
+}
+
+export interface UnattachedTxnsState {
+  data: TransactionRow[];
+  loading: boolean;
+  error: Error | undefined;
+}
+
+/** Candidate rows plus explicit loading/error state for the attach-existing sheet. */
+export function useUnattachedTxnsState(filter: TxnFilter = {}, limit = 100): UnattachedTxnsState {
   const db = getDb();
   const key = JSON.stringify(filter);
-  const { data } = useLiveQuery(unattachedTxnsQuery(db, filter, limit), [key, limit]);
-  return (data ?? []) as TransactionRow[];
+  const { data, error, updatedAt } = useLiveQuery(unattachedTxnsQuery(db, filter, limit), [key, limit]);
+  return {
+    data: (data ?? []) as TransactionRow[],
+    loading: updatedAt === undefined && error === undefined,
+    error,
+  };
 }

@@ -5,7 +5,7 @@
  * every total, and refunds/cashback offset spend rather than counting as income.
  */
 
-import { isExcludedFromTotals } from '../lending/roles';
+import { isExcludedFromTotals, loanPartOf, type LoanPart } from '../lending/roles';
 import type {
   AnalyticsTxn,
   CategorySpend,
@@ -28,21 +28,49 @@ function emptyTotals(): PeriodTotals {
 }
 
 /**
+ * The loan-slice parts pulled OUT of cash-flow totals — balance-sheet movements. Interest slices are
+ * real income/expense and stay countable. Mirrored by the SQL aggregates, which derive their
+ * literal list from this set.
+ */
+export const EXCLUDED_SLICE_PARTS: ReadonlySet<LoanPart> = new Set<LoanPart>(['principal', 'repayment']);
+
+/**
+ * Amount of a source transaction that belongs in normal cash-flow totals.
+ *
+ * A direct principal/repayment or card-payment row is wholly excluded. For a split transaction,
+ * only principal/repayment slices are excluded; interest slices and a valid unallocated remainder
+ * stay countable. Legacy slices without a part inherit the transaction's representative role.
+ */
+export function countablePaise(txn: AnalyticsTxn): number {
+  if (txn.direction === 'self') return 0;
+  if (txn.loanAllocations?.length) {
+    const excludedPaise = txn.loanAllocations.reduce((sum, allocation) => {
+      const part = allocation.part ?? loanPartOf(txn.transferRole);
+      return part != null && EXCLUDED_SLICE_PARTS.has(part)
+        ? sum + Math.max(0, allocation.paise)
+        : sum;
+    }, 0);
+    return Math.max(0, txn.paise - excludedPaise);
+  }
+  return isExcludedFromTotals(txn.transferRole) ? 0 : txn.paise;
+}
+
+/**
  * Fold one transaction into a totals accumulator.
  * Self-transfers, lending PRINCIPAL (lend/borrow/repay), and credit-card bill-payment legs contribute
  * nothing — they're transfers, not spend or income. Interest and gifts/donations DO count.
  * `netSpentPaise` = spent − refund.
  */
 function addTxn(t: PeriodTotals, txn: AnalyticsTxn): void {
-  if (txn.direction === 'self') return;
-  if (isExcludedFromTotals(txn.transferRole)) return;
+  const paise = countablePaise(txn);
+  if (paise <= 0) return;
 
   if (txn.direction === 'out') {
-    t.spentPaise += txn.paise;
+    t.spentPaise += paise;
     t.txnCount += 1;
   } else if (txn.direction === 'in') {
-    if (txn.isRefund) t.refundPaise += txn.paise;
-    else t.receivedPaise += txn.paise;
+    if (txn.isRefund) t.refundPaise += paise;
+    else t.receivedPaise += paise;
     t.txnCount += 1;
   }
   t.netSpentPaise = t.spentPaise - t.refundPaise;
@@ -130,12 +158,13 @@ export function categoryBreakdown(
   const byCat = new Map<number | null, CategorySpend>();
   for (const txn of txns) {
     if (txn.direction !== 'out') continue;
-    if (isExcludedFromTotals(txn.transferRole)) continue; // lending principal / card bill payment isn't spend
+    const paise = countablePaise(txn);
+    if (paise <= 0) continue;
     if (!inPeriod(txn.isoDate, filter)) continue;
     const key = txn.categoryId ?? null;
     let c = byCat.get(key);
     if (!c) byCat.set(key, (c = { categoryId: key, spentPaise: 0, txnCount: 0 }));
-    c.spentPaise += txn.paise;
+    c.spentPaise += paise;
     c.txnCount += 1;
   }
   return [...byCat.values()].sort((a, b) => b.spentPaise - a.spentPaise);
@@ -154,13 +183,14 @@ export function subcategoryBreakdown(
   const bySub = new Map<number | null, SubcategorySpend>();
   for (const txn of txns) {
     if (txn.direction !== 'out') continue;
-    if (isExcludedFromTotals(txn.transferRole)) continue; // lending principal / card bill payment isn't spend
+    const paise = countablePaise(txn);
+    if (paise <= 0) continue;
     if (txn.categoryId !== categoryId) continue;
     if (!inPeriod(txn.isoDate, filter)) continue;
     const key = txn.subcategoryId ?? null;
     let s = bySub.get(key);
     if (!s) bySub.set(key, (s = { subcategoryId: key, spentPaise: 0, txnCount: 0 }));
-    s.spentPaise += txn.paise;
+    s.spentPaise += paise;
     s.txnCount += 1;
   }
   return [...bySub.values()].sort((a, b) => b.spentPaise - a.spentPaise);

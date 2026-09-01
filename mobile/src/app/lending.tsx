@@ -1,6 +1,7 @@
 /**
- * Lent — the money-lent tracker. The top level lists LOANS (groupings), each spanning any number of
- * principal / repayment / interest transactions with one person. Tapping a loan opens its detail
+ * Lending — the money-lent tracker. The top level switches between dense person groups and a flat
+ * active-loan list. Each loan spans any number of principal / repayment / interest transactions.
+ * Tapping a loan opens its detail
  * (running balance + attached transactions), where you can add a manual entry, attach existing
  * imported transactions, edit, close, or delete it. Two headline totals (owed to you / you owe) come
  * from the active loans' outstanding.
@@ -9,19 +10,27 @@
  * (see `core/lending` + the SQL aggregates); interest still counts.
  */
 
+import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AttachExistingSheet } from '@/components/attach-existing-sheet';
+import { Button } from '@/components/button';
+import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { LoanDetail } from '@/components/loan-detail';
+import { ListSection } from '@/components/list-section';
 import { LoanFormModal } from '@/components/loan-form-modal';
 import { LoanTxnForm } from '@/components/loan-txn-form';
-import { StatTile } from '@/components/stat-tile';
+import { ScreenHeader } from '@/components/screen-header';
+import { SegmentedControl } from '@/components/segmented-control';
+import { Skeleton } from '@/components/skeleton';
+import { StatStrip, StatTile } from '@/components/stat-tile';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BottomTabInset, MaxContentWidth, Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
+import { MIN_FONT_SCALE, TextRole } from '@/constants/typography';
 import { formatINR } from '@/core/domain/money';
 import { useLoans, type LoanView, type PersonGroup } from '@/hooks/use-lending';
 import { useLists } from '@/hooks/use-reference-data';
@@ -33,22 +42,30 @@ import {
   attachTransactionToLoan,
   createLoan,
   deleteLoan,
+  deleteLoanTransaction,
+  getEditableLoanTransaction,
   setLoanClosed,
   updateLoan,
+  updateLoanTransaction,
 } from '@/services/db/repository';
 
 export default function LendingScreen() {
   const theme = useTheme();
-  const { people, closed, owedToMePaise, iOwePaise, byId, loading } = useLoans();
+  const { active, people, closed, owedToMePaise, iOwePaise, byId, loading, error } = useLoans();
   const { people: peopleList } = useLists();
   // Tapping a transaction inside a loan opens the app-wide detail sheet (mounted at the root).
   const { openTxn, openId } = useTransactionDetail();
 
+  const [mode, setMode] = useState<'people' | 'loans'>('people');
   const [showClosed, setShowClosed] = useState(false);
+  const [expandedPeople, setExpandedPeople] = useState<Set<number>>(new Set());
   const [loanForm, setLoanForm] = useState<{ mode: 'create' | 'edit'; loanId?: number } | null>(null);
   const [openLoanId, setOpenLoanId] = useState<number | null>(null);
   const [addTxnFor, setAddTxnFor] = useState<number | null>(null);
+  const [editTxnId, setEditTxnId] = useState<number | null>(null);
   const [attachFor, setAttachFor] = useState<number | null>(null);
+
+  const editTxnInitial = editTxnId != null ? getEditableLoanTransaction(editTxnId) : null;
 
   const openLoan = byId(openLoanId);
   const editLoanInitial = loanForm?.mode === 'edit' ? byId(loanForm.loanId ?? null) : null;
@@ -58,67 +75,143 @@ export default function LendingScreen() {
   const loanDetailVisible =
     openLoanId != null && addTxnFor == null && attachFor == null && loanForm == null && openId == null;
 
+  const openPerson = (group: PersonGroup) => {
+    if (group.loans.length === 1) {
+      setOpenLoanId(group.loans[0].id);
+      return;
+    }
+    setExpandedPeople((previous) => {
+      const next = new Set(previous);
+      if (next.has(group.personId)) next.delete(group.personId);
+      else next.add(group.personId);
+      return next;
+    });
+  };
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.headerRow}>
-            <ThemedText type="subtitle">Lent</ThemedText>
-            <Pressable
-              onPress={() => setLoanForm({ mode: 'create' })}
-              accessibilityRole="button"
-              accessibilityLabel="New loan"
-              style={({ pressed }) => [styles.addBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 }]}
-            >
-              <ThemedText type="smallBold" style={{ color: theme.onAccent }}>
-                ＋ New loan
-              </ThemedText>
-            </Pressable>
-          </View>
+          <ScreenHeader
+            title="Lending"
+            action={
+              <Button
+                label="New loan"
+                icon={{ ios: 'plus', android: 'add', web: 'add' }}
+                variant="primary"
+                size="small"
+                onPress={() => setLoanForm({ mode: 'create' })}
+              />
+            }
+          />
 
-          <View style={styles.tiles}>
-            <StatTile label="Owed to you" value={formatINR(owedToMePaise)} color={theme.income} />
-            <StatTile label="You owe" value={formatINR(iOwePaise)} color={theme.spend} />
-          </View>
+          <LendingSummary
+            owedToMePaise={owedToMePaise}
+            iOwePaise={iOwePaise}
+            activeLoans={active.length}
+            people={people.length}
+          />
 
-          {!loading && people.length === 0 && closed.length === 0 ? (
+          <SegmentedControl
+            accessibilityLabel="Lending view"
+            options={[
+              { value: 'people', label: 'People' },
+              { value: 'loans', label: 'Loans' },
+            ]}
+            value={mode}
+            onChange={setMode}
+          />
+
+          {loading ? (
+            <LendingLoading />
+          ) : error ? (
+            <EmptyState
+              style={styles.empty}
+              title="Couldn’t load lending"
+              message="Your lending data is still safe. Close and reopen this screen to try again."
+              icon={{ ios: 'exclamationmark.triangle', android: 'error', web: 'error' }}
+            />
+          ) : active.length === 0 && closed.length === 0 ? (
             <EmptyState
               style={styles.empty}
               title="No loans yet"
-              message="Create a loan with ＋ New loan, or open a transaction on Reports and tap 'Add to Money Lent'."
+              message="Create a loan here, or open any Activity transaction and choose Money Lent."
+              actionLabel="Create a loan"
+              onAction={() => setLoanForm({ mode: 'create' })}
+              icon={{ ios: 'person.2', android: 'group', web: 'group' }}
             />
           ) : (
             <>
-              <View style={styles.list}>
-                {/* Grouped by person: a person with one loan shows a plain row; several loans show a
-                    netted person header with the loans nested under it. */}
-                {people.map((g) =>
-                  g.loans.length > 1 ? (
-                    // Key BOTH branches by personId — this is a list of person groups, so personId is
-                    // unique here. (Keying the single-loan branch by loan id could collide with a
-                    // person group whose personId happens to equal that loan id → duplicate-key warning.)
-                    <PersonGroupCard key={g.personId} group={g} onPressLoan={setOpenLoanId} />
+              {mode === 'people' ? (
+                <ListSection title="PEOPLE">
+                  {people.length === 0 ? (
+                    <NoActiveLoans />
                   ) : (
-                    <LoanRow key={g.personId} loan={g.loans[0]} onPress={() => setOpenLoanId(g.loans[0].id)} />
-                  ),
-                )}
-                {people.length === 0 && (
-                  <ThemedText type="small" themeColor="textSecondary" style={styles.noneNote}>
-                    No open loans.
-                  </ThemedText>
-                )}
-              </View>
-
-              {closed.length > 0 && (
-                <View style={styles.list}>
-                  <Pressable onPress={() => setShowClosed((v) => !v)} hitSlop={8} accessibilityRole="button" style={styles.closedToggle}>
-                    <ThemedText type="smallBold" themeColor="textSecondary">
-                      {showClosed ? '▾' : '▸'} Closed ({closed.length})
-                    </ThemedText>
-                  </Pressable>
-                  {showClosed && closed.map((l) => <LoanRow key={l.id} loan={l} onPress={() => setOpenLoanId(l.id)} dimmed />)}
-                </View>
+                    people.map((group) => (
+                      <PersonGroupRow
+                        key={group.personId}
+                        group={group}
+                        expanded={expandedPeople.has(group.personId)}
+                        onPress={() => openPerson(group)}
+                        onPressLoan={setOpenLoanId}
+                      />
+                    ))
+                  )}
+                </ListSection>
+              ) : (
+                <ListSection title="ACTIVE LOANS">
+                  {active.length === 0 ? (
+                    <NoActiveLoans />
+                  ) : (
+                    active.map((loan) => (
+                      <LoanRow key={loan.id} loan={loan} onPress={() => setOpenLoanId(loan.id)} />
+                    ))
+                  )}
+                </ListSection>
               )}
+
+              {closed.length > 0 ? (
+                <ListSection style={styles.closedSection}>
+                  <Pressable
+                    onPress={() => setShowClosed((value) => !value)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Closed loans, ${closed.length}`}
+                    accessibilityState={{ expanded: showClosed }}
+                    style={({ pressed }) => [
+                      styles.closedToggle,
+                      { opacity: pressed ? Opacity.pressed : 1 },
+                    ]}
+                  >
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Closed loans
+                    </ThemedText>
+                    <View style={styles.closedMeta}>
+                      <ThemedText type="small" themeColor="textSecondary" style={styles.tabular}>
+                        {closed.length}
+                      </ThemedText>
+                      <SymbolView
+                        name={{
+                          ios: showClosed ? 'chevron.up' : 'chevron.down',
+                          android: showClosed ? 'expand_less' : 'expand_more',
+                          web: showClosed ? 'expand_less' : 'expand_more',
+                        }}
+                        size={16}
+                        tintColor={theme.textSecondary}
+                      />
+                    </View>
+                  </Pressable>
+                  {showClosed
+                    ? closed.map((loan) => (
+                        <LoanRow
+                          key={loan.id}
+                          loan={loan}
+                          closed
+                          onPress={() => setOpenLoanId(loan.id)}
+                        />
+                      ))
+                    : null}
+                </ListSection>
+              ) : null}
             </>
           )}
         </ScrollView>
@@ -157,6 +250,7 @@ export default function LendingScreen() {
           setOpenLoanId(null);
         }}
         onPressTxn={openTxn}
+        onEditTxn={setEditTxnId}
       />
 
       <LoanTxnForm
@@ -168,8 +262,31 @@ export default function LendingScreen() {
         onClose={() => setAddTxnFor(null)}
       />
 
+      <LoanTxnForm
+        visible={editTxnId != null && editTxnInitial != null}
+        mode="edit"
+        initial={editTxnInitial ?? undefined}
+        onSubmit={(v) => {
+          if (editTxnId != null) {
+            updateLoanTransaction(editTxnId, {
+              part: v.part,
+              paise: v.paise,
+              isoDate: v.isoDate,
+              remarks: v.remarks,
+            });
+          }
+          setEditTxnId(null);
+        }}
+        onDelete={() => {
+          if (editTxnId != null) deleteLoanTransaction(editTxnId);
+          setEditTxnId(null);
+        }}
+        onClose={() => setEditTxnId(null)}
+      />
+
       <AttachExistingSheet
         visible={attachFor != null}
+        loanKind={openLoan?.kind}
         onAttach={(ids, part) => {
           if (attachFor != null) ids.forEach((id) => attachTransactionToLoan(id, attachFor, part));
           setAttachFor(null);
@@ -180,126 +297,352 @@ export default function LendingScreen() {
   );
 }
 
-/**
- * A person with several active loans: a netted header (their overall position + total interest) with
- * each loan nested under it. This is where lending across reasons reads correctly — e.g. a loan
- * they've over-repaid cancels another they still owe, so the person nets to "settled".
- */
-function PersonGroupCard({ group, onPressLoan }: { group: PersonGroup; onPressLoan: (id: number) => void }) {
+function LendingSummary({
+  owedToMePaise,
+  iOwePaise,
+  activeLoans,
+  people,
+}: {
+  owedToMePaise: number;
+  iOwePaise: number;
+  activeLoans: number;
+  people: number;
+}) {
   const theme = useTheme();
-  const net = group.netOwedToMePaise;
-  const status = net > 0 ? 'They owe you' : net < 0 ? 'You owe them' : 'Settled';
-  const color = net > 0 ? theme.income : net < 0 ? theme.spend : theme.textSecondary;
-  const interestNote = group.interestPaise > 0 ? ` · interest ${formatINR(group.interestPaise)}` : '';
-
   return (
-    <ThemedView type="backgroundElement" style={[styles.groupCard, { borderColor: theme.border }]}>
-      <View style={styles.groupHeader}>
-        <View style={styles.rowLeft}>
-          <ThemedText type="default" numberOfLines={1}>
-            {group.personName}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-            {status}
-            {interestNote}
-          </ThemedText>
-        </View>
-        <ThemedText type="amount" style={{ color }}>
-          {formatINR(Math.abs(net))}
-        </ThemedText>
-      </View>
-      {group.loans.map((l) => {
-        const lnet = l.netOwedToMePaise;
-        const lcolor = lnet > 0 ? theme.income : lnet < 0 ? theme.spend : theme.textSecondary;
-        return (
-          <Pressable
-            key={l.id}
-            onPress={() => onPressLoan(l.id)}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.subRow, { borderTopColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
-          >
-            <ThemedText type="small" numberOfLines={1} style={styles.rowLeft}>
-              {l.name || (l.kind === 'lent' ? 'Lent' : 'Borrowed')}
-            </ThemedText>
-            <ThemedText type="smallBold" style={{ color: lcolor }}>
-              {formatINR(Math.abs(lnet))}
-            </ThemedText>
-          </Pressable>
-        );
-      })}
-    </ThemedView>
+    <Card padding="small" style={styles.summaryCard}>
+      <StatStrip>
+        <StatTile variant="column" label="Owed to you" value={formatINR(owedToMePaise)} color={theme.income} />
+        <StatTile variant="column" label="You owe" value={formatINR(iOwePaise)} color={theme.spend} />
+      </StatStrip>
+      <ThemedText type="caption" themeColor="textSecondary">
+        {activeLoans} active {activeLoans === 1 ? 'loan' : 'loans'} · {people}{' '}
+        {people === 1 ? 'person' : 'people'}
+      </ThemedText>
+    </Card>
   );
 }
 
-/** One loan row on the top-level list. */
-function LoanRow({ loan, onPress, dimmed }: { loan: LoanView; onPress: () => void; dimmed?: boolean }) {
+function LendingLoading() {
+  return (
+    <View style={styles.section} accessibilityLabel="Loading lending">
+      <Skeleton width={92} height={11} />
+      <Card padding="small" style={styles.loadingCard}>
+        {[0, 1, 2, 3, 4].map((key) => (
+          <View key={key} style={styles.loadingRow}>
+            <Skeleton width={30} height={30} radius={Radius.pill} />
+            <View style={styles.loadingText}>
+              <Skeleton width="52%" height={14} />
+              <Skeleton width="78%" height={11} />
+            </View>
+            <Skeleton width={72} height={16} />
+          </View>
+        ))}
+      </Card>
+    </View>
+  );
+}
+
+function NoActiveLoans() {
+  return (
+    <ThemedText type="small" themeColor="textSecondary" style={styles.emptyRow}>
+      No active loans. Reopen one below or create a new loan.
+    </ThemedText>
+  );
+}
+
+function PersonGroupRow({
+  group,
+  expanded,
+  onPress,
+  onPressLoan,
+}: {
+  group: PersonGroup;
+  expanded: boolean;
+  onPress: () => void;
+  onPressLoan: (id: number) => void;
+}) {
   const theme = useTheme();
-  const net = loan.netOwedToMePaise;
-  const status = net > 0 ? 'owes you' : net < 0 ? 'you owe' : 'settled';
+  const net = group.netOwedToMePaise;
+  const status = net > 0 ? 'owed to you' : net < 0 ? 'you owe' : 'settled';
   const color = net > 0 ? theme.income : net < 0 ? theme.spend : theme.textSecondary;
-  const interestNote = loan.balance.interestPaise > 0 ? ` · interest ${formatINR(loan.balance.interestPaise)}` : '';
+  const principal = group.loans.reduce((sum, loan) => sum + loan.balance.principalPaise, 0);
+  const repaid = group.loans.reduce((sum, loan) => sum + loan.balance.repaidPaise, 0);
+  const progress = principal > 0 ? Math.min(100, Math.round((repaid / principal) * 100)) : 0;
+  const onlyLoan = group.loans.length === 1 ? group.loans[0] : null;
+  const repaymentNote =
+    repaid > 0
+      ? `${formatINR(repaid)} repaid of ${formatINR(principal)}`
+      : 'no repayments yet';
 
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => [{ opacity: pressed ? 0.7 : dimmed ? 0.6 : 1 }]}>
-      <ThemedView type="backgroundElement" style={[styles.row, { borderColor: theme.border }]}>
+    <View>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${group.personName}, ${group.loans.length} active ${
+          group.loans.length === 1 ? 'loan' : 'loans'
+        }, ${formatINR(Math.abs(net))} ${status}`}
+        accessibilityHint={group.loans.length > 1 ? 'Shows this person’s loans' : 'Opens loan details'}
+        accessibilityState={group.loans.length > 1 ? { expanded } : undefined}
+        style={({ pressed }) => [styles.personRow, { opacity: pressed ? Opacity.pressed : 1 }]}
+      >
+        <Avatar name={group.personName} negative={net < 0} />
         <View style={styles.rowLeft}>
-          <ThemedText type="default" numberOfLines={1}>
+          <View style={styles.nameLine}>
+            <ThemedText type={TextRole.rowTitle} numberOfLines={1} style={styles.name}>
+              {group.personName}
+            </ThemedText>
+            <StatusBadge
+              label={
+                onlyLoan
+                  ? onlyLoan.kind === 'lent'
+                    ? 'Lent'
+                    : 'Borrowed'
+                  : `${group.loans.length} active`
+              }
+              tone={
+                onlyLoan
+                  ? onlyLoan.kind === 'lent'
+                    ? 'accent'
+                    : 'danger'
+                  : net < 0
+                    ? 'danger'
+                    : net > 0
+                      ? 'accent'
+                      : 'neutral'
+              }
+            />
+          </View>
+          <ThemedText type={TextRole.rowSecondary} themeColor="textSecondary" numberOfLines={1}>
+            {group.loans.length} active · {repaymentNote} · {progress}% repaid
+          </ThemedText>
+        </View>
+        <View style={styles.amountColumn}>
+          <ThemedText
+            type={TextRole.rowAmount}
+            style={[styles.tabular, { color }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={MIN_FONT_SCALE}
+          >
+            {formatINR(Math.abs(net))}
+          </ThemedText>
+          <ThemedText type={TextRole.rowSecondary} style={{ color }} numberOfLines={1}>
+            {status}
+          </ThemedText>
+        </View>
+        <SymbolView
+          name={{
+            ios: expanded ? 'chevron.down' : 'chevron.right',
+            android: expanded ? 'expand_more' : 'chevron_right',
+            web: expanded ? 'expand_more' : 'chevron_right',
+          }}
+          size={16}
+          tintColor={theme.textSecondary}
+        />
+      </Pressable>
+      {expanded
+        ? group.loans.map((loan) => (
+            <LoanRow key={loan.id} loan={loan} nested divider onPress={() => onPressLoan(loan.id)} />
+          ))
+        : null}
+    </View>
+  );
+}
+
+function LoanRow({
+  loan,
+  onPress,
+  closed = false,
+  divider = false,
+  nested = false,
+}: {
+  loan: LoanView;
+  onPress: () => void;
+  closed?: boolean;
+  divider?: boolean;
+  nested?: boolean;
+}) {
+  const theme = useTheme();
+  const net = loan.netOwedToMePaise;
+  const status = net > 0 ? 'owed to you' : net < 0 ? 'you owe' : 'settled';
+  const color = net > 0 ? theme.income : net < 0 ? theme.spend : theme.textSecondary;
+  const interestNote =
+    loan.balance.interestPaise > 0
+      ? ` · Interest ${formatINR(loan.balance.interestPaise)}`
+      : '';
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${loan.personName}${loan.name ? `, ${loan.name}` : ''}, ${
+        closed ? 'closed' : 'active'
+      } ${loan.kind} loan, ${formatINR(Math.abs(net))} ${status}`}
+      accessibilityHint="Opens loan details"
+      style={({ pressed }) => [
+        styles.loanRow,
+        nested && styles.nestedLoanRow,
+        divider && { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth },
+        { opacity: pressed ? Opacity.pressed : closed ? 0.72 : 1 },
+      ]}
+    >
+      {nested ? null : <Avatar name={loan.personName} negative={loan.kind === 'borrowed'} />}
+      <View style={styles.rowLeft}>
+        <View style={styles.nameLine}>
+          <ThemedText
+            type={nested ? TextRole.nestedRowTitle : TextRole.rowTitle}
+            themeColor={nested ? 'textSecondary' : 'text'}
+            numberOfLines={1}
+            style={styles.name}
+          >
             {loan.personName}
             {loan.name ? ` · ${loan.name}` : ''}
           </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-            {status}
-            {interestNote}
-          </ThemedText>
+          <StatusBadge
+            label={
+              closed
+                ? `Closed · ${loan.kind === 'lent' ? 'Lent' : 'Borrowed'}`
+                : loan.kind === 'lent'
+                  ? 'Lent'
+                  : 'Borrowed'
+            }
+            tone={closed ? 'neutral' : loan.kind === 'lent' ? 'accent' : 'danger'}
+          />
         </View>
-        <ThemedText type="amount" style={{ color }}>
+        <ThemedText
+          type={nested ? TextRole.nestedRowSecondary : TextRole.rowSecondary}
+          themeColor="textSecondary"
+          numberOfLines={1}
+        >
+          Principal {formatINR(loan.balance.principalPaise)} · Repaid{' '}
+          {formatINR(loan.balance.repaidPaise)}
+          {interestNote}
+        </ThemedText>
+      </View>
+      <View style={styles.amountColumn}>
+        <ThemedText
+          type={nested ? TextRole.nestedRowAmount : TextRole.rowAmount}
+          style={[styles.tabular, { color }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit={!nested}
+          minimumFontScale={MIN_FONT_SCALE}
+        >
           {formatINR(Math.abs(net))}
         </ThemedText>
-      </ThemedView>
+        <ThemedText
+          type={nested ? TextRole.nestedRowSecondary : TextRole.rowSecondary}
+          style={{ color }}
+          numberOfLines={1}
+        >
+          {status}
+        </ThemedText>
+      </View>
+      <SymbolView
+        name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+        size={16}
+        tintColor={theme.textSecondary}
+      />
     </Pressable>
+  );
+}
+
+function Avatar({ name, negative }: { name: string; negative: boolean }) {
+  const theme = useTheme();
+  const letter = name.trim().charAt(0).toUpperCase() || '?';
+  return (
+    <View
+      style={[styles.avatar, { backgroundColor: negative ? theme.spendMuted : theme.accentMuted }]}
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no"
+    >
+      <ThemedText type="smallEmphasis" style={{ color: negative ? theme.spend : theme.accent }}>
+        {letter}
+      </ThemedText>
+    </View>
+  );
+}
+
+function StatusBadge({ label, tone }: { label: string; tone: 'accent' | 'danger' | 'neutral' }) {
+  const theme = useTheme();
+  const backgroundColor =
+    tone === 'accent' ? theme.accentMuted : tone === 'danger' ? theme.spendMuted : theme.backgroundSelected;
+  const color = tone === 'accent' ? theme.accent : tone === 'danger' ? theme.spend : theme.textSecondary;
+  return (
+    <View style={[styles.badge, { backgroundColor }]}>
+      <ThemedText type="caption" style={{ color }}>
+        {label}
+      </ThemedText>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
-  content: { paddingHorizontal: Spacing.three, paddingTop: Spacing.three, paddingBottom: BottomTabInset + Spacing.four, gap: Spacing.three },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  addBtn: { paddingVertical: Spacing.two, paddingHorizontal: Spacing.three, borderRadius: Spacing.two },
-  tiles: { flexDirection: 'row', gap: Spacing.two },
-  empty: { marginTop: Spacing.four },
-  list: { gap: Spacing.two },
-  noneNote: { paddingVertical: Spacing.two },
-  closedToggle: { paddingVertical: Spacing.one },
-  row: {
+  content: {
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two,
+    paddingBottom: BottomTabInset + Spacing.four,
+    gap: Spacing.two,
+  },
+  empty: { marginTop: Spacing.three },
+  section: { gap: Spacing.one },
+  summaryCard: { gap: Spacing.half },
+  tabular: { fontVariant: ['tabular-nums'] },
+  emptyRow: { paddingHorizontal: Spacing.two, paddingVertical: Spacing.two },
+  loadingCard: { gap: Spacing.two },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  loadingText: { flex: 1, gap: Spacing.one },
+  personRow: {
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+  },
+  loanRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+  },
+  nestedLoanRow: { paddingLeft: Spacing.six, minHeight: TouchTarget },
+  rowLeft: { flex: 1, minWidth: 0 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one, minWidth: 0 },
+  name: { flexShrink: 1 },
+  amountColumn: { alignItems: 'flex-end', minWidth: 96 },
+  avatar: {
+    width: 30,
+    height: 30,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  badge: {
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.one,
+    paddingVertical: 1,
+    flexShrink: 0,
+  },
+  closedSection: { marginTop: Spacing.one },
+  closedToggle: {
+    minHeight: TouchTarget,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: Spacing.three,
-    borderRadius: Spacing.three,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: Spacing.two,
-  },
-  rowLeft: { flex: 1, gap: Spacing.half },
-  groupCard: {
-    borderRadius: Spacing.three,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: Spacing.three,
+    paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
   },
-  groupHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.two,
-    gap: Spacing.two,
-  },
-  subRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.two,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: Spacing.two,
-  },
+  closedMeta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
 });

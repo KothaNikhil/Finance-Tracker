@@ -1,14 +1,15 @@
 /**
- * Full-screen sheet for managing one category's sub-categories (opened from the Manage screen).
+ * Full-screen view for managing one category's subcategories (opened from Settings).
  * Reuses EditableList for add / rename / reorder / delete. The parent drives `category` from a
  * live query, so edits here re-render the list automatically — no manual refresh needed.
  */
 
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/button';
 import { EditableList, type EditableItem } from '@/components/editable-list';
-import { ThemedText } from '@/components/themed-text';
+import { ScreenHeader } from '@/components/screen-header';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import type { CategoryRef } from '@/core/categorize';
@@ -28,19 +29,29 @@ export function SubcategoryManager({ category, onClose }: SubcategoryManagerProp
   const items: EditableItem[] = (category?.subcategories ?? []).map((s) => ({ id: s.id, name: s.name }));
 
   return (
-    <Modal visible={category !== null} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={category !== null}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
       <ThemedView style={styles.container}>
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
           <View style={styles.header}>
-            <Pressable onPress={onClose} hitSlop={8}>
-              <ThemedText type="link" themeColor="textSecondary">
-                ‹ Done
-              </ThemedText>
-            </Pressable>
-            <ThemedText type="smallBold" numberOfLines={1} style={styles.headerTitle}>
-              {category ? `${category.emoji ? category.emoji + ' ' : ''}${category.name}` : ''}
-            </ThemedText>
-            <View style={styles.headerSpacer} />
+            <Button
+              label="Categories"
+              accessibilityLabel="Back to Categories"
+              variant="ghost"
+              size="small"
+              icon={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+              onPress={onClose}
+              style={styles.backButton}
+            />
+            <ScreenHeader
+              title={category ? `${category.emoji ? `${category.emoji} ` : ''}${category.name}` : ''}
+              subtitle="Suggestions shown when categorizing a transaction."
+              compact
+            />
           </View>
 
           {/* iOS uses the ScrollView's own keyboard insets; Android is edge-to-edge (no window
@@ -50,31 +61,28 @@ export function SubcategoryManager({ category, onClose }: SubcategoryManagerProp
               contentContainerStyle={styles.content}
               keyboardShouldPersistTaps="handled"
               automaticallyAdjustKeyboardInsets
+              showsVerticalScrollIndicator={false}
             >
-            <ThemedText type="smallBold">Sub-categories</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Suggestions shown when you categorize a transaction in this category.
-            </ThemedText>
-
-            {category && (
-              <EditableList
-                items={items}
-                addLabel="New sub-category"
-                onAdd={(name) => addSubcategory(category.id, name)}
-                onRename={(id, name) => renameSubcategory(id, name)}
-                onDelete={(item) =>
-                  Alert.alert(
-                    `Delete “${item.name}”?`,
-                    "If it's used by any transaction it's hidden but kept in your history.",
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => deleteSubcategory(item.id) },
-                    ],
-                  )
-                }
-                onReorder={(ids) => reorderSubcategories(ids)}
-              />
-            )}
+              {category && (
+                <EditableList
+                  items={items}
+                  addLabel="New subcategory"
+                  reorderTitle={`${category.name} subcategories`}
+                  onAdd={(name) => addSubcategory(category.id, name)}
+                  onRename={(id, name) => renameSubcategory(id, name)}
+                  onDelete={(item) =>
+                    Alert.alert(
+                      `Delete “${item.name}”?`,
+                      "If it's used by any transaction it's hidden but kept in your history.",
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Delete', style: 'destructive', onPress: () => deleteSubcategory(item.id) },
+                      ],
+                    )
+                  }
+                  onReorder={reorderSubcategories}
+                />
+              )}
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -88,13 +96,14 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    paddingTop: Spacing.two,
+    gap: Spacing.one,
   },
-  headerTitle: { flex: 1, textAlign: 'center' },
-  headerSpacer: { width: 48 },
-  content: { paddingHorizontal: Spacing.three, paddingTop: Spacing.two, gap: Spacing.two },
+  backButton: { alignSelf: 'flex-start', marginLeft: -Spacing.two },
+  content: {
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two,
+    paddingBottom: Spacing.five,
+  },
 });

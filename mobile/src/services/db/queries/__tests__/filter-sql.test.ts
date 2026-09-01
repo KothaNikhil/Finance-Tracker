@@ -64,11 +64,18 @@ describe('buildTxnConditions', () => {
   it('search → LIKE ... ESCAPE across all text columns, OR-grouped, wildcards escaped', () => {
     const q = compile({ search: 'zomato' })!;
     const lower = q.sql.toLowerCase();
-    // name, raw details, vpa, remarks, tag
-    expect((lower.match(/like/g) ?? []).length).toBe(5);
-    expect((lower.match(/escape/g) ?? []).length).toBe(5);
+    // name, raw details, vpa, editable note, imported remarks, tag
+    expect((lower.match(/like/g) ?? []).length).toBe(6);
+    expect((lower.match(/escape/g) ?? []).length).toBe(6);
     expect(lower).toContain(' or ');
-    expect(q.params).toEqual(['%zomato%', '%zomato%', '%zomato%', '%zomato%', '%zomato%']);
+    expect(q.params).toEqual([
+      '%zomato%',
+      '%zomato%',
+      '%zomato%',
+      '%zomato%',
+      '%zomato%',
+      '%zomato%',
+    ]);
   });
 
   it('escapes LIKE wildcards in the search term', () => {

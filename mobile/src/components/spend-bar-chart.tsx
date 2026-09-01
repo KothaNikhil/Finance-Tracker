@@ -44,7 +44,7 @@ export function SpendBarChart({
   selectedIndex,
   onSelect,
   formatValue,
-  plotHeight = 140,
+  plotHeight = 96,
 }: SpendBarChartProps) {
   const theme = useTheme();
   const max = useMemo(() => Math.max(1, ...data.map((d) => Math.max(0, d.value))), [data]);
@@ -53,6 +53,10 @@ export function SpendBarChart({
   return (
     <View>
       <View style={[styles.plot, { height: plotHeight }]}>
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <View style={[styles.gridLine, styles.gridTop, { backgroundColor: theme.border }]} />
+          <View style={[styles.gridLine, styles.gridMiddle, { backgroundColor: theme.border }]} />
+        </View>
         {data.map((d, i) => {
           const isSelected = selectedIndex === i;
           const magnitude = Math.max(0, d.value);
@@ -67,20 +71,21 @@ export function SpendBarChart({
               hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
               accessibilityRole="button"
               accessibilityLabel={`${d.label}: ${formatValue(d.value)}`}
+              accessibilityHint="Select this period"
               accessibilityState={{ selected: isSelected }}
             >
-              {isSelected && (
-                <ThemedText type="caption" style={styles.valueLabel} numberOfLines={1}>
-                  {formatValue(d.value)}
-                </ThemedText>
-              )}
               <View
                 style={[
                   styles.bar,
                   {
                     height: barHeight,
-                    backgroundColor: magnitude > 0 ? color : theme.backgroundSelected,
-                    opacity: dimmed ? 0.35 : 1,
+                    backgroundColor:
+                      magnitude === 0
+                        ? theme.backgroundSelected
+                        : hasSelection && !isSelected
+                          ? theme.borderStrong
+                          : color,
+                    opacity: dimmed ? 0.72 : hasSelection ? 1 : 0.78,
                   },
                 ]}
               />
@@ -116,21 +121,24 @@ const styles = StyleSheet.create({
   },
   column: {
     flex: 1,
+    minWidth: 14,
     alignItems: 'center',
     justifyContent: 'flex-end',
     height: '100%',
   },
   bar: {
-    width: '100%',
+    width: '64%',
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
   },
-  valueLabel: {
+  gridLine: {
     position: 'absolute',
-    top: -20,
-    width: 80,
-    textAlign: 'center',
+    left: 0,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
   },
+  gridTop: { top: 0 },
+  gridMiddle: { top: '50%' },
   baseline: { height: 1, marginTop: Spacing.half },
   labelsRow: { flexDirection: 'row', gap: Spacing.half, marginTop: Spacing.one },
   axisLabel: { flex: 1, textAlign: 'center' },

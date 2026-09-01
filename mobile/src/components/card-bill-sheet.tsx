@@ -1,44 +1,52 @@
-/**
- * Credit-card bill flow for a bank bill-payment transaction. Two modes:
- *  - LINKED: shows the card statement this payment settled and lists its itemised card spends
- *    (tap to open one), with an "Unlink" action.
- *  - UNLINKED: lets the user pick which card statement this payment settled — amount-matched
- *    statements are suggested at the top, with every other card statement below.
- *
- * Mirrors the money-lent sheet's structure; the controller resolves the data via live queries.
- */
-
+import { SymbolView } from 'expo-symbols';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheet } from '@/components/bottom-sheet';
+import { Button } from '@/components/button';
+import {
+  partitionCardStatements,
+  reconcileCardBill,
+  summarizeCardStatementActivity,
+} from '@/components/card-bill-model';
+import { Card } from '@/components/card';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
+import { TextRole } from '@/constants/typography';
 import type { ImportRow, TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
 import { useTheme } from '@/hooks/use-theme';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const PREVIEW_ITEM_COUNT = 6;
 
-/** "Axis …CC ••4723 · Jun 2026" for a card-statement import batch. */
-export function cardStatementLabel(stmt: ImportRow): string {
-  const card = stmt.cardLast4 ? `••${stmt.cardLast4}` : stmt.sourceLabel.trim() || 'Card';
-  let month = '';
-  const m = /^(\d{4})-(\d{2})$/.exec(stmt.statementMonth ?? '');
-  if (m) month = ` · ${MONTHS[parseInt(m[2], 10) - 1]} ${m[1]}`;
-  return `${card}${month}`;
+/** A compact, identifiable label for a card-statement import batch. */
+export function cardStatementLabel(statement: ImportRow): string {
+  const source = statement.sourceLabel
+    .trim()
+    .replace(/^.*[\\/]/, '')
+    .replace(/\.(pdf|xlsx?)$/i, '');
+  const card = source || 'Credit card';
+  const ending = statement.cardLast4 ? ` · ••${statement.cardLast4}` : '';
+  const match = /^(\d{4})-(\d{2})$/.exec(statement.statementMonth ?? '');
+  const period =
+    match && MONTHS[Number(match[2]) - 1] ? ` · ${MONTHS[Number(match[2]) - 1]} ${match[1]}` : '';
+  return `${card}${ending}${period}`;
 }
 
 export interface CardBillSheetProps {
   visible: boolean;
-  /** The statement this payment is linked to, or null when unlinked. */
+  /** Retained separately so a dangling link can still be inspected and unlinked. */
+  linkedImportId: number | null;
   linkedStatement: ImportRow | null;
-  /** The linked statement's itemised activity — spends AND refunds/cashbacks (empty when unlinked). */
+  /** Linked statement activity. Payment-received legs are filtered defensively before display. */
   items: TransactionRow[];
-  /** All imported card statements, for manual picking. */
   statements: ImportRow[];
-  /** Ids of statements whose Total Payment Due matches this payment (suggested first). */
+  /** Statement ids whose Total Payment Due matches this bank payment. */
   suggestedIds: number[];
+  /** The linked bank payment, in paise, used for due-vs-payment reconciliation. */
+  paymentPaise: number;
   onLink: (importId: number) => void;
   onUnlink: () => void;
   onPressSpend: (txnId: number) => void;
@@ -47,134 +55,252 @@ export interface CardBillSheetProps {
 
 export function CardBillSheet({
   visible,
+  linkedImportId,
   linkedStatement,
   items,
   statements,
   suggestedIds,
+  paymentPaise,
   onLink,
   onUnlink,
   onPressSpend,
   onClose,
 }: CardBillSheetProps) {
   const theme = useTheme();
+  const [showAllItems, setShowAllItems] = useState(false);
+  const [seededStatementId, setSeededStatementId] = useState<number | null>(null);
 
-  // Picker order: suggested (amount-matched) statements first, then the rest.
-  const suggested = statements.filter((s) => suggestedIds.includes(s.id));
-  const others = statements.filter((s) => !suggestedIds.includes(s.id));
+  const openSeed = visible ? (linkedImportId ?? -1) : null;
+  if (openSeed !== seededStatementId) {
+    setSeededStatementId(openSeed);
+    if (openSeed != null) setShowAllItems(false);
+  }
 
-  // Net of the itemised activity = spends (out) − refunds/cashbacks (in); should equal the statement's
-  // Total Payment Due when the previous bill was cleared in full.
-  const netPaise = items.reduce((sum, it) => sum + (it.direction === 'out' ? it.paise : -it.paise), 0);
+  const { suggested, others } = partitionCardStatements(statements, suggestedIds);
+  const activity = summarizeCardStatementActivity(items);
+  const reconciliation = reconcileCardBill(linkedStatement?.totalDuePaise ?? null, paymentPaise);
+  const shownItems = showAllItems
+    ? activity.items
+    : activity.items.slice(0, PREVIEW_ITEM_COUNT);
 
   return (
     <BottomSheet visible={visible} onClose={onClose}>
-      <SafeAreaView edges={['bottom']} style={styles.flexible}>
+      <SafeAreaView edges={['bottom']} style={styles.safeArea}>
         <View style={styles.header}>
-          <ThemedText type="smallBold">Credit-card bill</ThemedText>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <ThemedText type="link" themeColor="textSecondary">
+          <ThemedText type="heading">Card bill</ThemedText>
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close card bill"
+            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+            style={({ pressed }) => [styles.closeButton, { opacity: pressed ? Opacity.pressed : 1 }]}
+          >
+            <ThemedText type="link" style={{ color: theme.accent }}>
               Close
             </ThemedText>
           </Pressable>
         </View>
 
-        <ScrollView style={styles.flexible} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          {linkedStatement ? (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {linkedImportId != null ? (
             <>
-              <ThemedText type="small" themeColor="textSecondary">
-                This payment settled the statement:
-              </ThemedText>
-              <ThemedText type="smallBold">{cardStatementLabel(linkedStatement)}</ThemedText>
-
-              <ThemedText type="overline" themeColor="textSecondary" style={styles.sectionTitle}>
-                {items.length} CARD TRANSACTION{items.length === 1 ? '' : 'S'} · SPENDS & REFUNDS · TAP TO OPEN
-              </ThemedText>
-              {items.length === 0 ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  This statement has no itemised activity (it may have been payment-only).
-                </ThemedText>
+              {linkedStatement ? (
+                <StatementHeader statement={linkedStatement} />
               ) : (
-                items.map((it) => {
-                  const isOut = it.direction === 'out';
-                  return (
-                    <Pressable
-                      key={it.id}
-                      onPress={() => onPressSpend(it.id)}
-                      accessibilityRole="button"
-                      style={({ pressed }) => [styles.row, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
-                    >
-                      <View style={styles.grow}>
-                        <ThemedText type="small" numberOfLines={1}>
-                          {it.counterpartyName ?? it.rawDetails ?? (isOut ? 'Card spend' : 'Refund / cashback')}
-                        </ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary">
-                          {isOut ? 'Spend' : 'Refund / cashback'} · {it.isoDate}
-                        </ThemedText>
-                      </View>
-                      <ThemedText type="smallBold" style={{ color: isOut ? theme.spend : theme.income }}>
-                        {isOut ? '−' : '+'} {formatINR(it.paise)}
-                      </ThemedText>
-                    </Pressable>
-                  );
-                })
-              )}
-
-              {/* Reconciliation: spends − refunds should equal the statement's Total Payment Due. */}
-              {items.length > 0 && (
-                <View style={[styles.reconcile, { borderColor: theme.border }]}>
-                  <View style={styles.grow}>
-                    <ThemedText type="smallBold">Net (spends − refunds)</ThemedText>
-                    {linkedStatement.totalDuePaise != null && (
-                      <ThemedText type="small" themeColor="textSecondary">
-                        Statement Total Payment Due: {formatINR(linkedStatement.totalDuePaise)}
-                      </ThemedText>
-                    )}
-                  </View>
-                  <ThemedText type="smallBold" style={{ color: netPaise >= 0 ? theme.spend : theme.income }}>
-                    {netPaise >= 0 ? '−' : '+'} {formatINR(Math.abs(netPaise))}
+                <Card tone="review" padding="small">
+                  <ThemedText type="smallEmphasis">Linked statement is no longer available</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Import batch #{linkedImportId} could not be loaded. Unlink this payment to restore
+                    normal counting, or link it to another statement afterward.
                   </ThemedText>
-                </View>
+                </Card>
               )}
 
-              <Pressable
-                onPress={onUnlink}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.unlinkBtn, { borderColor: theme.spend, opacity: pressed ? 0.6 : 1 }]}
-              >
-                <ThemedText type="smallBold" style={{ color: theme.spend }}>
-                  Unlink this statement
+              <Section title="Reconciliation">
+                <Card padding="none">
+                  <View style={styles.reconciliationGrid}>
+                    <ReconciliationValue
+                      label="Statement due"
+                      value={
+                        reconciliation.statementDuePaise == null
+                          ? 'Unavailable'
+                          : formatINR(reconciliation.statementDuePaise)
+                      }
+                    />
+                    <View style={[styles.verticalDivider, { backgroundColor: theme.border }]} />
+                    <ReconciliationValue
+                      label="Linked payment"
+                      value={formatINR(reconciliation.linkedPaymentPaise)}
+                    />
+                    <View style={[styles.verticalDivider, { backgroundColor: theme.border }]} />
+                    <ReconciliationValue
+                      label="Difference"
+                      value={formatDifference(reconciliation.differencePaise)}
+                      color={
+                        reconciliation.matched
+                          ? theme.income
+                          : reconciliation.differencePaise == null
+                            ? theme.textSecondary
+                            : theme.review
+                      }
+                    />
+                  </View>
+
+                  <View style={[styles.reconciliationStatus, { borderTopColor: theme.border }]}>
+                    <SymbolView
+                      name={
+                        reconciliation.matched
+                          ? { ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }
+                          : { ios: 'exclamationmark.circle.fill', android: 'warning', web: 'warning' }
+                      }
+                      size={14}
+                      tintColor={reconciliation.matched ? theme.income : theme.review}
+                    />
+                    <ThemedText
+                      type="smallEmphasis"
+                      style={{ color: reconciliation.matched ? theme.income : theme.review }}
+                    >
+                      {reconciliationStatus(reconciliation.differencePaise)}
+                    </ThemedText>
+                  </View>
+
+                  <View style={[styles.ruleCopy, { borderTopColor: theme.border }]}>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      The linked bill-payment leg is excluded from spending and income. Statement
+                      purchases remain real expenses; merchant refunds continue to offset spending.
+                    </ThemedText>
+                  </View>
+                </Card>
+              </Section>
+
+              <Section title="Statement activity">
+                <ThemedText type="small" themeColor="textSecondary">
+                  {activity.purchaseCount} purchase{activity.purchaseCount === 1 ? '' : 's'} ·{' '}
+                  {activity.refundCount} refund{activity.refundCount === 1 ? '' : 's'} · Itemised net{' '}
+                  {formatINR(activity.netPaise)}
                 </ThemedText>
-              </Pressable>
+
+                {activity.items.length === 0 ? (
+                  <Card tone="subtle" padding="small">
+                    <ThemedText type="smallEmphasis">No purchase or refund items</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Payment-received legs are transfers and are intentionally omitted.
+                    </ThemedText>
+                  </Card>
+                ) : (
+                  <View>
+                    {shownItems.map((item, index) => (
+                      <StatementItem
+                        key={item.id}
+                        item={item}
+                        onPress={() => onPressSpend(item.id)}
+                        border={index > 0}
+                      />
+                    ))}
+                  </View>
+                )}
+
+                {activity.items.length > PREVIEW_ITEM_COUNT ? (
+                  <Button
+                    label={
+                      showAllItems
+                        ? 'Show fewer statement transactions'
+                        : `View all ${activity.items.length} statement transactions`
+                    }
+                    variant="secondary"
+                    size="small"
+                    onPress={() => setShowAllItems((value) => !value)}
+                    icon={{
+                      ios: showAllItems ? 'chevron.up' : 'doc.text',
+                      android: showAllItems ? 'expand_less' : 'description',
+                      web: showAllItems ? 'expand_less' : 'description',
+                    }}
+                  />
+                ) : null}
+              </Section>
+
+              <Button
+                label="Unlink this statement"
+                variant="danger"
+                size="small"
+                onPress={onUnlink}
+                accessibilityHint="Restores this bank transaction to normal counting"
+                icon={{ ios: 'link', android: 'link_off', web: 'link_off' }}
+              />
             </>
           ) : (
             <>
-              <ThemedText type="small" themeColor="textSecondary">
-                Link this bank payment to the credit-card statement it settled. Its card spends then
-                count as your real expenses, and this payment is treated as a transfer (kept out of Spent).
-              </ThemedText>
+              <Card tone="subtle" padding="small">
+                <View style={styles.intro}>
+                  <SymbolView
+                    name={{ ios: 'creditcard', android: 'credit_card', web: 'credit_card' }}
+                    size={15}
+                    tintColor={theme.accent}
+                    style={styles.introIcon}
+                  />
+                  <View style={styles.grow}>
+                    <ThemedText type="smallEmphasis">Choose the statement this payment settled</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Linking excludes this bank payment from spending. The statement’s purchases
+                      remain expenses.
+                    </ThemedText>
+                  </View>
+                </View>
+              </Card>
 
               {statements.length === 0 ? (
-                <ThemedText type="small" themeColor="textSecondary" style={styles.sectionTitle}>
-                  No credit-card statements imported yet. Import one from the Import tab first.
-                </ThemedText>
+                <Card tone="subtle" padding="small">
+                  <ThemedText type="smallEmphasis">No card statements available</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Import a supported credit-card statement from Import, then return here to link it.
+                  </ThemedText>
+                </Card>
               ) : (
                 <>
-                  {suggested.length > 0 && (
-                    <ThemedText type="overline" themeColor="textSecondary" style={styles.sectionTitle}>
-                      SUGGESTED (AMOUNT MATCHES)
+                  {suggested.length > 0 ? (
+                    <Section title="Suggested amount matches">
+                      <ThemedText type="small" themeColor="textSecondary">
+                        Total Payment Due matches {formatINR(paymentPaise)}.
+                      </ThemedText>
+                      <View>
+                        {suggested.map((statement, index) => (
+                          <StatementChoice
+                            key={statement.id}
+                            statement={statement}
+                            suggested
+                            border={index > 0}
+                            onPress={() => onLink(statement.id)}
+                          />
+                        ))}
+                      </View>
+                    </Section>
+                  ) : null}
+
+                  {others.length > 0 ? (
+                    <Section title={suggested.length > 0 ? 'All other statements' : 'All statements'}>
+                      <View>
+                        {others.map((statement, index) => (
+                          <StatementChoice
+                            key={statement.id}
+                            statement={statement}
+                            border={index > 0}
+                            onPress={() => onLink(statement.id)}
+                          />
+                        ))}
+                      </View>
+                    </Section>
+                  ) : null}
+
+                  {suggested.length > 0 && others.length === 0 ? (
+                    <ThemedText type="caption" themeColor="textSecondary" style={styles.centerText}>
+                      All imported card statements are shown above.
                     </ThemedText>
-                  )}
-                  {suggested.map((s) => (
-                    <StatementRow key={s.id} stmt={s} onPress={() => onLink(s.id)} theme={theme} highlight />
-                  ))}
-                  {others.length > 0 && (
-                    <ThemedText type="overline" themeColor="textSecondary" style={styles.sectionTitle}>
-                      ALL CARD STATEMENTS
-                    </ThemedText>
-                  )}
-                  {others.map((s) => (
-                    <StatementRow key={s.id} stmt={s} onPress={() => onLink(s.id)} theme={theme} />
-                  ))}
+                  ) : null}
                 </>
               )}
             </>
@@ -185,70 +311,269 @@ export function CardBillSheet({
   );
 }
 
-function StatementRow({
-  stmt,
-  onPress,
-  theme,
-  highlight,
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <ThemedText type="overline" themeColor="textSecondary">
+        {title.toUpperCase()}
+      </ThemedText>
+      {children}
+    </View>
+  );
+}
+
+function StatementHeader({ statement }: { statement: ImportRow }) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.statementHeaderGroup, { borderBottomColor: theme.border }]}>
+      <View style={styles.statementHeader}>
+        <View style={[styles.badge, { backgroundColor: theme.spendMuted }]}>
+          <SymbolView
+            name={{ ios: 'creditcard', android: 'credit_card', web: 'credit_card' }}
+            size={15}
+            tintColor={theme.spend}
+          />
+        </View>
+        <View style={styles.grow}>
+          <ThemedText type={TextRole.rowTitle} numberOfLines={1}>
+            {cardStatementLabel(statement)}
+          </ThemedText>
+          <ThemedText type={TextRole.rowSecondary} themeColor="textSecondary" numberOfLines={1}>
+            {statement.cardLast4 ? `Card ending ${statement.cardLast4}` : 'Imported card statement'}
+          </ThemedText>
+        </View>
+        <View style={[styles.linkedBadge, { backgroundColor: theme.accentMuted }]}>
+          <SymbolView name={{ ios: 'link', android: 'link', web: 'link' }} size={11} tintColor={theme.accent} />
+          <ThemedText type="caption" style={{ color: theme.accent }}>
+            Linked
+          </ThemedText>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function ReconciliationValue({
+  label,
+  value,
+  color,
 }: {
-  stmt: ImportRow;
-  onPress: () => void;
-  theme: ReturnType<typeof useTheme>;
-  highlight?: boolean;
+  label: string;
+  value: string;
+  color?: string;
 }) {
+  return (
+    <View style={styles.reconciliationValue}>
+      <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
+        {label}
+      </ThemedText>
+      <ThemedText type="stat" numberOfLines={1} adjustsFontSizeToFit style={color ? { color } : undefined}>
+        {value}
+      </ThemedText>
+    </View>
+  );
+}
+
+function StatementItem({
+  item,
+  onPress,
+  border,
+}: {
+  item: TransactionRow;
+  onPress: () => void;
+  border: boolean;
+}) {
+  const theme = useTheme();
+  const isPurchase = item.direction === 'out';
+  const title =
+    item.counterpartyName?.trim() ||
+    item.rawDetails.trim() ||
+    (isPurchase ? 'Card purchase' : 'Merchant refund');
+
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
+      accessibilityLabel={`Open ${isPurchase ? 'purchase' : 'refund'} ${title}, ${formatINR(item.paise)}`}
       style={({ pressed }) => [
-        styles.row,
-        { borderColor: highlight ? theme.accent : theme.border, opacity: pressed ? 0.6 : 1 },
+        styles.itemRow,
+        border ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border } : null,
+        { opacity: pressed ? Opacity.pressed : 1 },
       ]}
     >
       <View style={styles.grow}>
-        <ThemedText type="small">{cardStatementLabel(stmt)}</ThemedText>
-        {stmt.totalDuePaise != null && (
-          <ThemedText type="small" themeColor="textSecondary">
-            Total due {formatINR(stmt.totalDuePaise)}
-          </ThemedText>
-        )}
+        <ThemedText type={TextRole.rowTitle} numberOfLines={1}>
+          {title}
+        </ThemedText>
+        <ThemedText type={TextRole.rowSecondary} themeColor="textSecondary" numberOfLines={1}>
+          {isPurchase ? 'Purchase' : 'Refund'} · {item.isoDate}
+        </ThemedText>
       </View>
-      <ThemedText type="link" style={{ color: theme.accent }}>
-        Link
+      <ThemedText
+        type={TextRole.rowAmount}
+        style={[styles.figure, { color: isPurchase ? theme.spend : theme.income }]}
+      >
+        {isPurchase ? '−' : '+'}
+        {formatINR(item.paise)}
       </ThemedText>
+      <SymbolView
+        name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+        size={14}
+        tintColor={theme.textSecondary}
+      />
     </Pressable>
   );
 }
 
+function StatementChoice({
+  statement,
+  suggested = false,
+  border,
+  onPress,
+}: {
+  statement: ImportRow;
+  suggested?: boolean;
+  border: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Link ${cardStatementLabel(statement)}${
+        statement.totalDuePaise == null ? '' : `, total due ${formatINR(statement.totalDuePaise)}`
+      }`}
+      style={({ pressed }) => [
+        styles.choiceRow,
+        border ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border } : null,
+        { opacity: pressed ? Opacity.pressed : 1 },
+      ]}
+    >
+      <View style={styles.grow}>
+        <ThemedText type={TextRole.rowTitle} numberOfLines={1}>
+          {cardStatementLabel(statement)}
+        </ThemedText>
+        <ThemedText type={TextRole.rowSecondary} themeColor="textSecondary" numberOfLines={1}>
+          {statement.totalDuePaise == null
+            ? 'Total due not available'
+            : `Total due ${formatINR(statement.totalDuePaise)}`}
+          {' · Imported '}
+          {statement.importedAt.slice(0, 10)}
+        </ThemedText>
+      </View>
+      {suggested ? (
+        <View style={[styles.matchBadge, { backgroundColor: theme.accentMuted }]}>
+          <ThemedText type="caption" style={{ color: theme.accent }}>
+            Amount match
+          </ThemedText>
+        </View>
+      ) : null}
+      <SymbolView
+        name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+        size={14}
+        tintColor={theme.textSecondary}
+      />
+    </Pressable>
+  );
+}
+
+function formatDifference(differencePaise: number | null): string {
+  if (differencePaise == null) return '—';
+  if (differencePaise === 0) return formatINR(0);
+  return `${differencePaise > 0 ? '+' : '−'}${formatINR(Math.abs(differencePaise))}`;
+}
+
+function reconciliationStatus(differencePaise: number | null): string {
+  if (differencePaise == null) return 'Statement due is unavailable';
+  if (differencePaise === 0) return 'Payment matches statement due';
+  return differencePaise > 0
+    ? `Payment is ${formatINR(differencePaise)} above the statement due`
+    : `Payment is ${formatINR(Math.abs(differencePaise))} below the statement due`;
+}
+
 const styles = StyleSheet.create({
-  flexible: { flexShrink: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.two },
-  body: { paddingBottom: Spacing.four, gap: Spacing.one },
-  sectionTitle: { marginTop: Spacing.three, marginBottom: Spacing.half },
-  row: {
+  // Content-sized sheet: the body takes its content height and shrinks at the cap instead of
+  // growing from a zero basis, so a one-statement sheet stays short.
+  safeArea: { flexShrink: 1 },
+  header: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.one,
+  },
+  closeButton: { minHeight: 32, justifyContent: 'center' },
+  scroll: { flexShrink: 1 },
+  body: { gap: Spacing.two, paddingBottom: Spacing.three },
+  grow: { flex: 1, minWidth: 0 },
+  section: { gap: Spacing.one },
+  statementHeaderGroup: { borderBottomWidth: StyleSheet.hairlineWidth },
+  statementHeader: {
+    minHeight: TouchTarget,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: Spacing.two,
+    paddingVertical: Spacing.one,
+  },
+  badge: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  linkedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.half,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.half,
+  },
+  reconciliationGrid: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
     paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    marginTop: Spacing.one,
+    paddingHorizontal: Spacing.one,
   },
-  grow: { flex: 1 },
-  reconcile: {
+  reconciliationValue: { flex: 1, minWidth: 0, paddingHorizontal: Spacing.one },
+  verticalDivider: { width: StyleSheet.hairlineWidth },
+  reconciliationStatus: {
+    minHeight: 34,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
     borderTopWidth: StyleSheet.hairlineWidth,
-    marginTop: Spacing.two,
-    paddingTop: Spacing.two,
   },
-  unlinkBtn: {
-    marginTop: Spacing.four,
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.two,
-    borderWidth: 1,
+  ruleCopy: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.two,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  itemRow: {
+    minHeight: TouchTarget,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.two,
+    paddingVertical: Spacing.one,
   },
+  intro: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.two },
+  introIcon: { marginTop: Spacing.half },
+  choiceRow: {
+    minHeight: TouchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingVertical: Spacing.one,
+  },
+  matchBadge: {
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.half,
+  },
+  figure: { fontVariant: ['tabular-nums'] },
+  centerText: { textAlign: 'center' },
 });

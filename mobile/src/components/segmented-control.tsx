@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export interface SegmentOption<T extends string> {
@@ -17,29 +17,37 @@ export function SegmentedControl<T extends string>({
   options,
   value,
   onChange,
+  accessibilityLabel,
 }: {
   options: SegmentOption<T>[];
   value: T;
   onChange: (value: T) => void;
+  accessibilityLabel?: string;
 }) {
   const theme = useTheme();
   return (
-    <View style={[styles.track, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+    <View
+      accessibilityRole="tablist"
+      accessibilityLabel={accessibilityLabel}
+      style={[styles.track, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
+    >
       {options.map((opt) => {
         const selected = opt.value === value;
         return (
           <Pressable
             key={opt.value}
             onPress={() => onChange(opt.value)}
-            accessibilityRole="button"
+            accessibilityRole="tab"
+            accessibilityLabel={opt.label}
             accessibilityState={{ selected }}
+            hitSlop={SEGMENT_HIT_SLOP}
             style={({ pressed }) => [
               styles.segment,
               selected && { backgroundColor: theme.accent },
-              { opacity: pressed && !selected ? 0.6 : 1 },
+              { opacity: pressed && !selected ? Opacity.pressed : 1 },
             ]}
           >
-            <ThemedText type="smallBold" style={{ color: selected ? theme.onAccent : theme.textSecondary }}>
+            <ThemedText type="smallEmphasis" style={{ color: selected ? theme.onAccent : theme.textSecondary }}>
               {opt.label}
             </ThemedText>
           </Pressable>
@@ -49,18 +57,26 @@ export function SegmentedControl<T extends string>({
   );
 }
 
+const SEGMENT_HEIGHT = 30;
+// The segment box is deliberately shorter than the touch-target floor; extend the press area back.
+const SEGMENT_HIT_SLOP = {
+  top: Math.ceil((TouchTarget - SEGMENT_HEIGHT) / 2),
+  bottom: Math.ceil((TouchTarget - SEGMENT_HEIGHT) / 2),
+};
+
 const styles = StyleSheet.create({
   track: {
     flexDirection: 'row',
-    borderRadius: Spacing.two,
+    borderRadius: Radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     padding: Spacing.half,
     gap: Spacing.half,
   },
   segment: {
     flex: 1,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.two - Spacing.half,
+    minHeight: SEGMENT_HEIGHT,
+    paddingVertical: Spacing.half,
+    borderRadius: Radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },

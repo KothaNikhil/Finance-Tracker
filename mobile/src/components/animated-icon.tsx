@@ -1,146 +1,98 @@
 import { Image } from 'expo-image';
 import * as SplashScreen from 'expo-splash-screen';
-import { useState } from 'react';
-import { Dimensions, StyleSheet, View } from 'react-native';
-import Animated, { Easing, Keyframe } from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
+import { useEffect, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import Animated, { FadeOut } from 'react-native-reanimated';
 
-const INITIAL_SCALE_FACTOR = Dimensions.get('screen').height / 90;
-const DURATION = 600;
+import { Motion } from '@/constants/theme';
+import { useAppLock } from '@/hooks/use-app-lock';
+import { useAuth } from '@/hooks/use-auth';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { useTheme } from '@/hooks/use-theme';
 
+/**
+ * Matches the configured native splash, then fades away after the first React layout. Keeping the
+ * native and React layers visually identical prevents a flash while auth/session state is read.
+ */
 export function AnimatedSplashOverlay() {
-  const [animate, setAnimate] = useState(false);
+  const theme = useTheme();
+  const scheme = useColorScheme();
+  const reducedMotion = useReducedMotion();
+  const { loading: authLoading } = useAuth();
+  const { ready: lockReady } = useAppLock();
   const [visible, setVisible] = useState(true);
+  const [layoutReady, setLayoutReady] = useState(false);
+  const hideStarted = useRef(false);
+
+  useEffect(() => {
+    if (!layoutReady || authLoading || !lockReady || hideStarted.current) return;
+    hideStarted.current = true;
+    let active = true;
+    SplashScreen.hideAsync().finally(() => {
+      if (active) setVisible(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [authLoading, layoutReady, lockReady]);
 
   if (!visible) return null;
 
-  const splashKeyframe = new Keyframe({
-    0: {
-      transform: [{ scale: 1 }],
-      opacity: 1,
-    },
-    20: {
-      opacity: 1,
-    },
-    70: {
-      opacity: 0,
-      easing: Easing.elastic(0.7),
-    },
-    100: {
-      opacity: 0,
-      transform: [{ scale: 1 }],
-      easing: Easing.elastic(0.7),
-    },
-  });
-
-  const image = <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />;
-
-  return animate ? (
+  return (
     <Animated.View
-      entering={splashKeyframe.duration(DURATION).withCallback((finished) => {
-        'worklet';
-        if (finished) {
-          scheduleOnRN(setVisible, false);
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      exiting={reducedMotion ? undefined : FadeOut.duration(Motion.slow)}
+      onLayout={() => setLayoutReady(true)}
+      style={[styles.splashOverlay, { backgroundColor: theme.background }]}
+    >
+      <Image
+        style={styles.splashMark}
+        contentFit="contain"
+        source={
+          scheme === 'dark'
+            ? require('@/assets/images/brand-mark-dark.png')
+            : require('@/assets/images/brand-mark.png')
         }
-      })}
-      style={styles.splashOverlay}>
-      {image}
+      />
     </Animated.View>
-  ) : (
-    <View
-      onLayout={() => {
-        SplashScreen.hideAsync().finally(() => {
-          setAnimate(true);
-        });
-      }}
-      style={styles.splashOverlay}>
-      {image}
-    </View>
   );
 }
 
-const keyframe = new Keyframe({
-  0: {
-    transform: [{ scale: INITIAL_SCALE_FACTOR }],
-  },
-  100: {
-    transform: [{ scale: 1 }],
-    easing: Easing.elastic(0.7),
-  },
-});
-
-const logoKeyframe = new Keyframe({
-  0: {
-    transform: [{ scale: 1.3 }],
-    opacity: 0,
-  },
-  40: {
-    transform: [{ scale: 1.3 }],
-    opacity: 0,
-    easing: Easing.elastic(0.7),
-  },
-  100: {
-    opacity: 1,
-    transform: [{ scale: 1 }],
-    easing: Easing.elastic(0.7),
-  },
-});
-
-const glowKeyframe = new Keyframe({
-  0: {
-    transform: [{ rotateZ: '0deg' }],
-  },
-  100: {
-    transform: [{ rotateZ: '7200deg' }],
-  },
-});
-
+/** Reusable static brand mark for authentication and lock screens. */
 export function AnimatedIcon() {
-  return (
-    <View style={styles.iconContainer}>
-      <Animated.View entering={glowKeyframe.duration(60 * 1000 * 4)} style={styles.glow}>
-        <Image style={styles.glow} source={require('@/assets/images/logo-glow.png')} />
-      </Animated.View>
+  const scheme = useColorScheme();
+  const theme = useTheme();
 
-      <Animated.View entering={keyframe.duration(DURATION)} style={styles.background} />
-      <Animated.View style={styles.imageContainer} entering={logoKeyframe.duration(DURATION)}>
-        <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />
-      </Animated.View>
+  return (
+    <View style={[styles.iconContainer, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+      <Image
+        style={styles.iconMark}
+        contentFit="contain"
+        source={
+          scheme === 'dark'
+            ? require('@/assets/images/brand-mark-dark.png')
+            : require('@/assets/images/brand-mark.png')
+        }
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  imageContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  glow: {
-    width: 201,
-    height: 201,
-    position: 'absolute',
-  },
   iconContainer: {
     justifyContent: 'center',
     alignItems: 'center',
-    width: 128,
-    height: 128,
-    zIndex: 100,
+    width: 112,
+    height: 112,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  image: {
-    width: 76,
-    height: 71,
-  },
-  background: {
-    borderRadius: 40,
-    experimental_backgroundImage: `linear-gradient(180deg, #3C9FFE, #0274DF)`,
-    width: 128,
-    height: 128,
-    position: 'absolute',
-  },
+  iconMark: { width: 88, height: 88 },
+  splashMark: { width: 128, height: 128 },
   splashOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: '#208AEF',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,

@@ -20,8 +20,6 @@ export function serializeDatabase(): Uint8Array {
   return db.serializeSync();
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 /**
  * Replace ALL data in the live database with the contents of a backup. Validates that the backup
  * has our tables before touching anything, then wipes and re-inserts inside a transaction.
@@ -85,5 +83,3 @@ export async function restoreFromBytes(bytes: Uint8Array): Promise<void> {
     src.closeSync();
   }
 }
-
-/* eslint-enable @typescript-eslint/no-explicit-any */

@@ -104,6 +104,59 @@ describe('totalsFor', () => {
     expect(t.txnCount).toBe(2); // the two cc-payment legs are excluded from the count
   });
 
+  it('does not turn an excluded principal or card-payment leg into a refund', () => {
+    const t = totalsFor([
+      txn({
+        isoDate: '2026-05-01',
+        paise: 200000,
+        direction: 'in',
+        isRefund: true,
+        transferRole: 'repaid_to_me',
+      }),
+      txn({
+        isoDate: '2026-05-02',
+        paise: 300000,
+        direction: 'in',
+        isRefund: true,
+        transferRole: 'cc_payment_received',
+      }),
+    ]);
+
+    expect(t).toEqual({
+      spentPaise: 0,
+      receivedPaise: 0,
+      refundPaise: 0,
+      netSpentPaise: 0,
+      txnCount: 0,
+    });
+  });
+
+  it('counts split interest and the unallocated remainder but excludes principal slices', () => {
+    const t = totalsFor([
+      txn({
+        isoDate: '2026-05-01',
+        paise: 10_000,
+        direction: 'in',
+        transferRole: 'repaid_to_me',
+        loanAllocations: [
+          { part: 'repayment', paise: 6_000 },
+          { part: 'interest', paise: 1_000 },
+        ],
+      }),
+      txn({
+        isoDate: '2026-05-02',
+        paise: 5_000,
+        direction: 'out',
+        transferRole: 'lent',
+        loanAllocations: [{ part: 'principal', paise: 5_000 }],
+      }),
+    ]);
+
+    expect(t.receivedPaise).toBe(4_000);
+    expect(t.spentPaise).toBe(0);
+    expect(t.txnCount).toBe(1);
+  });
+
   it('keeps lending principal out of the category breakdown', () => {
     const bd = categoryBreakdown(
       [

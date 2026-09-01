@@ -46,7 +46,7 @@ export interface TxnFilter {
   since?: string;
   /**
    * Free-text search, matched case-insensitively across the counterparty name, the original
-   * statement text, the counterparty UPI id, the user's note (remarks) and the Paytm tag.
+   * statement text, the counterparty UPI id, the user's note, imported remarks and the Paytm tag.
    * `undefined`/empty means no constraint.
    */
   search?: string;
@@ -68,8 +68,10 @@ export interface FilterableTxn {
   counterpartyVpa: string | null;
   /** Counterparty display name — also matched by free-text search. */
   counterpartyName: string | null;
-  /** The user's note on the transaction — also matched by free-text search. */
+  /** Imported statement remarks — also matched by free-text search. */
   remarks: string | null;
+  /** The user's editable note — optional so older pure analytics fixtures remain compatible. */
+  note?: string | null;
   /** The Paytm tag — also matched by free-text search. */
   rawTag: string | null;
   /** Whether the row is still flagged "needs review". */
@@ -121,6 +123,7 @@ function matchesSearch(txn: FilterableTxn, search: string | undefined): boolean 
     (txn.counterpartyName?.toLowerCase().includes(q) ?? false) ||
     (txn.rawDetails?.toLowerCase().includes(q) ?? false) ||
     (txn.counterpartyVpa?.toLowerCase().includes(q) ?? false) ||
+    (txn.note?.toLowerCase().includes(q) ?? false) ||
     (txn.remarks?.toLowerCase().includes(q) ?? false) ||
     (txn.rawTag?.toLowerCase().includes(q) ?? false)
   );

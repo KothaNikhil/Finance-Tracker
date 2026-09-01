@@ -12,12 +12,12 @@ export function SheetHandle() {
   const theme = useTheme();
   return (
     <View style={styles.wrap} pointerEvents="none">
-      <View style={[styles.bar, { backgroundColor: theme.backgroundSelected }]} />
+      <View style={[styles.bar, { backgroundColor: theme.borderStrong }]} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignItems: 'center', paddingBottom: Spacing.two },
-  bar: { width: 40, height: 5, borderRadius: 3 },
+  wrap: { alignItems: 'center', paddingBottom: Spacing.one },
+  bar: { width: 32, height: 4, borderRadius: 2 },
 });

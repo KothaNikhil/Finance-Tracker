@@ -11,31 +11,69 @@
  *    likewise excluded — they're transfers, not spend/income (interest + gifts/donations DO count), and
  *  - refunds (`direction = 'in'` AND `is_refund = 1`) are tallied separately, never as income.
  * `netSpentPaise = spentPaise − refundPaise` is computed in JS by the caller (keeps the SQL flat).
+ *
+ * Credit-card statement purchases carry NO transfer role, so they are ordinary expenses here and in
+ * the pure predicate; it is the bank bill payment that is excluded once linked to its statement.
  */
 
-import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, sql, type SQL } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 
-import type { MonthKey, TxnFilter } from '@/core/analytics';
+import { EXCLUDED_SLICE_PARTS, type MonthKey, type TxnFilter } from '@/core/analytics';
 import * as schema from '@/core/db/schema';
-import { transactions as t } from '@/core/db/schema';
+import { loanAllocations as la, transactions as t } from '@/core/db/schema';
+import { EXCLUDED_FROM_TOTALS_ROLES, PRINCIPAL_ROLES } from '@/core/lending/roles';
 import { buildTxnConditions } from './filter-sql';
 
 type DB = ExpoSQLiteDatabase<typeof schema>;
 
+/**
+ * Inline a set of our own closed-union string constants as a SQL literal list. Kept inline rather
+ * than bound so the fragments below stay reusable in a SELECT list without multiplying parameters;
+ * the values are compile-time members of `TransferRole` / `LoanPart`, never user input.
+ */
+function literals(values: Iterable<string>): SQL {
+  return sql.raw([...values].map((value) => `'${value}'`).join(', '));
+}
+
 // --- Money-rule fragments (single source of truth for the SQL side) ---------
 // Lending principal (lend/borrow/repay) AND the credit-card bill-payment legs are transfers, not
-// spend/income — excluded everywhere below, mirroring `isExcludedFromTotals`/`EXCLUDED_FROM_TOTALS_ROLES`
-// in core/lending (keep this literal list in sync). Interest + gifts/donations are NOT excluded, so they count.
-const NOT_EXCLUDED = sql`(${t.transferRole} is null or ${t.transferRole} not in ('lent', 'lent_interest', 'borrowed', 'repaid_to_me', 'repaid_by_me', 'cc_payment', 'cc_payment_received'))`;
-const SPENT = sql<number>`coalesce(sum(case when ${t.direction} = 'out' and ${NOT_EXCLUDED} then ${t.paise} else 0 end), 0)`;
-const RECEIVED = sql<number>`coalesce(sum(case when ${t.direction} = 'in' and ${t.isRefund} = 0 and ${NOT_EXCLUDED} then ${t.paise} else 0 end), 0)`;
-const REFUND = sql<number>`coalesce(sum(case when ${t.direction} = 'in' and ${t.isRefund} = 1 then ${t.paise} else 0 end), 0)`;
-// self + excluded-transfer rows excluded — only ordinary 'out'/'in' rows counted, matching addTxn in analytics.ts
-const CNT = sql<number>`coalesce(sum(case when ${t.direction} in ('out', 'in') and ${NOT_EXCLUDED} then 1 else 0 end), 0)`;
+// spend/income — excluded everywhere below. The lists are DERIVED from the same sets the pure
+// predicate uses (`core/lending/roles`, `core/analytics`) so the two can't drift. Interest +
+// gifts/donations are NOT excluded, so they count.
+const PRINCIPAL_ROLE = sql`${t.transferRole} in (${literals(PRINCIPAL_ROLES)})`;
+const NOT_EXCLUDED = sql`(${t.transferRole} is null or ${t.transferRole} not in (${literals(EXCLUDED_FROM_TOTALS_ROLES)}))`;
+const HAS_SPLIT = sql`exists (select 1 from ${la} where ${la.txnId} = ${t.id})`;
+// A split can mix principal with countable interest and can leave a valid unallocated remainder.
+// Legacy slices with no `part` inherit the source row's representative transfer role. A slice amount
+// is clamped at 0 so a corrupt negative slice can never inflate the countable total past the row.
+const SPLIT_EXCLUDED_PAISE = sql<number>`coalesce((
+  select sum(
+    case
+      when ${la.part} in (${literals(EXCLUDED_SLICE_PARTS)})
+        or (${la.part} is null and ${PRINCIPAL_ROLE})
+      then max(${la.paise}, 0)
+      else 0
+    end
+  )
+  from ${la}
+  where ${la.txnId} = ${t.id}
+), 0)`;
+const COUNTABLE_PAISE = sql<number>`case
+  when ${t.direction} = 'self' then 0
+  when ${HAS_SPLIT} then max(${t.paise} - ${SPLIT_EXCLUDED_PAISE}, 0)
+  when ${NOT_EXCLUDED} then ${t.paise}
+  else 0
+end`;
+const HAS_COUNTABLE_PAISE = sql`${COUNTABLE_PAISE} > 0`;
+const SPENT = sql<number>`coalesce(sum(case when ${t.direction} = 'out' then ${COUNTABLE_PAISE} else 0 end), 0)`;
+const RECEIVED = sql<number>`coalesce(sum(case when ${t.direction} = 'in' and ${t.isRefund} = 0 then ${COUNTABLE_PAISE} else 0 end), 0)`;
+const REFUND = sql<number>`coalesce(sum(case when ${t.direction} = 'in' and ${t.isRefund} = 1 then ${COUNTABLE_PAISE} else 0 end), 0)`;
+// self + fully excluded transfer rows do not count; a partially countable split counts once.
+const CNT = sql<number>`coalesce(sum(case when ${t.direction} in ('out', 'in') and ${HAS_COUNTABLE_PAISE} then 1 else 0 end), 0)`;
 
 /** Gross money-out for a "spend" grouping, and how many rows. */
-const OUT_SPENT = sql<number>`coalesce(sum(${t.paise}), 0)`;
+const OUT_SPENT = sql<number>`coalesce(sum(${COUNTABLE_PAISE}), 0)`;
 const OUT_CNT = sql<number>`count(*)`;
 
 // Grouping keys mirror the pure functions' fallbacks exactly.
@@ -95,7 +133,7 @@ export function categoryBreakdownQuery(db: DB, filter: TxnFilter) {
   return db
     .select({ categoryId: t.categoryId, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), NOT_EXCLUDED))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), HAS_COUNTABLE_PAISE))
     .groupBy(t.categoryId)
     .orderBy(desc(OUT_SPENT));
 }
@@ -105,7 +143,7 @@ export function subcategoryBreakdownQuery(db: DB, categoryId: number, filter: Tx
   return db
     .select({ subcategoryId: t.subcategoryId, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), eq(t.categoryId, categoryId), NOT_EXCLUDED))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), eq(t.categoryId, categoryId), HAS_COUNTABLE_PAISE))
     .groupBy(t.subcategoryId)
     .orderBy(desc(OUT_SPENT));
 }
@@ -115,7 +153,7 @@ export function merchantSpendQuery(db: DB, filter: TxnFilter) {
   return db
     .select({ key: MERCHANT_KEY, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), NOT_EXCLUDED))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), HAS_COUNTABLE_PAISE))
     .groupBy(MERCHANT_KEY)
     .orderBy(desc(OUT_SPENT));
 }
@@ -125,7 +163,7 @@ export function accountSpendQuery(db: DB, filter: TxnFilter) {
   return db
     .select({ key: ACCOUNT_KEY, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), NOT_EXCLUDED))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), HAS_COUNTABLE_PAISE))
     .groupBy(ACCOUNT_KEY)
     .orderBy(desc(OUT_SPENT));
 }
@@ -135,7 +173,7 @@ export function personSpendQuery(db: DB, filter: TxnFilter) {
   return db
     .select({ personId: t.personId, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), NOT_EXCLUDED))
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), HAS_COUNTABLE_PAISE))
     .groupBy(t.personId)
     .orderBy(desc(OUT_SPENT));
 }
@@ -145,7 +183,7 @@ export function cashbackQuery(db: DB, filter: TxnFilter) {
   return db
     .select({ totalPaise: OUT_SPENT, count: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'in'), eq(t.isRefund, true)));
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'in'), eq(t.isRefund, true), HAS_COUNTABLE_PAISE));
 }
 
 /** Distinct calendar years present in the filtered set, most-recent first. Live. */

@@ -1,5 +1,5 @@
 /**
- * Reports (Block B): a list-first workspace. One {@link TxnFilter} — month range, category +
+ * Activity: a list-first workspace. One {@link TxnFilter} — month range, category +
  * sub-category, account, "For" person, direction, free-text search — drives everything: the
  * summary, the (virtualized, paged) transaction list, the collapsible breakdown cards, AND the
  * Excel export. So what you see is exactly what you export.
@@ -7,19 +7,28 @@
  * Everything is server-side now: the list pages in via {@link useTransactionList} (growing LIMIT),
  * the summary/breakdowns are SQL aggregates, and the filter dimensions come from DISTINCT queries —
  * so the screen stays fast at tens of thousands of rows. The filter can be seeded by a deep link
- * from the Dashboard (tap a category → land here pre-filtered).
+ * from Home (tap a category → land here pre-filtered).
  */
 
-import { useLocalSearchParams } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ActivityFilterBar } from '@/components/activity-filter-bar';
+import { ActivitySummary } from '@/components/activity-summary';
 import { Button } from '@/components/button';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
-import { Chip } from '@/components/chip';
 import { EmptyState } from '@/components/empty-state';
+import { FeedbackBanner } from '@/components/feedback-banner';
+import { IconButton } from '@/components/icon-button';
+import { lendingRowLabel, type LendingLoanRef } from '@/components/lending-row-label';
+import { ListSection } from '@/components/list-section';
 import { ReportsFilters } from '@/components/reports-filters';
+import { ScreenHeader } from '@/components/screen-header';
+import { Skeleton } from '@/components/skeleton';
+import { TextField } from '@/components/text-field';
 import { TextInputModal } from '@/components/text-input-modal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -35,9 +44,10 @@ import type { TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
+import { useLoans } from '@/hooks/use-lending';
 import { useTransactionDetail } from '@/hooks/use-transaction-detail';
 import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
-import { useDimensions, usePeriodTotals, useReportsBreakdowns } from '@/hooks/use-analytics';
+import { useDimensions, usePeriodTotals, useReportsBreakdowns, useSummary } from '@/hooks/use-analytics';
 import { useTransactionCount, useTransactionList } from '@/hooks/use-transactions';
 import { saveFilteredToFolder, shareFilteredToExcel } from '@/services/export';
 
@@ -48,16 +58,21 @@ const DIRECTION_META = {
   self: { sign: '⇄', color: 'review', label: 'Transfer' },
 } as const;
 
-export default function ReportsScreen() {
+export default function ActivityScreen() {
   const theme = useTheme();
-  const SPEND = theme.spend;
+  const router = useRouter();
   const REFUND = theme.accent;
 
   const index = useCategoryIndex();
   const lists = useLists();
   const { years, months, accounts } = useDimensions();
   // Unfiltered total — distinguishes "no data at all" (import first) from "no match for filters".
-  const { count: totalCount, loading: totalLoading } = useTransactionCount();
+  const {
+    count: totalCount,
+    loading: totalLoading,
+    error: totalError,
+    retry: retryTotal,
+  } = useTransactionCount();
 
   const subNames = useMemo(() => {
     const m = new Map<number, string>();
@@ -65,6 +80,30 @@ export default function ReportsScreen() {
     return m;
   }, [index]);
   const personNames = useMemo(() => new Map(lists.people.map((p) => [p.id, p.name])), [lists.people]);
+
+  // Lending rows added in-app carry no merchant, so their identity comes from the loan they belong
+  // to (or the loans a split is spread across).
+  const { active: activeLoans, closed: closedLoans } = useLoans();
+  const loanRefs = useMemo(() => {
+    const byId = new Map<number, LendingLoanRef>();
+    const byTxn = new Map<number, LendingLoanRef[]>();
+    for (const loan of [...activeLoans, ...closedLoans]) {
+      const ref: LendingLoanRef = { id: loan.id, name: loan.name, personName: loan.personName };
+      byId.set(loan.id, ref);
+      // Two slices on one loan (part repayment, part interest) are still one loan.
+      for (const txnId of new Set(loan.allocations.map((allocation) => allocation.txnId))) {
+        byTxn.set(txnId, [...(byTxn.get(txnId) ?? []), ref]);
+      }
+    }
+    return { byId, byTxn };
+  }, [activeLoans, closedLoans]);
+
+  const lendingLabelFor = (txn: TransactionRow) =>
+    lendingRowLabel(txn, {
+      personName: txn.personId != null ? (personNames.get(txn.personId) ?? null) : null,
+      loan: txn.loanId != null ? (loanRefs.byId.get(txn.loanId) ?? null) : null,
+      splitLoans: loanRefs.byTxn.get(txn.id) ?? [],
+    });
 
   // Filter state. A deep link (params) seeds it; otherwise default to the most recent year.
   const params = useLocalSearchParams<{
@@ -126,9 +165,24 @@ export default function ReportsScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Server-side: paged list + total + summary + breakdowns for the active filter.
-  const { rows: filtered, count: filteredCount, hasMore, loadMore, loading } = useTransactionList(activeFilter);
+  const {
+    rows: filtered,
+    count: filteredCount,
+    hasMore,
+    loadMore,
+    loading,
+    error: listError,
+    retry: retryList,
+  } = useTransactionList(activeFilter);
   const totals = usePeriodTotals(activeFilter);
+  const summary = useSummary(activeFilter);
   const { merchants, accounts: accountsSpend, people: peopleSpend, cashback } = useReportsBreakdowns(activeFilter);
+  const dataError = totalError ?? listError ?? summary.error;
+  const retryData = () => {
+    retryTotal();
+    retryList();
+    summary.retry();
+  };
 
   // Labels for the active-filter chips.
   const catLabel = labelForCategory(activeFilter.categoryId, index);
@@ -182,103 +236,135 @@ export default function ReportsScreen() {
 
   const header = (
     <View style={styles.headerGroup}>
-      <View style={styles.headerRow}>
-        <ThemedText type="subtitle">Reports</ThemedText>
-        <Button label="⤓ Export" onPress={onExport} loading={exporting} style={styles.exportBtn} />
-      </View>
+      <ScreenHeader
+        title="Activity"
+        action={
+          <IconButton
+            name={{ ios: 'square.and.arrow.up', android: 'ios_share', web: 'ios_share' }}
+            label={exporting ? 'Exporting filtered transactions' : 'Export filtered transactions'}
+            onPress={onExport}
+            disabled={exporting}
+            accessibilityHint="Names the workbook, then offers save or share"
+          />
+        }
+      />
 
       {/* Search — keyed on searchReset so "Clear all" remounts (clears) it. */}
-      <SearchBox key={searchReset} onSearch={onSearch} />
+      <ActivityFilterBar
+        chips={chips}
+        search={<SearchBox key={searchReset} onSearch={onSearch} />}
+        activeCount={chips.length}
+        onOpenFilters={() => setFiltersOpen(true)}
+        onClearAll={clearAll}
+        showClearAll={filter !== null || search !== ''}
+      />
 
-      {/* Filter bar */}
-      <View style={styles.filterBar}>
-        <Button label="Filters ▾" variant="secondary" onPress={() => setFiltersOpen(true)} />
-        {(filter !== null || search !== '') && (
-          <Pressable onPress={clearAll} hitSlop={12} accessibilityRole="button">
-            <ThemedText type="small" style={{ color: REFUND }}>
-              Clear all
-            </ThemedText>
-          </Pressable>
-        )}
-      </View>
-      <View style={styles.chipsRow}>
-        {chips.map((c) => (
-          <Chip key={c.key} label={`${c.label}  ✕`} selected onPress={c.clear} />
-        ))}
-      </View>
+      <ActivitySummary
+        loading={loading}
+        spentPaise={totals.spentPaise}
+        receivedPaise={totals.receivedPaise}
+      />
 
-      {/* Summary */}
-      <View style={styles.summary}>
-        <ThemedText type="amount" style={{ color: SPEND }}>
-          {formatINR(totals.spentPaise)}
-        </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          spent · {formatINR(totals.receivedPaise)} received · {filteredCount} transaction
-          {filteredCount === 1 ? '' : 's'} · self-transfers & loans excluded from totals
+      {!summary.loading && summary.reviewCount > 0 ? (
+        <FeedbackBanner
+          tone="review"
+          title={`${summary.reviewCount} transaction${summary.reviewCount === 1 ? '' : 's'} need review`}
+          actionLabel={activeFilter.needsReview ? undefined : 'Review'}
+          onAction={activeFilter.needsReview ? undefined : () => update({ needsReview: true })}
+        />
+      ) : null}
+
+      <Button
+        label={showBreakdowns ? 'Hide breakdowns' : 'Show breakdowns'}
+        icon={{ ios: 'chart.bar.xaxis', android: 'bar_chart', web: 'bar_chart' }}
+        variant="ghost"
+        size="small"
+        onPress={() => setShowBreakdowns((visible) => !visible)}
+        accessibilityHint="Shows merchant, account, person, and refund totals"
+        style={styles.breakdownToggle}
+      />
+
+      {showBreakdowns ? (
+        <View style={styles.breakdowns}>
+          <ListSection title="TOP MERCHANTS">
+            <CategoryBreakdown
+              rows={toRows(merchants.slice(0, TOP_MERCHANTS))}
+              total={merchants.reduce((sum, merchant) => sum + merchant.spentPaise, 0)}
+              color={theme.accent}
+            />
+          </ListSection>
+          <ListSection title="BY ACCOUNT">
+            <CategoryBreakdown
+              rows={toRows(accountsSpend)}
+              total={accountsSpend.reduce((sum, account) => sum + account.spentPaise, 0)}
+              color={theme.accent}
+            />
+          </ListSection>
+          <ListSection title="BY PERSON">
+            <CategoryBreakdown
+              rows={personRows}
+              total={peopleSpend.reduce((sum, person) => sum + person.spentPaise, 0)}
+              color={theme.accent}
+            />
+          </ListSection>
+          <ListSection title="CASHBACK AND REFUNDS">
+            <View style={styles.cashbackRow}>
+              <ThemedText type="small" themeColor="textSecondary">
+                {cashback.count} received · subtracted from spending
+              </ThemedText>
+              <ThemedText type="stat" style={[styles.tabular, { color: REFUND }]}>
+                {formatINR(cashback.totalPaise)}
+              </ThemedText>
+            </View>
+          </ListSection>
+        </View>
+      ) : null}
+
+      <View style={styles.listHeading}>
+        <ThemedText type="heading">Transactions</ThemedText>
+        <ThemedText type="caption" themeColor="textSecondary">
+          {filteredCount} result{filteredCount === 1 ? '' : 's'}
         </ThemedText>
       </View>
     </View>
   );
 
   const footer = (
-    <View>
-      {/* Collapsible breakdowns */}
-      <Pressable
-        onPress={() => setShowBreakdowns((v) => !v)}
-        hitSlop={8}
-        style={styles.breakdownToggle}
-        accessibilityRole="button"
-      >
-        <ThemedText type="smallBold" style={{ color: REFUND }}>
-          {showBreakdowns ? '▾ Hide breakdowns' : '▸ Show breakdowns (merchant / account / person)'}
-        </ThemedText>
-      </Pressable>
-      {showBreakdowns && (
-        <>
-          <Card title="Top merchants">
-            <CategoryBreakdown
-              rows={toRows(merchants.slice(0, TOP_MERCHANTS))}
-              total={merchants.reduce((s, m) => s + m.spentPaise, 0)}
-              color={SPEND}
-            />
-          </Card>
-          <Card title="By account">
-            <CategoryBreakdown
-              rows={toRows(accountsSpend)}
-              total={accountsSpend.reduce((s, a) => s + a.spentPaise, 0)}
-              color={SPEND}
-            />
-          </Card>
-          <Card title="By person (For)">
-            <CategoryBreakdown
-              rows={personRows}
-              total={peopleSpend.reduce((s, p) => s + p.spentPaise, 0)}
-              color={SPEND}
-            />
-          </Card>
-          <Card title="Cashback & refunds">
-            <ThemedText type="amount" style={{ color: REFUND }}>
-              {formatINR(cashback.totalPaise)}
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {cashback.count} received · subtracted from spending
-            </ThemedText>
-          </Card>
-        </>
-      )}
-    </View>
+    <ThemedText type="caption" themeColor="textSecondary" style={styles.listFooter}>
+      You’ve reached the end of this Activity view.
+    </ThemedText>
   );
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        {!totalLoading && totalCount === 0 ? (
+        {dataError ? (
           <View style={styles.content}>
-            <ThemedText type="subtitle">Reports</ThemedText>
+            <ScreenHeader title="Activity" />
             <EmptyState
               style={styles.empty}
+              icon={{ ios: 'exclamationmark.triangle', android: 'error', web: 'error' }}
+              title="Couldn’t load Activity"
+              message="Your transactions are still safe. Try loading this view again."
+              actionLabel="Try again"
+              onAction={retryData}
+            />
+          </View>
+        ) : totalLoading ? (
+          <View style={styles.content}>
+            <ScreenHeader title="Activity" />
+            <ActivityScreenSkeleton />
+          </View>
+        ) : totalCount === 0 ? (
+          <View style={styles.content}>
+            <ScreenHeader title="Activity" />
+            <EmptyState
+              style={styles.empty}
+              icon={{ ios: 'clock.arrow.circlepath', android: 'history', web: 'history' }}
               title="No transactions yet"
-              message="Import a Paytm statement on the Import tab, then filter and export them here."
+              message="Import a bank or UPI statement to search, filter, review, and export your activity."
+              actionLabel="Go to Import"
+              onAction={() => router.navigate({ pathname: '/import' })}
             />
           </View>
         ) : (
@@ -289,14 +375,21 @@ export default function ReportsScreen() {
             loadMore={loadMore}
             onPressRow={openTxn}
             categoryLabelFor={(t) => rowCategoryLabel(t, index.byId, subNames)}
+            lendingLabelFor={lendingLabelFor}
             showReviewBadge
+            groupBy="month-day"
+            rowVariant="activity"
             ListHeaderComponent={header}
-            ListFooterComponent={footer}
+            ListFooterComponent={hasMore ? null : footer}
+            ListLoadingComponent={<ActivityRowsSkeleton />}
             ListEmptyComponent={
               <EmptyState
                 style={styles.empty}
+                icon={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
                 title="No matches"
                 message="No transactions match these filters. Try clearing or widening them."
+                actionLabel="Clear filters"
+                onAction={clearAll}
               />
             }
             contentContainerStyle={styles.content}
@@ -306,12 +399,13 @@ export default function ReportsScreen() {
 
       <ReportsFilters
         visible={filtersOpen}
-        initial={activeFilter}
+        initial={baseFilter}
         years={years}
         months={months}
         categories={index.categories}
         accounts={accounts}
         people={lists.people}
+        search={search}
         onApply={setFilter}
         onClose={() => setFiltersOpen(false)}
       />
@@ -346,15 +440,32 @@ const SearchBox = React.memo(function SearchBox({ onSearch }: { onSearch: (q: st
   }, [text, onSearch]);
 
   return (
-    <TextInput
+    <TextField
       value={text}
       onChangeText={setText}
-      placeholder="Search merchant, note, UPI id…"
-      placeholderTextColor={theme.textSecondary}
+      placeholder="Search merchant, note, or UPI ID"
+      accessibilityLabel="Search Activity"
       autoCapitalize="none"
       autoCorrect={false}
       returnKeyType="search"
-      style={[styles.search, { color: theme.text, backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
+      leading={
+        <SymbolView
+          name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
+          size={20}
+          tintColor={theme.textSecondary}
+        />
+      }
+      trailing={
+        text ? (
+          <IconButton
+            name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
+            label="Clear search"
+            onPress={() => setText('')}
+            variant="plain"
+            iconSize={18}
+          />
+        ) : undefined
+      }
     />
   );
 });
@@ -421,6 +532,7 @@ function labelForPeriod(f: TxnFilter): string {
   const ml = (m: MonthKey) => `${MONTH_LABELS[m.month - 1]} ${m.year}`;
   if (f.from && f.to) {
     if (f.from.year === f.to.year && f.from.month === 1 && f.to.month === 12) return String(f.from.year);
+    if (f.from.year === f.to.year && f.from.month === f.to.month) return ml(f.from);
     return `${ml(f.from)} – ${ml(f.to)}`;
   }
   if (f.from) return `from ${ml(f.from)}`;
@@ -475,6 +587,7 @@ function defaultFileName(f: TxnFilter, catLabel: string): string {
   if (f.categoryId != null) parts.push(catLabel.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, ''));
   const mk = (m: MonthKey) => `${m.year}-${String(m.month).padStart(2, '0')}`;
   if (f.from && f.to && f.from.year === f.to.year && f.from.month === 1 && f.to.month === 12) parts.push(String(f.from.year));
+  else if (f.from && f.to && f.from.year === f.to.year && f.from.month === f.to.month) parts.push(mk(f.from));
   else if (f.from && f.to) parts.push(`${mk(f.from)}_${mk(f.to)}`);
   else if (f.from) parts.push(`from-${mk(f.from)}`);
   else if (f.to) parts.push(`upto-${mk(f.to)}`);
@@ -493,15 +606,30 @@ function rowCategoryLabel(
   return `${cat.emoji ? cat.emoji + ' ' : ''}${cat.name}${sub ? ` · ${sub}` : ''}`;
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  const theme = useTheme();
+function ActivityScreenSkeleton() {
   return (
-    <>
-      <ThemedText type="smallBold" style={styles.sectionTitle}>{title}</ThemedText>
-      <ThemedView type="backgroundElement" style={[styles.card, { borderColor: theme.border }]}>
-        {children}
-      </ThemedView>
-    </>
+    <View style={styles.loading} accessibilityLabel="Loading Activity">
+      <Skeleton width="100%" height={44} />
+      <Skeleton width="100%" height={62} />
+      <ActivityRowsSkeleton />
+    </View>
+  );
+}
+
+function ActivityRowsSkeleton() {
+  return (
+    <View style={styles.rowsLoading} accessibilityLabel="Loading transactions">
+      {[0, 1, 2, 3, 4, 5].map((row) => (
+        <View key={row} style={styles.loadingRow}>
+          <Skeleton width={28} height={28} radius={14} />
+          <View style={styles.loadingCopy}>
+            <Skeleton width="68%" height={14} />
+            <Skeleton width="46%" height={11} />
+          </View>
+          <Skeleton width={78} height={16} />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -510,30 +638,37 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
   content: {
     paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three,
+    paddingTop: Spacing.two,
     paddingBottom: BottomTabInset + Spacing.four,
   },
-  headerGroup: { gap: Spacing.two, marginBottom: Spacing.two },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  exportBtn: { paddingVertical: Spacing.two, paddingHorizontal: Spacing.three },
+  headerGroup: { gap: Spacing.two, marginBottom: Spacing.one },
   empty: { marginTop: Spacing.three },
-  search: {
-    borderRadius: Spacing.two,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    fontSize: 15,
+  breakdownToggle: { alignSelf: 'flex-start' },
+  breakdowns: { gap: Spacing.three },
+  tabular: { fontVariant: ['tabular-nums'] },
+  cashbackRow: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.two,
   },
-  filterBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one },
-  summary: { marginTop: Spacing.one },
-  breakdownToggle: { marginTop: Spacing.three, paddingVertical: Spacing.one },
-  sectionTitle: { marginTop: Spacing.two },
-  card: {
-    borderRadius: Spacing.three,
-    padding: Spacing.three,
+  listHeading: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
     marginTop: Spacing.one,
-    gap: Spacing.half,
-    borderWidth: StyleSheet.hairlineWidth,
   },
+  listFooter: { paddingVertical: Spacing.three, textAlign: 'center' },
+  loading: { gap: Spacing.two, marginTop: Spacing.two },
+  rowsLoading: { gap: 0 },
+  loadingRow: {
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  loadingCopy: { flex: 1, gap: Spacing.half },
 });

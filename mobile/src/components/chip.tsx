@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Opacity, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 /** A small selectable pill, used for the year / "All" filters on the dashboard and reports. */
@@ -9,27 +9,34 @@ export function Chip({
   label,
   selected,
   onPress,
+  disabled = false,
+  accessibilityLabel,
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
+  disabled?: boolean;
+  accessibilityLabel?: string;
 }) {
   const theme = useTheme();
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
-      accessibilityState={{ selected }}
-      hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ selected, disabled }}
+      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
       style={({ pressed }) => [
         styles.chip,
         {
-          backgroundColor: selected ? theme.backgroundSelected : theme.backgroundElement,
-          opacity: pressed ? 0.7 : 1,
+          backgroundColor: selected ? theme.accent : theme.backgroundElement,
+          borderColor: selected ? theme.accent : theme.border,
+          opacity: disabled ? Opacity.disabled : pressed ? Opacity.pressed : 1,
         },
       ]}
     >
-      <ThemedText type="smallBold" themeColor={selected ? 'text' : 'textSecondary'}>
+      <ThemedText type="smallEmphasis" style={{ color: selected ? theme.onAccent : theme.textSecondary }}>
         {label}
       </ThemedText>
     </Pressable>
@@ -37,5 +44,14 @@ export function Chip({
 }
 
 const styles = StyleSheet.create({
-  chip: { paddingVertical: Spacing.one, paddingHorizontal: Spacing.three, borderRadius: Spacing.four },
+  // 30 tall reads as a compact filter pill; the press area is lifted back over 44 by `hitSlop`.
+  chip: {
+    minHeight: 30,
+    paddingVertical: Spacing.half,
+    paddingHorizontal: Spacing.two,
+    borderRadius: Radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

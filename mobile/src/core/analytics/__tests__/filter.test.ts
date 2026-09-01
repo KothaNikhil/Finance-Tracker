@@ -12,6 +12,7 @@ function t(over: Partial<FilterableTxn> & Pick<FilterableTxn, 'isoDate'>): Filte
     counterpartyVpa: null,
     counterpartyName: null,
     remarks: null,
+    note: null,
     rawTag: null,
     needsReview: false,
     isRefund: false,
@@ -104,7 +105,8 @@ describe('matchesFilter', () => {
     expect(matchesFilter(zomato, { search: 'ZOMATO' })).toBe(true); // case-insensitive
     expect(matchesFilter(zomato, { search: 'paid to' })).toBe(true); // raw details
     expect(matchesFilter(zomato, { search: '@ptys' })).toBe(true); // vpa
-    expect(matchesFilter(t({ isoDate: '2026-05-14', remarks: 'Team lunch' }), { search: 'lunch' })).toBe(true); // note
+    expect(matchesFilter(t({ isoDate: '2026-05-14', note: 'Team lunch' }), { search: 'lunch' })).toBe(true);
+    expect(matchesFilter(t({ isoDate: '2026-05-14', remarks: 'Imported memo' }), { search: 'memo' })).toBe(true);
     expect(matchesFilter(t({ isoDate: '2026-05-14', rawTag: '#Food' }), { search: 'food' })).toBe(true); // tag
     expect(matchesFilter(zomato, { search: 'swiggy' })).toBe(false); // no match
     expect(matchesFilter(zomato, { search: '   ' })).toBe(true); // blank = no constraint

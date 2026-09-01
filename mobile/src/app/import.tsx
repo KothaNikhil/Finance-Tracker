@@ -1,41 +1,74 @@
 /**
- * Import screen: load a Paytm statement and review WHAT YOU JUST IMPORTED. It shows only the
- * transactions added THIS session (via a `since` filter on SESSION_START) — the full history lives
- * on the Reports tab. A single import can span years, so a {@link PeriodTabs} bar lets you jump
- * month-by-month (with a year row when the import spans multiple years). The summary tiles describe
- * the whole current import.
+ * Import screen: load a statement and review WHAT YOU JUST IMPORTED. The session list shows only
+ * the transactions added THIS session (via a `since` filter on SESSION_START) — the full history
+ * lives on the Activity tab. A single import can span years, so period controls let you jump
+ * month-by-month. The summary tiles describe the whole current import.
+ *
+ * The flow is pick → preview → review. The preview owns the save: Cancel there writes nothing, and
+ * "Save and review" commits the batch. Review therefore operates on STORED rows, which is what lets
+ * a row open the app-wide transaction sheet and be edited. Done ends the run back at pick, so
+ * importing several statements in one session is a straight loop.
+ *
+ * Needs-review work also happens here rather than on Activity. That list is filtered straight from
+ * the durable `needs_review` flag, so it is reachable from the pick step after a Done and in a
+ * brand-new session, when the session filter matches nothing at all.
  */
 
 import * as Application from 'expo-application';
+import { SymbolView } from 'expo-symbols';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
-import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { Card } from '@/components/card';
 import { DebugLogScreen } from '@/components/debug-log-screen';
 import { EmptyState } from '@/components/empty-state';
-import { PeriodTabs } from '@/components/period-tabs';
-import { StatTile } from '@/components/stat-tile';
+import { ImportPreview } from '@/components/import-preview';
+import {
+  ImportResultFooter,
+  ImportResultHeader,
+  type ImportResultScope,
+  type ImportSavedSummary,
+} from '@/components/import-result';
+import { ImportStepIndicator } from '@/components/import-step-indicator';
+import { ListSection } from '@/components/list-section';
+import { ScreenHeader } from '@/components/screen-header';
+import { Skeleton } from '@/components/skeleton';
+import {
+  SupportedFormatsButton,
+  SupportedFormatsList,
+  SupportedFormatsSheet,
+} from '@/components/supported-formats';
 import { ThemedText } from '@/components/themed-text';
 import { TransactionList } from '@/components/transaction-list';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BottomTabInset, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import type { MonthKey, TxnFilter } from '@/core/analytics';
 import type { TransactionRow } from '@/core/db/schema';
-import { formatINR } from '@/core/domain/money';
-import { axisAdapter } from '@/core/import/adapters/axis';
-import { axisCcAdapter, readCardStatementMeta } from '@/core/import/adapters/axis-cc';
-import { kvbAdapter } from '@/core/import/adapters/kvb';
-import { paytmAdapter } from '@/core/import/adapters/paytm';
-import { sbiAdapter } from '@/core/import/adapters/sbi';
+import { readCardStatementMeta } from '@/core/import/adapters/axis-cc';
+import { IMPORT_ADAPTERS, IMPORT_FORMATS } from '@/core/import/formats';
 import { decryptWorkbook, isEncryptedWorkbook, WrongPasswordError } from '@/core/import/decrypt';
 import { isEncryptedPdf, pdfFileKey } from '@/core/import/pdf/decrypt-pdf';
 import { parsePdfToSheets } from '@/core/import/pdf/pdf-text';
 import { ilog, resetImportLog } from '@/core/import/import-log';
-import { runImport } from '@/core/import/pipeline';
+import {
+  dryRunImportPreview,
+  runImport,
+  type ImportDryRun,
+  type ImportPreview as ImportPreviewData,
+} from '@/core/import/pipeline';
 import type { RawRow, SheetLike } from '@/core/import/types';
 import { parseXlsxBytes } from '@/core/import/xlsx';
 import { useBusyAction } from '@/hooks/use-busy-action';
@@ -48,12 +81,15 @@ import { runAnalyticsParityCheck, seedRandomTransactions } from '@/services/db/d
 import {
   acceptAllReviews,
   clearPendingImport,
+  getCategoryIndex,
   getExistingDedupeKeys,
+  getLearnedRules,
   getPendingImport,
   reconcileDuplicatesFromImport,
   revertImport,
   saveTransactions,
   setPendingImport,
+  type CardStatementMeta,
 } from '@/services/db/repository';
 import { SESSION_START } from '@/services/session';
 
@@ -95,17 +131,41 @@ function buildSampleSheet(): SheetLike {
   return { name: 'Passbook Payment History', headers: SAMPLE_HEADERS, rows, matrix };
 }
 
+type ImportFlowState = 'pick' | 'preview' | 'saving' | 'review';
+type ImportOperation = 'reading' | 'unlocking' | 'saving' | null;
+
+interface PreparedImport {
+  sheets: SheetLike[];
+  fileName: string;
+  sourceName: string;
+  preview: ImportPreviewData;
+  dryRun: ImportDryRun;
+  cardMeta: CardStatementMeta | null;
+}
+
 export default function ImportScreen() {
   const theme = useTheme();
-  const router = useRouter();
-  const { busy, run } = useBusyAction();
+  const { busy: devBusy, run: runDevAction } = useBusyAction();
   // Tapping a row opens the app-wide transaction detail sheet (mounted at the root).
   const { openTxn } = useTransactionDetail();
   // Which month of the current import is shown; null = the whole import.
   const [selectedMonth, setSelectedMonth] = useState<MonthKey | null>(null);
+  // Which step is on screen. `pick` is the screen's home and is never inferred from this session's
+  // row count: the device lock unmounts every tab whenever the app returns from the background —
+  // which includes the trip through the file picker — so an inferred step would strand the user on
+  // the previous import's result and there would be no way to pick a second file.
+  const [flowState, setFlowState] = useState<ImportFlowState>('pick');
+  // Which saved transactions the review list shows. Both scopes read the database, so neither
+  // depends on the import that happens to be in memory.
+  const [resultScope, setResultScope] = useState<ImportResultScope>('session');
+  const [prepared, setPrepared] = useState<PreparedImport | null>(null);
+  const [saved, setSaved] = useState<ImportSavedSummary | null>(null);
+  const [operation, setOperation] = useState<ImportOperation>(null);
+  const [inlineError, setInlineError] = useState<string | null>(null);
   // A picked, password-protected .xlsx waiting for its password. We hold the file's cache URI (not
   // its bytes) so it survives an app-lock reload — the URI is also persisted (see setPendingImport).
   const [locked, setLocked] = useState<{ uri: string; label: string } | null>(null);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
   // The locked file's bytes, read ONCE in processPending and reused by onUnlock — the picker's cache
   // file can be reaped between the pick and the unlock (esp. on Samsung Knox app-lock, which reloads
   // the app after the picker), and re-reading a reaped URI can HANG. Re-populated by the resume path,
@@ -113,16 +173,27 @@ export default function ImportScreen() {
   const lockedBytesRef = useRef<Uint8Array | null>(null);
   // The diagnostic-log viewer (a separate full-screen page); `ilog(...)` still records the trace.
   const [debugOpen, setDebugOpen] = useState(false);
+  // The "which statements can I import?" info sheet, opened from the ⓘ button in the header.
+  const [formatsOpen, setFormatsOpen] = useState(false);
 
-  // Everything on this screen is scoped to THIS session's imports.
+  // The tiles and the session list are scoped to THIS session's imports; the review queue spans all
+  // history, which is what makes it survive a Done and a fresh session.
   const sessionFilter: TxnFilter = { since: SESSION_START };
-  const listFilter: TxnFilter = selectedMonth
-    ? { since: SESSION_START, from: selectedMonth, to: selectedMonth }
-    : sessionFilter;
+  const listFilter: TxnFilter =
+    resultScope === 'flagged'
+      ? { needsReview: true }
+      : selectedMonth
+        ? { since: SESSION_START, from: selectedMonth, to: selectedMonth }
+        : sessionFilter;
 
   const { rows: txns, loadMore, hasMore, loading } = useTransactionList(listFilter);
   // Tiles + imported count describe THIS session's import (canonical money rules).
-  const { spentPaise: totalOut, receivedPaise: totalIn, savedCount } = useSummary(sessionFilter);
+  const {
+    spentPaise: totalOut,
+    receivedPaise: totalIn,
+    savedCount,
+    loading: summaryLoading,
+  } = useSummary(sessionFilter);
   // Review is an app-wide queue: it persists across restarts and stays until each row is
   // categorized or the guesses are accepted — so this count spans ALL data, not just this session.
   const { reviewCount } = useSummary({});
@@ -137,70 +208,41 @@ export default function ImportScreen() {
     return m;
   }, [index]);
 
-  const commit = useCallback(
-    (sheets: SheetLike[], sourceLabel: string) => {
-      const preview = runImport(
-        sheets,
-        [paytmAdapter, axisAdapter, kvbAdapter, sbiAdapter, axisCcAdapter],
-        getExistingDedupeKeys(),
-      );
-      ilog(`commit: source=${preview.source} rows=${preview.totalRows} new=${preview.newTxns.length} dupes=${preview.duplicates.length}`);
-      // For a credit-card statement, capture the card/month/total-due so the batch can later be
-      // linked to the bank bill-payment that settled it (Phase B). Null for every other source.
-      const cardMeta =
-        preview.source === 'cc' && sheets[0]?.pdfLines ? readCardStatementMeta(sheets[0].pdfLines) : null;
-      // Duplicates (same UPI ref already stored from the other statement) can still be reconciled:
-      // filling a category/tag where they agree, or flagging review where a tag disagrees with our
-      // category. So a Save is worthwhile even with 0 brand-new rows.
-      const save = () =>
-        run(
-          async () => {
-            // Yield a frame so the spinner paints before the synchronous DB write blocks the thread.
-            await new Promise((resolve) => setTimeout(resolve, 0));
-            const n = saveTransactions(preview.newTxns, sourceLabel, cardMeta);
-            const { updated, flagged } = reconcileDuplicatesFromImport(preview.duplicates);
-            const parts = [`${n} new transaction(s) saved from ${sourceLabel} and auto-categorized.`];
-            if (updated > 0) parts.push(`${updated} matching row(s) already imported were updated.`);
-            if (flagged > 0)
-              parts.push(`${flagged} row(s) were flagged for review — a Paytm tag disagreed with the category, so you decide.`);
-            parts.push('Anything the app was unsure about is flagged “Needs review”.');
-            Alert.alert('Imported', parts.join(' '));
-          },
-          { errorTitle: 'Could not save import' },
-        );
-      // Reconciliation tally so you can check totals against the statement. `errors` are rows that
-      // weren't transactions at all; anything unreadable-but-real was salvaged into `newTxns`.
-      const lines = [
-        `Found ${preview.totalRows} rows`,
-        `New: ${preview.newTxns.length}`,
-        `Duplicates (checked for tag conflicts): ${preview.duplicates.length}`,
-        `Total debit: ${formatINR(preview.totalDebitPaise)}`,
-        `Total credit: ${formatINR(preview.totalCreditPaise)}`,
-      ];
-      if (preview.salvaged.length > 0) lines.push(`Couldn’t fully read (saved for review): ${preview.salvaged.length}`);
-      if (preview.errors.length > 0) lines.push(`Skipped non-transaction rows: ${preview.errors.length}`);
-      Alert.alert(
-        'Import preview',
-        lines.join('\n'),
-        preview.newTxns.length > 0 || preview.duplicates.length > 0
-          ? [{ text: 'Cancel', style: 'cancel' }, { text: 'Save', onPress: save }]
-          : [{ text: 'OK' }],
-      );
-    },
-    [run],
-  );
+  const preparePreview = useCallback((sheets: SheetLike[], fileName: string) => {
+    // Reads current dedupe/category snapshots, but deliberately performs no writes. Save re-runs
+    // dedupe from the original parsed sheets so this preview can safely become stale.
+    const preview = runImport(sheets, IMPORT_ADAPTERS, getExistingDedupeKeys());
+    const dryRun = dryRunImportPreview(preview, getCategoryIndex(), getLearnedRules());
+    const format = IMPORT_FORMATS.find((item) => item.adapter.detect(sheets));
+    const sourceName = format?.name ?? (preview.source === 'cc' ? 'Credit card statement' : 'Statement');
+    const cardMeta =
+      preview.source === 'cc' && sheets[0]?.pdfLines
+        ? readCardStatementMeta(sheets[0].pdfLines)
+        : null;
 
-  const onAddSample = useCallback(() => commit([buildSampleSheet()], 'the sample'), [commit]);
+    ilog(
+      `preview: source=${preview.source} rows=${preview.totalRows} new=${preview.newTxns.length} dupes=${preview.duplicates.length} review=${dryRun.reviewCount}`,
+    );
+    setPrepared({ sheets, fileName, sourceName, preview, dryRun, cardMeta });
+    setSaved(null);
+    setInlineError(null);
+    setFlowState('preview');
+  }, []);
+
+  const onAddSample = useCallback(
+    () => preparePreview([buildSampleSheet()], 'Sample statement.xlsx'),
+    [preparePreview],
+  );
 
   // DEV-only scale/correctness helpers (compiled out of release via __DEV__).
   const onSeed = useCallback(
     () =>
-      run(async () => {
+      runDevAction(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0)); // let the spinner paint
         const n = seedRandomTransactions(20000);
         Alert.alert('Seeded', `Inserted ${n} synthetic transactions.`);
       }),
-    [run],
+    [runDevAction],
   );
   const onParity = useCallback(() => {
     const r = runAnalyticsParityCheck({});
@@ -211,51 +253,59 @@ export default function ImportScreen() {
   // password-protected .xlsx) show the unlock prompt. Runs both for a fresh pick and when resuming
   // after an app-lock reload — so it must be idempotent and read from the persisted URI.
   const processPending = useCallback(
-    (uri: string, label: string) => {
-      run(
-        async () => {
-          ilog(`processPending: label="${label}" uri=${uri.slice(0, 24)}…`);
-          // Yield a frame so the spinner paints before the synchronous parse blocks the thread.
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          let bytes: Uint8Array;
-          try {
-            ilog('processPending: reading file bytes…');
-            bytes = new Uint8Array(await new File(uri).arrayBuffer());
-            ilog(`processPending: read ${bytes.length} bytes (magic ${bytes[0]},${bytes[1]},${bytes[2]},${bytes[3]})`);
-          } catch (err) {
-            ilog(`processPending: FILE READ FAILED: ${err instanceof Error ? err.message : String(err)}`);
-            clearPendingImport(); // the cache file is gone — drop the marker so we don't loop
-            throw err;
-          }
-          // Credit-card statements are PDFs; bank/Paytm statements are xlsx/xls (CFB when locked).
-          if (isPdfBytes(bytes)) {
-            const enc = isEncryptedPdf(bytes);
-            ilog(`processPending: PDF detected, encrypted=${enc}`);
-            if (enc) {
-              lockedBytesRef.current = bytes; // reuse in onUnlock — don't re-read the (reapable) URI
-              setLocked({ uri, label });
-              return;
-            }
-            clearPendingImport();
-            commit(parsePdfToSheets(bytes), label);
-            return;
-          }
-          if (isEncryptedWorkbook(bytes)) {
-            // Keep the marker set: if the app is reloaded by the lock, we resume this prompt.
-            lockedBytesRef.current = bytes; // reuse in onUnlock — don't re-read the (reapable) URI
+    async (uri: string, label: string) => {
+      setOperation('reading');
+      setInlineError(null);
+      setUnlockError(null);
+      try {
+        ilog(`processPending: label="${label}" uri=${uri.slice(0, 24)}…`);
+        // Yield a frame so progress paints before synchronous format detection/parsing starts.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        ilog('processPending: reading file bytes…');
+        const bytes = new Uint8Array(await new File(uri).arrayBuffer());
+        ilog(
+          `processPending: read ${bytes.length} bytes (magic ${bytes[0]},${bytes[1]},${bytes[2]},${bytes[3]})`,
+        );
+
+        // Credit-card statements are PDFs; bank/Paytm statements are xlsx/xls (CFB when locked).
+        if (isPdfBytes(bytes)) {
+          const encrypted = isEncryptedPdf(bytes);
+          ilog(`processPending: PDF detected, encrypted=${encrypted}`);
+          if (encrypted) {
+            lockedBytesRef.current = bytes;
             setLocked({ uri, label });
             return;
           }
-          clearPendingImport();
-          commit(parseXlsxBytes(bytes), label);
-        },
-        { errorTitle: 'Could not import' },
-      );
+          preparePreview(parsePdfToSheets(bytes), label);
+          return;
+        }
+        if (isEncryptedWorkbook(bytes)) {
+          // Keep the marker set: an app-lock reload returns to this prompt from the cached URI.
+          lockedBytesRef.current = bytes;
+          setLocked({ uri, label });
+          return;
+        }
+        preparePreview(parseXlsxBytes(bytes), label);
+        // The pending marker intentionally survives through Preview. A reload reparses this cached
+        // file, while Save or Cancel clears it.
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        ilog(`processPending: ERROR ${message}`);
+        clearPendingImport();
+        lockedBytesRef.current = null;
+        setLocked(null);
+        setPrepared(null);
+        setFlowState('pick');
+        setInlineError(message);
+      } finally {
+        setOperation(null);
+      }
     },
-    [commit, run],
+    [preparePreview],
   );
 
   const onImportFile = useCallback(async () => {
+    setInlineError(null);
     let res: DocumentPicker.DocumentPickerResult;
     try {
       // expo-document-picker copies the file to our cache and gives a stable URI we can re-read.
@@ -270,7 +320,7 @@ export default function ImportScreen() {
         multiple: false,
       });
     } catch (err) {
-      Alert.alert('Could not import', err instanceof Error ? err.message : String(err));
+      setInlineError(err instanceof Error ? err.message : String(err));
       return;
     }
     if (res.canceled || !res.assets?.length) return;
@@ -281,7 +331,7 @@ export default function ImportScreen() {
     // Persist BEFORE we might lose focus: a Samsung Knox app-lock re-auth can reload the app on
     // return from the picker, wiping memory. The marker lets us resume from the cached file.
     setPendingImport(asset.uri, label);
-    processPending(asset.uri, label);
+    void processPending(asset.uri, label);
   }, [processPending]);
 
   // Resume a pending import left over from an app-lock reload (runs once on mount).
@@ -290,81 +340,160 @@ export default function ImportScreen() {
     if (resumed.current) return;
     resumed.current = true;
     const pending = getPendingImport();
-    if (pending) processPending(pending.uri, pending.label);
+    if (!pending) return;
+    // Resume after the effect has synchronized; processPending owns the visible progress state.
+    setTimeout(() => void processPending(pending.uri, pending.label), 0);
   }, [processPending]);
 
   // Unlock a password-protected file, then import it. Wrong password reopens the prompt.
   const onUnlock = useCallback(
-    (password: string) => {
-      if (!locked) return;
+    async (password: string) => {
+      if (!locked || operation === 'unlocking') return;
       const { uri, label } = locked;
-      setLocked(null);
-      run(
-        async () => {
-          ilog('onUnlock: start');
-          // Yield a frame so the spinner paints — decryption (spin-count key derivation) is heavy.
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          // Prefer the bytes we already read in processPending — re-reading the URI here can HANG if
-          // the picker's cache file was reaped (the on-device stall). Only touch disk as a fallback.
-          let bytes = lockedBytesRef.current;
-          if (bytes) {
-            ilog(`onUnlock: using ${bytes.length} in-memory bytes`);
-          } else {
-            try {
-              ilog('onUnlock: no cached bytes, reading file…');
-              bytes = new Uint8Array(await new File(uri).arrayBuffer());
-              ilog(`onUnlock: read ${bytes.length} bytes`);
-            } catch {
-              ilog('onUnlock: FILE READ FAILED (file gone)');
-              clearPendingImport();
-              Alert.alert('Couldn’t unlock', 'The file is no longer available — please pick it again.');
-              return;
-            }
-          }
-          // Yield to the UI before each heavy synchronous step so the on-screen log paints the step's
-          // label first — whichever label is the LAST one visible when the spinner sticks is the
-          // stage that blocked (the JS thread can't repaint mid-block).
-          const yieldFrame = () => new Promise((r) => setTimeout(r, 0));
-          try {
-            if (isPdfBytes(bytes)) {
-              ilog('onUnlock: deriving key (pdfFileKey)…');
-              await yieldFrame();
-              // Verify + derive the key (throws WrongPasswordError on a bad password), then parse.
-              const key = pdfFileKey(bytes, password);
-              ilog('onUnlock: key derived, parsing PDF…');
-              await yieldFrame();
-              const sheets = parsePdfToSheets(bytes, key);
-              ilog('onUnlock: parsed, committing…');
-              await yieldFrame();
-              clearPendingImport();
-              commit(sheets, label);
-              ilog('onUnlock: commit returned');
-            } else {
-              const decrypted = decryptWorkbook(bytes, password);
-              clearPendingImport();
-              commit(parseXlsxBytes(decrypted), label);
-            }
-          } catch (err) {
-            ilog(`onUnlock: ERROR ${err instanceof Error ? err.name + ': ' + err.message : String(err)}`);
-            if (err instanceof WrongPasswordError) {
-              setLocked({ uri, label }); // reopen so they can retry (marker still set)
-              Alert.alert('Incorrect password', 'That password didn’t unlock the file. Please try again.');
-            } else {
-              clearPendingImport();
-              Alert.alert('Couldn’t unlock', err instanceof Error ? err.message : String(err));
-            }
-          }
-        },
-        { errorTitle: 'Could not unlock' },
-      );
+      setOperation('unlocking');
+      setUnlockError(null);
+      ilog('onUnlock: start');
+      try {
+        // Yield a frame so decryption progress paints before spin-count key derivation starts.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        // Prefer bytes already read in processPending. Re-reading a reaped picker URI can hang on
+        // app-lock-managed devices, so disk is only a fallback after a process reload.
+        let bytes = lockedBytesRef.current;
+        if (bytes) {
+          ilog(`onUnlock: using ${bytes.length} in-memory bytes`);
+        } else {
+          ilog('onUnlock: no cached bytes, reading file…');
+          bytes = new Uint8Array(await new File(uri).arrayBuffer());
+          ilog(`onUnlock: read ${bytes.length} bytes`);
+        }
+
+        const yieldFrame = () => new Promise((resolve) => setTimeout(resolve, 0));
+        if (isPdfBytes(bytes)) {
+          ilog('onUnlock: deriving PDF key…');
+          await yieldFrame();
+          const key = pdfFileKey(bytes, password);
+          ilog('onUnlock: parsing unlocked PDF…');
+          await yieldFrame();
+          preparePreview(parsePdfToSheets(bytes, key), label);
+        } else {
+          ilog('onUnlock: decrypting workbook…');
+          await yieldFrame();
+          const decrypted = decryptWorkbook(bytes, password);
+          preparePreview(parseXlsxBytes(decrypted), label);
+        }
+        lockedBytesRef.current = null;
+        setLocked(null);
+        ilog('onUnlock: preview ready');
+      } catch (err) {
+        ilog(
+          `onUnlock: ERROR ${
+            err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+          }`,
+        );
+        if (err instanceof WrongPasswordError) {
+          // Keep the overlay, bytes, and pending marker so the user can retry in place.
+          setUnlockError('Incorrect password. Check it and try again.');
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          clearPendingImport();
+          lockedBytesRef.current = null;
+          setLocked(null);
+          setFlowState('pick');
+          setInlineError(message);
+        }
+      } finally {
+        setOperation(null);
+      }
     },
-    [locked, run, commit],
+    [locked, operation, preparePreview],
   );
 
   const onCancelUnlock = useCallback(() => {
     clearPendingImport();
     lockedBytesRef.current = null;
     setLocked(null);
+    setUnlockError(null);
+    setOperation(null);
+  }, []);
+
+  // The last point at which nothing has been written. Cancel here discards only a re-derivable
+  // parse, so it needs no confirmation.
+  const onCancelPreview = useCallback(() => {
+    clearPendingImport();
+    lockedBytesRef.current = null;
+    setPrepared(null);
+    setInlineError(null);
+    setFlowState('pick');
+  }, []);
+
+  const onSaveAndReview = useCallback(async () => {
+    if (!prepared || operation === 'saving') return;
+    setFlowState('saving');
+    setOperation('saving');
+    setInlineError(null);
+    try {
+      // Final re-dedupe uses the original parsed sheets and a fresh database key snapshot. This
+      // handles another import/save landing between Preview and this confirmation.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const finalPreview = runImport(
+        prepared.sheets,
+        IMPORT_ADAPTERS,
+        getExistingDedupeKeys(),
+      );
+      const addedCount = saveTransactions(
+        finalPreview.newTxns,
+        prepared.fileName,
+        prepared.cardMeta,
+      );
+      const reconciled = reconcileDuplicatesFromImport(finalPreview.duplicates);
+
+      clearPendingImport();
+      lockedBytesRef.current = null;
+      setSaved({
+        fileName: prepared.fileName,
+        savedCount: addedCount,
+        duplicatesChecked: finalPreview.duplicates.length,
+        duplicatesUpdated: reconciled.updated,
+        duplicatesFlagged: reconciled.flagged,
+      });
+      setPrepared(null);
+      setSelectedMonth(null);
+      setResultScope('session');
+      setFlowState('review');
+      ilog(
+        `save: added=${addedCount} dupes=${finalPreview.duplicates.length} updated=${reconciled.updated} flagged=${reconciled.flagged}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      ilog(`save: ERROR ${message}`);
+      setInlineError(message);
+      setFlowState('preview');
+    } finally {
+      setOperation(null);
+    }
+  }, [operation, prepared]);
+
+  const onDoneReview = useCallback(() => {
+    clearPendingImport();
+    lockedBytesRef.current = null;
+    setPrepared(null);
+    setSaved(null);
+    setInlineError(null);
+    setUnlockError(null);
+    setSelectedMonth(null);
+    setFlowState('pick');
+  }, []);
+
+  const onViewSession = useCallback(() => {
+    setSaved(null);
+    setResultScope('session');
+    setFlowState('review');
+  }, []);
+
+  const onViewFlagged = useCallback(() => {
+    setSaved(null);
+    setResultScope('flagged');
+    setFlowState('review');
   }, []);
 
   const onAcceptAll = useCallback(() => {
@@ -393,156 +522,312 @@ export default function ImportScreen() {
           style: 'destructive',
           onPress: () => {
             const removed = revertImport(lastImport.id);
+            setSaved(null);
+            setSelectedMonth(null);
+            // Nothing left from this session to look at → back to the pick step. The review queue
+            // spans every import, so it stays worth showing.
+            const empty = resultScope === 'session' && removed >= savedCount;
+            setFlowState(empty ? 'pick' : 'review');
             Alert.alert('Import reverted', `Removed ${removed} transaction${removed === 1 ? '' : 's'}.`);
           },
         },
       ],
     );
-  }, [lastImport]);
+  }, [lastImport, resultScope, savedCount]);
 
-  const header = (
-    <View style={styles.header}>
-      <ThemedText type="subtitle">Import</ThemedText>
-      <ThemedText type="small" themeColor="textSecondary">
-        {savedCount > 0
-          ? `${savedCount} transaction${savedCount === 1 ? '' : 's'} imported this session`
-          : 'Import a Paytm statement to review it here'}
-      </ThemedText>
+  const previewOpen = prepared != null && (flowState === 'preview' || flowState === 'saving');
+  const reviewOpen = !previewOpen && flowState === 'review';
+  const actionsDisabled = operation != null || devBusy;
 
-      {savedCount > 0 && (
-        <View style={styles.tiles}>
-          <StatTile label="Spent" value={formatINR(totalOut)} color={theme.spend} />
-          <StatTile label="Received" value={formatINR(totalIn)} color={theme.income} />
+  const landing = (
+    <ScrollView
+      style={styles.fill}
+      contentContainerStyle={styles.landingContent}
+      showsVerticalScrollIndicator={false}
+    >
+      <ScreenHeader
+        title="Import statement"
+        action={<SupportedFormatsButton onPress={() => setFormatsOpen(true)} />}
+      />
+      <ImportStepIndicator current="file" />
+
+      <Card style={styles.pickerCard}>
+        <View style={[styles.uploadIcon, { backgroundColor: theme.accentMuted }]}>
+          <ThemedText type="heading" style={{ color: theme.accent }}>
+            ↑
+          </ThemedText>
         </View>
-      )}
+        <ThemedText type="heading" style={styles.centerText}>
+          Choose a statement
+        </ThemedText>
+        <ThemedText type="caption" themeColor="textSecondary" style={styles.centerText}>
+          Import .xlsx, .xls, or .pdf from your device.
+        </ThemedText>
+        <Button
+          label="Choose file"
+          variant="primary"
+          onPress={onImportFile}
+          disabled={actionsDisabled}
+          loading={operation === 'reading'}
+          style={styles.fullWidth}
+          accessibilityHint="Opens the system document picker"
+        />
+        <ThemedText type="caption" themeColor="textSecondary" style={styles.centerText}>
+          ▣ Your financial data is processed on this device.
+        </ThemedText>
+      </Card>
 
-      {/* Needs-review banner. Tapping it opens Reports filtered to the review queue; "Accept all"
-          is a separate inner action. */}
-      {reviewCount > 0 && (
-        <Pressable
-          onPress={() => router.navigate({ pathname: '/reports', params: { review: '1', t: String(Date.now()) } })}
-          accessibilityRole="button"
-          accessibilityLabel={`${reviewCount} transactions need review. Open the review list.`}
-          style={({ pressed }) => [styles.reviewBanner, { borderColor: theme.review, opacity: pressed ? 0.8 : 1 }]}
-        >
-          <View style={{ flex: 1 }}>
-            <ThemedText type="smallBold" style={{ color: theme.review }}>
-              {reviewCount} need{reviewCount === 1 ? 's' : ''} review
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Tap to review them all, or accept the suggestions.
+      {operation === 'reading' ? (
+        <Card tone="accent" style={styles.progressCard}>
+          <ActivityIndicator color={theme.accent} />
+          <View style={styles.grow}>
+            <ThemedText type="smallEmphasis">Reading statement</ThemedText>
+            <ThemedText
+              type="caption"
+              themeColor="textSecondary"
+              accessibilityLiveRegion="polite"
+            >
+              Detecting the format, reconciling totals, and preparing a safe preview…
             </ThemedText>
           </View>
-          <Pressable
-            onPress={onAcceptAll}
-            accessibilityRole="button"
-            accessibilityLabel="Accept all suggestions"
-            hitSlop={12}
-            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-          >
-            <ThemedText type="smallBold" style={{ color: theme.review }}>
-              Accept all
-            </ThemedText>
-          </Pressable>
-        </Pressable>
-      )}
+        </Card>
+      ) : null}
 
-      {/* Actions. "Add sample" / dev tools are compiled out of release builds via __DEV__. */}
-      <View style={styles.actions}>
-        <Button label="Import file" variant="primary" onPress={onImportFile} disabled={busy} style={styles.grow} />
-        {__DEV__ && <Button label="Add sample" onPress={onAddSample} disabled={busy} style={styles.grow} />}
+      {inlineError && !previewOpen ? (
+        <Card tone="danger" style={styles.errorCard}>
+          <ThemedText type="smallEmphasis" style={{ color: theme.spend }}>
+            Could not prepare this statement
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">
+            {inlineError}
+          </ThemedText>
+          <Button
+            label="Choose another file"
+            variant="secondary"
+            onPress={onImportFile}
+            disabled={actionsDisabled}
+          />
+        </Card>
+      ) : null}
+
+      <View style={styles.section}>
+        <ThemedText type="overline" themeColor="textSecondary">
+          Supported statements
+        </ThemedText>
+        <SupportedFormatsList />
       </View>
-      {__DEV__ && (
-        <View style={styles.actions}>
-          <Button label="Seed 20k" onPress={onSeed} disabled={busy} style={styles.grow} />
-          <Button label="Check parity" onPress={onParity} disabled={busy} style={styles.grow} />
-        </View>
-      )}
-      {busy && <ActivityIndicator style={{ marginTop: Spacing.two }} />}
 
-      {/* Open the diagnostic-log page (a separate full-screen view). */}
+      <ListSection title="IMPORT STATUS">
+        {summaryLoading ? (
+          <View style={styles.sessionRow}>
+            <Skeleton width={30} height={30} radius={Radius.pill} />
+            <View style={styles.grow}>
+              <Skeleton width="62%" height={12} />
+              <Skeleton width="84%" height={10} style={styles.sessionSkeletonLine} />
+            </View>
+          </View>
+        ) : savedCount > 0 ? (
+          <SessionRow
+            glyph="✓"
+            glyphColor={theme.accent}
+            glyphBackground={theme.accentMuted}
+            title={`${savedCount} transaction${savedCount === 1 ? '' : 's'} imported this session`}
+            detail="View the session list and review status."
+            onPress={onViewSession}
+            accessibilityLabel={`View ${savedCount} transactions imported this session`}
+          />
+        ) : (
+          <SessionRow
+            glyph="◷"
+            glyphColor={theme.textSecondary}
+            glyphBackground={theme.backgroundSelected}
+            title="Nothing imported this session"
+            detail="Your saved history is available in Activity."
+          />
+        )}
+
+        {reviewCount > 0 ? (
+          <SessionRow
+            glyph="!"
+            glyphColor={theme.review}
+            glyphBackground={theme.reviewMuted}
+            title={`${reviewCount} transaction${reviewCount === 1 ? '' : 's'} need review`}
+            detail="Categorize them here, across every import."
+            onPress={onViewFlagged}
+            accessibilityLabel={`Review ${reviewCount} transactions that need review`}
+          />
+        ) : null}
+
+        {lastImport ? (
+          <SessionRow
+            kind="action"
+            glyph="↶"
+            glyphColor={theme.spend}
+            glyphBackground={theme.spendMuted}
+            title="Revert last import"
+            detail={`${lastImport.sourceLabel || 'Last import'} · ${lastImport.addedCount} added · ${lastImport.importedAt.slice(0, 10)}`}
+            onPress={onRevertLast}
+            accessibilityLabel={`Revert last import, ${lastImport.sourceLabel}, ${lastImport.addedCount} transactions`}
+            accessibilityHint="Opens a destructive confirmation"
+          />
+        ) : null}
+      </ListSection>
+
       <Pressable
         onPress={() => setDebugOpen(true)}
         accessibilityRole="button"
-        accessibilityLabel="Open debug logs"
-        style={({ pressed }) => [styles.debugLink, { opacity: pressed ? 0.6 : 1 }]}
+        accessibilityLabel="Open import diagnostics"
+        style={({ pressed }) => [styles.diagnosticsLink, { opacity: pressed ? 0.6 : 1 }]}
       >
-        <ThemedText type="small" themeColor="textSecondary">
-          🐞 Debug logs
+        <ThemedText type="small" style={{ color: theme.accent }}>
+          ⓘ Import diagnostics
         </ThemedText>
       </Pressable>
 
-      {/* Revert the last import — deletes everything that batch added (survives app restarts). */}
-      {lastImport && (
-        <Pressable
-          onPress={onRevertLast}
-          accessibilityRole="button"
-          accessibilityLabel="Revert the last import"
-          style={({ pressed }) => [styles.revertRow, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
-        >
-          <View style={styles.grow}>
-            <ThemedText type="smallBold" style={{ color: theme.spend }}>
-              ↩ Revert last import
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-              {(lastImport.sourceLabel.trim() || 'Last import')} · {lastImport.addedCount} added · {lastImport.importedAt.slice(0, 10)}
-            </ThemedText>
+      {__DEV__ ? (
+        <Card tone="subtle" style={styles.devCard}>
+          <ThemedText type="overline" themeColor="textSecondary">
+            Development helpers
+          </ThemedText>
+          <View style={styles.actions}>
+            <Button
+              label="Add sample"
+              onPress={onAddSample}
+              disabled={actionsDisabled}
+              style={styles.grow}
+            />
+            <Button
+              label="Seed 20k"
+              onPress={onSeed}
+              disabled={actionsDisabled}
+              loading={devBusy}
+              style={styles.grow}
+            />
           </View>
-        </Pressable>
-      )}
+          <Button
+            label="Check analytics parity"
+            variant="ghost"
+            onPress={onParity}
+            disabled={actionsDisabled}
+          />
+        </Card>
+      ) : null}
 
-      {/* Month navigation for the current import (year row appears when it spans multiple years). */}
-      {months.length > 0 && (
-        <View style={styles.tabsWrap}>
-          <PeriodTabs months={months} selected={selectedMonth} onSelect={setSelectedMonth} />
-        </View>
-      )}
-    </View>
+      <ThemedText type="caption" themeColor="textSecondary" style={styles.centerText}>
+        Finance Tracker v{APP_VERSION}
+      </ThemedText>
+    </ScrollView>
   );
 
-  const footer = (
-    <ThemedText type="small" themeColor="textSecondary" style={styles.footer}>
-      Showing this session’s import — your full history is on the Reports tab. Categories are
-      auto-picked from your Paytm tags and known merchants; low-confidence guesses are flagged
-      “Review”. Tap any transaction to change its category.{'\n'}Finance Tracker v{APP_VERSION}
-    </ThemedText>
+  const reviewHeader = (
+    <ImportResultHeader
+      saved={saved}
+      sessionCount={savedCount}
+      spentPaise={totalOut}
+      receivedPaise={totalIn}
+      reviewCount={reviewCount}
+      lastImport={
+        lastImport
+          ? {
+              sourceLabel: lastImport.sourceLabel,
+              addedCount: lastImport.addedCount,
+              importedAt: lastImport.importedAt,
+            }
+          : null
+      }
+      months={months}
+      selectedMonth={selectedMonth}
+      scope={resultScope}
+      onSelectMonth={setSelectedMonth}
+      onScopeChange={setResultScope}
+      onDone={onDoneReview}
+      onAcceptAll={onAcceptAll}
+      onRevert={onRevertLast}
+    />
+  );
+
+  const reviewFooter = (
+    <View>
+      <ImportResultFooter appVersion={APP_VERSION} />
+      <Pressable
+        onPress={() => setDebugOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Open import diagnostics"
+        style={({ pressed }) => [styles.diagnosticsLink, { opacity: pressed ? 0.6 : 1 }]}
+      >
+        <ThemedText type="small" style={{ color: theme.accent }}>
+          ⓘ Import diagnostics
+        </ThemedText>
+      </Pressable>
+    </View>
   );
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <TransactionList
-          rows={txns}
-          loading={loading}
-          hasMore={hasMore}
-          loadMore={loadMore}
-          onPressRow={openTxn}
-          categoryLabelFor={(t) => categoryLabel(t, index.byId, subNames)}
-          showReviewBadge
-          ListHeaderComponent={header}
-          ListFooterComponent={footer}
-          ListEmptyComponent={
-            <EmptyState
-              style={styles.empty}
-              title="Nothing imported this session"
-              message={
-                __DEV__
-                  ? 'Tap “Import file” to load a Paytm statement, or “Add sample” to try it.'
-                  : 'Tap “Import file” to load a Paytm statement.'
-              }
-            />
-          }
-          contentContainerStyle={styles.content}
-        />
+        {previewOpen && prepared ? (
+          <ImportPreview
+            fileName={prepared.fileName}
+            sourceName={prepared.sourceName}
+            preview={prepared.preview}
+            dryRun={prepared.dryRun}
+            saving={flowState === 'saving'}
+            error={inlineError}
+            onBack={onCancelPreview}
+            onCancel={onCancelPreview}
+            onSave={() => void onSaveAndReview()}
+          />
+        ) : reviewOpen ? (
+          <TransactionList
+            rows={txns}
+            loading={loading}
+            hasMore={hasMore}
+            loadMore={loadMore}
+            onPressRow={openTxn}
+            categoryLabelFor={(txn) => categoryLabel(txn, index.byId, subNames)}
+            showReviewBadge
+            ListHeaderComponent={reviewHeader}
+            ListFooterComponent={reviewFooter}
+            ListEmptyComponent={
+              <EmptyState
+                style={styles.empty}
+                title={
+                  resultScope === 'flagged'
+                    ? 'Nothing needs review'
+                    : 'No session transactions to show'
+                }
+                message={
+                  resultScope === 'flagged'
+                    ? 'Every imported transaction has a category you have accepted.'
+                    : 'Import a statement to add transactions to this session.'
+                }
+              />
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        ) : (
+          landing
+        )}
       </SafeAreaView>
 
       {/* Inline overlay (NOT a React Native <Modal>): a separate-window Modal can be dropped when
           Samsung Knox App Lock re-authenticates and recreates the activity after the file picker.
           Rendering in the screen's own view tree keeps the prompt reliably on screen. */}
-      {locked && <PasswordPrompt label={locked.label} onCancel={onCancelUnlock} onSubmit={onUnlock} />}
+      {locked && (
+        <PasswordPrompt
+          label={locked.label}
+          busy={operation === 'unlocking'}
+          error={unlockError}
+          onCancel={onCancelUnlock}
+          onSubmit={onUnlock}
+        />
+      )}
 
       {/* Diagnostic-log page (separate full-screen view), opened from the "Debug logs" link. */}
       <DebugLogScreen visible={debugOpen} onClose={() => setDebugOpen(false)} />
+
+      {/* "Which statements can I import?" — the supported-formats legend, on demand (ⓘ in header). */}
+      <SupportedFormatsSheet visible={formatsOpen} onClose={() => setFormatsOpen(false)} />
     </ThemedView>
   );
 }
@@ -555,10 +840,14 @@ export default function ImportScreen() {
  */
 function PasswordPrompt({
   label,
+  busy,
+  error,
   onCancel,
   onSubmit,
 }: {
   label: string;
+  busy: boolean;
+  error: string | null;
   onCancel: () => void;
   onSubmit: (password: string) => void;
 }) {
@@ -567,12 +856,29 @@ function PasswordPrompt({
   return (
     // Lift the centered card above the keyboard. Both platforms: iOS never resizes for the keyboard,
     // and this app is edge-to-edge so Android doesn't resize the window under the keyboard either.
-    <KeyboardAvoidingView style={styles.overlay} behavior="padding">
-      <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityLabel="Cancel" />
-      <ThemedView type="backgroundElement" style={styles.pwCard}>
-        <ThemedText type="subtitle">Unlock statement</ThemedText>
+    <KeyboardAvoidingView
+      style={[styles.overlay, { backgroundColor: theme.overlay }]}
+      behavior="padding"
+    >
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={onCancel}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel="Cancel unlock"
+      />
+      <ThemedView
+        type="backgroundElement"
+        style={[styles.pwCard, { borderColor: theme.border }]}
+      >
+        <View style={[styles.lockIcon, { backgroundColor: theme.accentMuted }]}>
+          <ThemedText type="smallEmphasis" style={{ color: theme.accent }}>
+            ▣
+          </ThemedText>
+        </View>
+        <ThemedText type="heading">Unlock statement</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          “{label}” is password-protected. Enter the password to import it. This can take a few seconds.
+          “{label}” is password-protected. Enter its password to prepare the import preview.
         </ThemedText>
         <TextInput
           value={pw}
@@ -581,15 +887,116 @@ function PasswordPrompt({
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
-          onSubmitEditing={() => pw !== '' && onSubmit(pw)}
+          editable={!busy}
+          accessibilityLabel="Statement password"
+          returnKeyType="done"
+          onSubmitEditing={() => pw !== '' && !busy && onSubmit(pw)}
           style={[styles.pwInput, { color: theme.text, backgroundColor: theme.background, borderColor: theme.border }]}
         />
+        {error ? (
+          <ThemedText type="small" style={{ color: theme.spend }} accessibilityLiveRegion="polite">
+            {error}
+          </ThemedText>
+        ) : null}
+        {busy ? (
+          <View style={styles.progressCard} accessibilityLiveRegion="polite">
+            <ActivityIndicator color={theme.accent} />
+            <ThemedText type="small" themeColor="textSecondary">
+              Unlocking and reading statement…
+            </ThemedText>
+          </View>
+        ) : null}
+        <ThemedText type="caption" themeColor="textSecondary">
+          The password and file contents stay on this device.
+        </ThemedText>
         <View style={styles.actions}>
-          <Button label="Cancel" variant="secondary" onPress={onCancel} style={styles.grow} />
-          <Button label="Unlock" variant="primary" onPress={() => onSubmit(pw)} disabled={pw === ''} style={styles.grow} />
+          <Button
+            label="Cancel"
+            variant="secondary"
+            onPress={onCancel}
+            disabled={busy}
+            style={styles.grow}
+          />
+          <Button
+            label="Unlock"
+            variant="primary"
+            onPress={() => onSubmit(pw)}
+            disabled={pw === ''}
+            loading={busy}
+            style={styles.grow}
+          />
         </View>
       </ThemedView>
     </KeyboardAvoidingView>
+  );
+}
+
+function SessionRow({
+  kind = 'navigation',
+  glyph,
+  glyphColor,
+  glyphBackground,
+  title,
+  detail,
+  onPress,
+  accessibilityLabel,
+  accessibilityHint,
+}: {
+  /** Only a row that leads somewhere carries a chevron; an `action` row runs in place. */
+  kind?: 'navigation' | 'action';
+  glyph: string;
+  glyphColor: string;
+  glyphBackground: string;
+  title: string;
+  detail: string;
+  onPress?: () => void;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+}) {
+  const theme = useTheme();
+  const body = (
+    <>
+      <View style={[styles.smallIcon, { backgroundColor: glyphBackground }]}>
+        <ThemedText type="smallEmphasis" style={{ color: glyphColor }}>
+          {glyph}
+        </ThemedText>
+      </View>
+      <View style={styles.grow}>
+        <ThemedText type="label" numberOfLines={1}>
+          {title}
+        </ThemedText>
+        <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
+          {detail}
+        </ThemedText>
+      </View>
+      {onPress && kind === 'navigation' ? (
+        <SymbolView
+          name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+          size={15}
+          tintColor={theme.textSecondary}
+        />
+      ) : null}
+    </>
+  );
+
+  if (!onPress) {
+    return (
+      <View accessible accessibilityLabel={accessibilityLabel} style={styles.sessionRow}>
+        {body}
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      style={({ pressed }) => [styles.sessionRow, { opacity: pressed ? 0.6 : 1 }]}
+    >
+      {body}
+    </Pressable>
   );
 }
 
@@ -609,36 +1016,61 @@ function categoryLabel(
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
-  content: {
+  fill: { flex: 1 },
+  landingContent: {
     paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three,
+    paddingTop: Spacing.two,
+    paddingBottom: BottomTabInset + Spacing.four,
+    gap: Spacing.two,
+  },
+  listContent: {
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two,
     paddingBottom: BottomTabInset + Spacing.four,
   },
-  header: { gap: Spacing.two, marginBottom: Spacing.two },
-  tiles: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
-  reviewBanner: {
+  pickerCard: { alignItems: 'center', gap: Spacing.one },
+  uploadIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerText: { textAlign: 'center' },
+  fullWidth: { alignSelf: 'stretch', marginTop: Spacing.one },
+  progressCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-    borderWidth: 1,
-    borderRadius: Spacing.three,
-    padding: Spacing.three,
-    marginTop: Spacing.two,
   },
-  actions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.two },
-  grow: { flex: 1 },
-  revertRow: {
+  errorCard: { gap: Spacing.one },
+  section: { gap: Spacing.one },
+  sessionRow: {
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: Spacing.three,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    marginTop: Spacing.two,
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
   },
-  debugLink: { marginTop: Spacing.two, alignSelf: 'flex-start', paddingVertical: Spacing.one },
-  tabsWrap: { marginTop: Spacing.two },
-  footer: { marginTop: Spacing.three },
+  sessionSkeletonLine: { marginTop: Spacing.half },
+  smallIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  diagnosticsLink: {
+    minHeight: 44,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.three,
+  },
+  devCard: { gap: Spacing.two },
+  actions: { flexDirection: 'row', gap: Spacing.two },
+  grow: { flex: 1 },
   empty: { marginTop: Spacing.three },
   overlay: {
     position: 'absolute',
@@ -649,15 +1081,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: Spacing.four,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 20,
   },
-  pwCard: { width: '100%', maxWidth: 420, borderRadius: Spacing.four, padding: Spacing.four, gap: Spacing.two },
+  pwCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: Radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: Spacing.three,
+    gap: Spacing.one,
+  },
+  lockIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   pwInput: {
-    borderRadius: Spacing.two,
+    minHeight: 44,
+    borderRadius: Radius.md,
     borderWidth: 1,
     paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    fontSize: 16,
+    paddingVertical: Spacing.two,
+    fontSize: 14,
     marginTop: Spacing.one,
   },
 });

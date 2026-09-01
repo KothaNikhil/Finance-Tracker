@@ -5,9 +5,10 @@
  * where you left off on another device.
  */
 
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AnimatedIcon } from '@/components/animated-icon';
 import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -42,20 +43,36 @@ export function LoginScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safe}>
         <View style={styles.content}>
-          <ThemedText type="subtitle">Finance Tracker</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.tagline}>
-            Sign in with Google to keep your data yours and synced through your account.
+          <AnimatedIcon />
+          <ThemedText type="title" style={styles.title}>
+            Finance Tracker
+          </ThemedText>
+          <ThemedText type="label" themeColor="accent" style={styles.tagline}>
+            Your money, clearly organized.
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.message}>
+            Import statements, review transactions and keep your data backed up through your Google
+            account.
           </ThemedText>
 
           <Button
             label="Continue with Google"
-            variant="primary"
+            variant="secondary"
             onPress={onGoogle}
-            disabled={busy}
+            loading={busy}
             style={styles.btn}
           />
-
-          {busy && <ActivityIndicator style={styles.spinner} />}
+          <ThemedText type="caption" themeColor="textSecondary" style={styles.restore}>
+            A newer Google Drive backup is restored automatically after sign-in.
+          </ThemedText>
+        </View>
+        <View style={styles.footer}>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.footerText}>
+            Your finance data stays private to your account.
+          </ThemedText>
+          <ThemedText type="caption" themeColor="textSecondary" style={styles.footerText}>
+            Finance Tracker · Secure local-first storage
+          </ThemedText>
         </View>
       </SafeAreaView>
     </ThemedView>
@@ -64,9 +81,19 @@ export function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  safe: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth, justifyContent: 'center' },
-  content: { paddingHorizontal: Spacing.four, gap: Spacing.two },
-  tagline: { marginBottom: Spacing.two },
-  btn: { marginTop: Spacing.one },
-  spinner: { marginTop: Spacing.two },
+  safe: { flex: 1, alignSelf: 'center', width: '100%', maxWidth: MaxContentWidth },
+  content: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.four,
+    gap: Spacing.two,
+  },
+  title: { marginTop: Spacing.two, textAlign: 'center' },
+  tagline: { textAlign: 'center' },
+  message: { maxWidth: 520, textAlign: 'center' },
+  btn: { width: '100%', maxWidth: 520, marginTop: Spacing.three },
+  restore: { maxWidth: 520, textAlign: 'center', marginTop: Spacing.one },
+  footer: { alignItems: 'center', gap: Spacing.half, paddingHorizontal: Spacing.four, paddingBottom: Spacing.four },
+  footerText: { textAlign: 'center' },
 });

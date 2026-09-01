@@ -13,7 +13,7 @@
  */
 
 import type { Direction } from '../domain/money';
-import type { TransferRole } from '../lending/roles';
+import type { LoanPart, TransferRole } from '../lending/roles';
 
 /** The minimal shape of a transaction the dashboards need (a subset of the stored row). */
 export interface AnalyticsTxn {
@@ -42,6 +42,11 @@ export interface AnalyticsTxn {
    * (lend / borrow / repay) are excluded from every total — they're transfers, not spend/income.
    */
   transferRole?: TransferRole | null;
+  /**
+   * Split-loan slices for this source transaction. Principal/repayment slice amounts are excluded
+   * while interest and any unallocated remainder keep their normal cash-flow treatment.
+   */
+  loanAllocations?: readonly { part: LoanPart | null; paise: number }[];
 }
 
 /**

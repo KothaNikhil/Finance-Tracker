@@ -7,7 +7,8 @@
  */
 
 import { totalsFor, type AnalyticsTxn, type TxnFilter } from '@/core/analytics';
-import { categories, transactions, type NewTransactionRow } from '@/core/db/schema';
+import { categories, loanAllocations, transactions, type NewTransactionRow } from '@/core/db/schema';
+import { isTransferRole, type LoanPart } from '@/core/lending/roles';
 import { getDb, getSqlite } from '@/services/db/database';
 import { periodTotalsQuery } from '@/services/db/queries/aggregates';
 import { selectFilteredTxns } from '@/services/db/queries/transactions';
@@ -85,7 +86,32 @@ export interface ParityResult {
  */
 export function runAnalyticsParityCheck(filter: TxnFilter = {}): ParityResult {
   const db = getDb();
-  const rows = selectFilteredTxns(db, filter) as unknown as AnalyticsTxn[];
+  const allocationsByTxn = new Map<number, { part: LoanPart | null; paise: number }[]>();
+  for (const allocation of db
+    .select({
+      txnId: loanAllocations.txnId,
+      part: loanAllocations.part,
+      paise: loanAllocations.paise,
+    })
+    .from(loanAllocations)
+    .all()) {
+    const part: LoanPart | null =
+      allocation.part === 'principal' ||
+      allocation.part === 'repayment' ||
+      allocation.part === 'interest'
+        ? allocation.part
+        : null;
+    const slices = allocationsByTxn.get(allocation.txnId) ?? [];
+    slices.push({ part, paise: allocation.paise });
+    allocationsByTxn.set(allocation.txnId, slices);
+  }
+  const rows: AnalyticsTxn[] = selectFilteredTxns(db, filter).map((row) => ({
+    ...row,
+    direction:
+      row.direction === 'in' || row.direction === 'self' ? row.direction : 'out',
+    transferRole: isTransferRole(row.transferRole) ? row.transferRole : null,
+    loanAllocations: allocationsByTxn.get(row.id),
+  }));
   const pureT = totalsFor(rows);
   const sqlRow = periodTotalsQuery(db, filter).get();
 
