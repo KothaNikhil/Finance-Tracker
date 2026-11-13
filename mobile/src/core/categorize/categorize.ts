@@ -1,18 +1,19 @@
 /**
  * The auto-categorizer. One pure function, `categorize`, decides a category + sub-category for a
- * transaction. It resolves the two independently and then composes them:
+ * transaction.
  *
- *   CATEGORY — strongest to weakest:
+ *   WITH A NOTE — the note (learned note rule, then static note keyword) decides, because people
+ *   describe *what* they bought in the note, while one payee (a person) can be paid for many things.
+ *   The note beats the learned payee and the merchant brand. A Paytm tag can only confirm it:
+ *     - tag agrees  → keep the note's category (and its sub-category), no review
+ *     - tag differs → still suggest the note's category, but flag the row for review
+ *   Intentional transfers (transfer tag, or a self/received row with no tag) are never re-filed.
+ *
+ *   WITHOUT A NOTE — strongest to weakest:
  *     1. Learned payee   — what the user's past edits taught us (by VPA, then merchant name)
  *     2. Paytm tag       — the tag Paytm/the user put on it (auto-filled from merchant+note)
  *     3. Merchant brand  — a known brand keyword in the counterparty / narration text
  *     4. Statement kind  — a last-resort guess from the wording ("Paid to", "Gold Coin…", …)
- *
- *   SUB-CATEGORY — the user's NOTE wins when it fits the chosen category (people mostly describe
- *   *what* they bought in the note). When the payee is unknown and nothing above matched, the note
- *   also supplies the category. But we never silently override a stronger signal: if the note
- *   implies a DIFFERENT category than the one chosen above, we keep the stronger category and flag
- *   the row for review.
  *
  * Anything weak or unmatched comes back with `needsReview: true` so the UI can flag it.
  */
@@ -226,6 +227,8 @@ interface NoteMatch {
   categoryId: number;
   subcategoryId: number | null;
   ambiguous: boolean;
+  /** True when a rule the user taught us matched (stronger than a static keyword). */
+  learned: boolean;
 }
 
 /**
@@ -247,7 +250,7 @@ function matchNote(input: CategorizeInput, index: CategoryIndex, learned: Learne
     const cat = index.byId.get(rule.categoryId);
     if (!cat) continue; // category deleted since it was learned
     const subValid = rule.subcategoryId != null && cat.subcategories.some((s) => s.id === rule.subcategoryId);
-    return { categoryId: cat.id, subcategoryId: subValid ? rule.subcategoryId : null, ambiguous: false };
+    return { categoryId: cat.id, subcategoryId: subValid ? rule.subcategoryId : null, ambiguous: false, learned: true };
   }
 
   // 2. Static note keywords — whole-word match (pad so we match whole tokens only).
@@ -256,7 +259,7 @@ function matchNote(input: CategorizeInput, index: CategoryIndex, learned: Learne
     if (rule.on !== 'note') continue;
     if (!padded.includes(` ${rule.keyword} `)) continue;
     const resolved = resolveByName(index, rule.category, rule.subcategory);
-    if (resolved) return { ...resolved, ambiguous: !!rule.ambiguous };
+    if (resolved) return { ...resolved, ambiguous: !!rule.ambiguous, learned: false };
   }
   return null;
 }
@@ -278,50 +281,63 @@ function matchKind(input: CategorizeInput, index: CategoryIndex, tagWasPresent: 
   };
 }
 
+/** A row the user means as "not spending" (self-transfer / money received) — a note must not re-file it. */
+function isIntentionalTransfer(input: CategorizeInput, tag: CategorySuggestion | null): boolean {
+  if (tag) return tag.via === 'transfer';
+  const def = KIND_DEFAULTS[input.kind] ?? KIND_DEFAULTS.other;
+  return def.category == null && !def.review;
+}
+
+/** A note is present: it picks the category; a Paytm tag can only confirm it or send it to review. */
+function decideFromNote(input: CategorizeInput, note: NoteMatch, tag: CategorySuggestion | null): CategorySuggestion {
+  const fromNote = { categoryId: note.categoryId, subcategoryId: note.subcategoryId, via: 'note' as const };
+
+  if (!tag) {
+    return {
+      ...fromNote,
+      confidence: note.ambiguous ? 'low' : note.learned ? 'high' : 'medium',
+      needsReview: note.ambiguous,
+      reason: 'From note',
+    };
+  }
+  if (tag.categoryId === note.categoryId) {
+    // Two ambiguous guesses agreeing (e.g. "petrol" + #Fuel → Bike?) still don't settle Bike vs Car.
+    const bothUnsure = note.ambiguous && tag.needsReview;
+    return {
+      ...fromNote,
+      subcategoryId: note.subcategoryId ?? tag.subcategoryId,
+      confidence: bothUnsure ? 'low' : 'high',
+      needsReview: bothUnsure,
+      reason: `Note and tag "${input.rawTag}" agree`,
+    };
+  }
+  return {
+    ...fromNote,
+    confidence: 'low',
+    needsReview: true,
+    reason: `Note differs from tag "${input.rawTag}" — confirm`,
+  };
+}
+
 /**
  * Decide a category + sub-category for one transaction. Pure: same inputs → same output, no side
- * effects. `learned` may be empty (a fresh install with no edits yet).
- *
- * We resolve a `base` category from the priority chain, then let the note refine (or, for an
- * unknown payee, supply) it — see the file header for the rules.
+ * effects. `learned` may be empty (a fresh install with no edits yet). See the file header for the
+ * priority rules.
  */
 export function categorize(
   input: CategorizeInput,
   index: CategoryIndex,
   learned: LearnedRule[] = [],
 ): CategorySuggestion {
-  const base =
-    matchLearnedPayee(input, index, learned) ??
-    matchTag(input, index) ??
-    matchBrand(input, index) ??
-    matchKind(input, index, normalizeTag(input.rawTag) !== '');
-
+  const tag = matchTag(input, index);
   const note = matchNote(input, index, learned);
 
-  // Base already has a category: the note only touches the sub-category.
-  if (base.categoryId != null) {
-    if (!note) return base;
-    if (note.categoryId === base.categoryId) {
-      // Note describes the same category → it wins on the sub-category (that's the whole point).
-      return { ...base, subcategoryId: note.subcategoryId ?? base.subcategoryId };
-    }
-    // Note implies a DIFFERENT category than the stronger signal — keep the stronger one, but ask.
-    return { ...base, needsReview: true, reason: `${base.reason} — note differs, confirm` };
-  }
+  if (note && !isIntentionalTransfer(input, tag)) return decideFromNote(input, note, tag);
 
-  // No category yet. Never override an intentional transfer (self-transfer / "Money Received").
-  if (base.via === 'transfer') return base;
-
-  // Unknown payee, no tag: the note is our best (and only) category signal.
-  if (note) {
-    return {
-      categoryId: note.categoryId,
-      subcategoryId: note.subcategoryId,
-      confidence: note.ambiguous ? 'low' : 'medium',
-      needsReview: note.ambiguous,
-      via: 'note',
-      reason: 'From note',
-    };
-  }
-  return base;
+  return (
+    matchLearnedPayee(input, index, learned) ??
+    tag ??
+    matchBrand(input, index) ??
+    matchKind(input, index, normalizeTag(input.rawTag) !== '')
+  );
 }

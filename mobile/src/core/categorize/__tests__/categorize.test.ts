@@ -262,15 +262,62 @@ describe('categorize — notes drive the sub-category', () => {
     expect(s.subcategoryId).toBe(subId(food(), 'Biriyani'));
   });
 
-  it('keeps the stronger category but flags review when the note implies a different one', () => {
-    // Learned payee = Groceries, but the note says "uthappam" (a static keyword? no) → use a static
-    // Food note-word to force the conflict: note "dosa" (Food) vs learned Groceries.
+  it('lets the note beat a learned payee (one person can be paid for many things)', () => {
+    // Learned payee = Groceries, but this payment's note "dosa" (static Food word) says Food.
     const learned: LearnedRule[] = [
       { matcherType: 'merchant', matcherKey: 'linga reddy', categoryId: groceries().id, subcategoryId: null },
     ];
     const s = categorize(input({ counterpartyName: 'Linga Reddy', remarks: 'dosa' }), INDEX, learned);
-    expect(s.categoryId).toBe(groceries().id); // stronger signal kept
-    expect(s.needsReview).toBe(true); // but surfaced for confirmation
+    expect(s.categoryId).toBe(food().id);
+    expect(s.via).toBe('note');
+    expect(s.needsReview).toBe(false);
+  });
+
+  it('lets a learned note beat a learned payee', () => {
+    const learned: LearnedRule[] = [
+      { matcherType: 'merchant', matcherKey: 'ravi', categoryId: catId('Fitness'), subcategoryId: null },
+      { matcherType: 'note', matcherKey: 'uthappam', categoryId: food().id, subcategoryId: subId(food(), 'Dosa') },
+    ];
+    const s = categorize(input({ counterpartyName: 'Ravi', userNote: 'uthappam' }), INDEX, learned);
+    expect(s.categoryId).toBe(food().id);
+    expect(s.subcategoryId).toBe(subId(food(), 'Dosa'));
+    expect(s.confidence).toBe('high');
+  });
+
+  it('falls back to the learned payee when there is no note', () => {
+    const learned: LearnedRule[] = [
+      { matcherType: 'merchant', matcherKey: 'ravi', categoryId: catId('Fitness'), subcategoryId: null },
+    ];
+    const s = categorize(input({ counterpartyName: 'Ravi' }), INDEX, learned);
+    expect(s.categoryId).toBe(catId('Fitness'));
+    expect(s.via).toBe('learned');
+  });
+
+  it('lets the note beat a merchant brand', () => {
+    // "ZEPTO" is a Groceries brand, but the note says "dosa" (Food).
+    const s = categorize(input({ counterpartyName: 'ZEPTO Marketplace', remarks: 'dosa' }), INDEX);
+    expect(s.categoryId).toBe(food().id);
+    expect(s.via).toBe('note');
+  });
+
+  it('suggests the note category but flags review when the Paytm tag disagrees', () => {
+    const s = categorize(input({ rawTag: '#🏥 Medical', remarks: 'dosa' }), INDEX);
+    expect(s.categoryId).toBe(food().id);
+    expect(s.via).toBe('note');
+    expect(s.needsReview).toBe(true);
+  });
+
+  it('proceeds without review when the note and the Paytm tag agree', () => {
+    const s = categorize(input({ rawTag: '#🥘 Food', remarks: 'dosa' }), INDEX);
+    expect(s.categoryId).toBe(food().id);
+    expect(s.confidence).toBe('high');
+    expect(s.needsReview).toBe(false);
+  });
+
+  it('still flags review when an ambiguous note and an ambiguous tag agree (Bike vs Car fuel)', () => {
+    const s = categorize(input({ rawTag: '#⛽️ Fuel', remarks: 'petrol' }), INDEX);
+    expect(s.categoryId).toBe(catId('Bike'));
+    expect(s.needsReview).toBe(true);
   });
 
   it('supplies the category from the note when the payee is unknown', () => {
