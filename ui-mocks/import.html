@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Import</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    /* Import uses a 12px gutter (Spacing.three) and an 8px gap (Spacing.two), not the 16px/12px default. */
+    .phone-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .screen.imp { padding: var(--sp-2) var(--sp-3) var(--sp-4); gap: var(--sp-2); }
+    .screen.rv { padding: var(--sp-2) var(--sp-3) var(--sp-4); gap: 0; }
+    /* ThemedText "overline" has no textTransform in the app; mock.css uppercases it. */
+    .keep-case { text-transform: none; }
+
+    /* ImportStepIndicator: 22px circles, 1px joining line drawn as two halves per step */
+    .steps { display: flex; align-items: flex-start; }
+    .step { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--sp-half); }
+    .step__line { position: absolute; top: 10.5px; height: 1px; background: var(--border-strong); }
+    .step__line--l { left: 0; right: 50%; }
+    .step__line--r { left: 50%; right: 0; }
+    .step__line.is-on { background: var(--accent); }
+    .step__circle {
+      position: relative; z-index: 1; width: 22px; height: 22px; border-radius: var(--r-pill);
+      border: 1px solid var(--border-strong); background: var(--background-element); color: var(--text-secondary);
+      display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 14px;
+    }
+    .step__circle.is-on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+    /* Landing */
+    .info-circle {
+      width: 26px; height: 26px; border-radius: 13px; border: var(--hairline) solid var(--border); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; color: var(--text-secondary);
+    }
+    .pick-card { display: flex; flex-direction: column; align-items: center; gap: var(--sp-1); }
+    .pick-card .btn { align-self: stretch; margin-top: var(--sp-1); }
+    .upload-icon {
+      width: 40px; height: 40px; border-radius: var(--r-md); background: var(--accent-muted); color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .progress-row { display: flex; align-items: center; gap: var(--sp-2); }
+    .err-card { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .err-card .btn { align-self: stretch; }
+    .section { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .fmt-list { border: var(--hairline) solid var(--border); border-radius: var(--r-md); background: var(--background-element); overflow: hidden; }
+    .fmt-row { min-height: 40px; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+    .fmt-row + .fmt-row { border-top: var(--hairline) solid var(--border); }
+    .fmt-row__icon { font-size: 15px; line-height: 19px; }
+    .fmt-row__meta { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+    .session-row { min-height: 48px; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+    .session-row .chev { font-size: 15px; color: var(--text-secondary); }
+    .glyph {
+      width: 30px; height: 30px; border-radius: var(--r-pill); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .glyph--accent { background: var(--accent-muted); color: var(--accent); }
+    .glyph--muted  { background: var(--background-selected); color: var(--text-secondary); }
+    .glyph--review { background: var(--review-muted); color: var(--review); }
+    .glyph--spend  { background: var(--spend-muted); color: var(--spend); }
+    .diag-link { min-height: 44px; align-self: center; display: flex; align-items: center; justify-content: center; padding: 0 var(--sp-3); color: var(--accent); }
+    .version { text-align: center; }
+
+    /* ActivityIndicator (size small) */
+    .spinner {
+      width: 20px; height: 20px; flex-shrink: 0; border-radius: 50%;
+      border: 2px solid var(--accent); border-right-color: transparent; animation: spin 0.9s linear infinite;
+    }
+    .spinner--on-accent { border-color: var(--on-accent); border-right-color: transparent; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+    /* PasswordPrompt: an inline absolute overlay in the screen's view (the tab bar stays visible) */
+    .pw-card {
+      width: 100%; max-width: 420px; background: var(--background-element);
+      border: var(--hairline) solid var(--border); border-radius: var(--r-lg);
+      padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1);
+    }
+    .lock-icon {
+      width: 32px; height: 32px; border-radius: var(--r-md); background: var(--accent-muted); color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pw-input {
+      min-height: 44px; margin-top: var(--sp-1); display: flex; align-items: center;
+      border: 1px solid var(--border); border-radius: var(--r-md); background: var(--background);
+      padding: var(--sp-2) var(--sp-3); font-size: 14px; line-height: 19px; color: var(--text); letter-spacing: 2px;
+    }
+    .pw-input .caret { width: 1px; height: 18px; background: var(--accent); margin-left: 1px; }
+    .pw-actions { display: flex; gap: var(--sp-2); }
+    .pw-actions .btn { flex: 1; }
+
+    /* ImportPreview: fixed header, scrolling rows, fixed confirm bar */
+    .pv { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .pv__head { padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
+    .title-row { min-height: 34px; display: flex; align-items: center; gap: var(--sp-2); }
+    .pv__back { width: 28px; min-height: 34px; display: flex; align-items: center; color: var(--accent); }
+    .pv__list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--sp-3) var(--sp-2); scrollbar-width: none; }
+    .pv__list::-webkit-scrollbar { display: none; }
+    .file-card { display: flex; align-items: center; gap: var(--sp-2); }
+    .file-icon {
+      width: 30px; height: 30px; border-radius: var(--r-sm); background: var(--accent-muted); color: var(--accent);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .summary-card { overflow: hidden; }
+    .metric-grid { display: flex; flex-wrap: wrap; padding: var(--sp-1) 0; }
+    .metric { width: 33.333%; display: flex; flex-direction: column; align-items: center; padding: var(--sp-1); text-align: center; }
+    .totals { display: flex; border-top: var(--hairline) solid var(--border); padding: var(--sp-2) 0; }
+    .total { flex: 1; display: flex; flex-direction: column; align-items: center; }
+    .total + .total { border-left: var(--hairline) solid var(--border); }
+    /* InfoDisclosure: content + 24px plain IconButton with a 15px info icon */
+    .disc { padding: 0 var(--sp-2); margin-bottom: var(--sp-half); }
+    .disc__row { display: flex; align-items: center; gap: var(--sp-1); margin-right: calc(-1 * var(--sp-1)); }
+    .disc__content { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+    .info-btn {
+      width: 24px; height: 24px; border-radius: var(--r-md); flex-shrink: 0; color: var(--accent);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .info-btn .ms { font-size: 15px; }
+    .disc__text { margin-top: var(--sp-half); }
+    .pv-row { min-height: 48px; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+    .pv-row + .pv-row { border-top: var(--hairline) solid var(--border); }
+    .pv-row__end { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-half); max-width: 48%; }
+    .cat-chip {
+      max-width: 100%; border-radius: var(--r-xs); padding: 1px var(--sp-1);
+      font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cat-chip--accent { background: var(--accent-muted); color: var(--accent); }
+    .cat-chip--income { background: var(--income-muted); color: var(--income); }
+    .cat-chip--review { background: var(--review-muted); color: var(--review); }
+    .pv-empty { padding: var(--sp-5) var(--sp-3); text-align: center; }
+    .skip-card { display: flex; flex-direction: column; gap: var(--sp-half); margin-top: var(--sp-2); }
+    .pv__bar {
+      border-top: var(--hairline) solid var(--border); background: var(--background);
+      padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1);
+    }
+
+    /* ImportRowDetail sheet */
+    .sheet.rd { gap: 0; padding-bottom: 0; }
+    .rd .sheet__body { gap: var(--sp-2); padding-bottom: var(--sp-4); }
+    .rd__heading { display: flex; flex-direction: column; gap: var(--sp-half); }
+    .rd__suggest { border: var(--hairline) solid var(--border); border-radius: var(--r-md); padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-half); }
+    .detail-row { min-height: 36px; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+    .detail-row__label { width: 104px; flex-shrink: 0; }
+    .detail-row__value { flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+    .two-line { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* SupportedFormatsSheet */
+    .sheet.sf { gap: 0; }
+    .sf__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-1); }
+    .sf__intro { margin-bottom: var(--sp-2); }
+    .sf__privacy { margin: var(--sp-2) 0 var(--sp-3); }
+
+    /* Review step: ImportResultHeader + TransactionList (card rows, month groups) */
+    .rv-head { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+    .rv-head .title-row { justify-content: space-between; }
+    .banner__title { display: block; }
+    .review-card { display: flex; align-items: center; gap: var(--sp-2); }
+    .review-card__copy { flex: 1; min-width: 0; min-height: 36px; display: flex; flex-direction: column; justify-content: center; }
+    .period-row { display: flex; gap: var(--sp-1); padding: var(--sp-half) 0; overflow-x: auto; scrollbar-width: none; }
+    .period-row::-webkit-scrollbar { display: none; }
+    .period-head { padding: var(--sp-2) 0 var(--sp-half); background: var(--background); }
+    .card-wrap { margin-bottom: var(--sp-1); }
+    .card-row { background: var(--background-element); }
+    .card-row .txn-row__left { gap: 0; }
+    .rev-badge { border-radius: var(--r-xs); padding: 1px var(--sp-1); background: var(--review); color: var(--on-review); font-size: 11px; line-height: 14px; flex-shrink: 0; }
+    .tag-chip {
+      border-radius: var(--r-xs); padding: 1px var(--sp-1); border: var(--hairline) solid var(--border);
+      color: var(--text-secondary); font-size: 11px; line-height: 14px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; min-width: 0;
+    }
+    .txn-meta { flex-shrink: 1; }
+    .rv-footer { text-align: center; margin-top: var(--sp-2); }
+    .empty.rv-empty { margin-top: var(--sp-3); }
+
+    /* Android system AlertDialog (Alert.alert): an OS surface, approximated */
+    .alert {
+      width: 100%; max-width: 312px; background: var(--background-element); border-radius: var(--r-xl);
+      padding: 24px 24px 12px; display: flex; flex-direction: column; gap: var(--sp-3);
+      box-shadow: 0 8px 28px color-mix(in srgb, var(--shadow) 28%, transparent);
+    }
+    .alert__title { font-size: 18px; line-height: 24px; font-weight: 500; }
+    .alert__actions { display: flex; justify-content: flex-end; gap: var(--sp-1); }
+    .alert__btn { padding: 10px 12px; color: var(--accent); font-size: 14px; line-height: 18px; font-weight: 500; }
+  </style>
+</head>
+<body>
+  <main class="mock-page">
+    <p class="mock-intro">The Import tab, step by step: pick a file (File), check the unsaved preview (Preview), then work with the saved rows (Review). Source: <code>mobile/src/app/import.tsx</code>, <code>components/import-step-indicator.tsx</code>, <code>import-preview.tsx</code>, <code>import-row-detail.tsx</code>, <code>import-result.tsx</code>, <code>supported-formats.tsx</code>, <code>txn-row.tsx</code>, <code>transaction-list.tsx</code>, <code>core/import/formats.ts</code>. Import uses a 12px side gutter (<code>Spacing.three</code>), not the 16px default. Confirmations are native <code>Alert.alert</code> dialogs, drawn here as an approximation of the Android system dialog. The <code>__DEV__</code>-only “Development helpers” card is not shown.</p>
+    <div class="frames">
+
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen imp">
+<header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Import statement</h1><span class="info-circle t-small-em" aria-label="Which statements can I import?">ⓘ</span></div></header>
+<div class="steps" role="progressbar" aria-label="Import progress: step 1 of 3, File">
+<div class="step"><span class="step__line step__line--r"></span><span class="step__circle is-on">1</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__line step__line--r"></span><span class="step__circle">2</span><span class="t-caption muted">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card pick-card"><span class="upload-icon t-heading">↑</span><span class="t-heading center">Choose a statement</span><span class="t-caption muted center">Import .xlsx, .xls, or .pdf from your device.</span><button class="btn btn--primary">Choose file</button><span class="t-caption muted center">▣ Your financial data is processed on this device.</span></div>
+<div class="section"><span class="t-overline keep-case muted">Supported statements</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div></div>
+<div><div class="list-section__header"><span class="t-overline muted">IMPORT STATUS</span></div><div class="list"><div class="session-row"><span class="glyph glyph--muted t-small-em">◷</span><div class="grow"><div class="t-label truncate">Nothing imported this session</div><div class="t-caption muted truncate">Your saved history is available in Activity.</div></div></div>
+<div class="session-row"><span class="glyph glyph--review t-small-em">!</span><div class="grow"><div class="t-label truncate">4 transactions need review</div><div class="t-caption muted truncate">Categorize them here, across every import.</div></div><span class="ms chev">chevron_right</span></div>
+<div class="session-row"><span class="glyph glyph--spend t-small-em">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Axis_Sep_2026.xls · 46 added · 2026-11-08</div></div></div></div></div>
+<span class="diag-link t-small">ⓘ Import diagnostics</span>
+<span class="t-caption muted version">Finance Tracker v1.0.214 (261112.0941)</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+
+</div>
+<p class="frame-caption"><b>1 · Choose file (fresh session)</b>Release build. Nothing imported yet this session; the needs-review queue (all history) and the last import batch are still offered. Revert is an action row, so it has no chevron.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen imp">
+<header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Import statement</h1><span class="info-circle t-small-em" aria-label="Which statements can I import?">ⓘ</span></div></header>
+<div class="steps" role="progressbar" aria-label="Import progress: step 1 of 3, File">
+<div class="step"><span class="step__line step__line--r"></span><span class="step__circle is-on">1</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__line step__line--r"></span><span class="step__circle">2</span><span class="t-caption muted">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card pick-card"><span class="upload-icon t-heading">↑</span><span class="t-heading center">Choose a statement</span><span class="t-caption muted center">Import .xlsx, .xls, or .pdf from your device.</span><button class="btn btn--primary">Choose file</button><span class="t-caption muted center">▣ Your financial data is processed on this device.</span></div>
+<div class="section"><span class="t-overline keep-case muted">Supported statements</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div></div>
+<div><div class="list-section__header"><span class="t-overline muted">IMPORT STATUS</span></div><div class="list"><div class="session-row"><span class="glyph glyph--muted t-small-em">◷</span><div class="grow"><div class="t-label truncate">Nothing imported this session</div><div class="t-caption muted truncate">Your saved history is available in Activity.</div></div></div>
+<div class="session-row"><span class="glyph glyph--review t-small-em">!</span><div class="grow"><div class="t-label truncate">4 transactions need review</div><div class="t-caption muted truncate">Categorize them here, across every import.</div></div><span class="ms chev">chevron_right</span></div>
+<div class="session-row"><span class="glyph glyph--spend t-small-em">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Axis_Sep_2026.xls · 46 added · 2026-11-08</div></div></div></div></div>
+<span class="diag-link t-small">ⓘ Import diagnostics</span>
+<span class="t-caption muted version">Finance Tracker v1.0.214 (261112.0941)</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+<div class="overlay"><div class="sheet sf" role="dialog" aria-label="Supported statements"><div class="sheet-handle"></div><div class="sf__header"><span class="t-small-em">Supported statements</span><span class="t-link muted">Close</span></div><span class="t-small muted sf__intro">Choose any of these files and the app detects the format automatically.</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div><span class="t-small muted sf__privacy">Passwords and statement contents are processed on this device.</span></div></div>
+</div>
+<p class="frame-caption"><b>2 · Supported statements sheet</b>Tapping the ⓘ in the header. The SupportedFormatsSheet is a BottomSheet (a Modal), so it covers the tab bar.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen imp">
+<header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Import statement</h1><span class="info-circle t-small-em" aria-label="Which statements can I import?">ⓘ</span></div></header>
+<div class="steps" role="progressbar" aria-label="Import progress: step 1 of 3, File">
+<div class="step"><span class="step__line step__line--r"></span><span class="step__circle is-on">1</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__line step__line--r"></span><span class="step__circle">2</span><span class="t-caption muted">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card pick-card"><span class="upload-icon t-heading">↑</span><span class="t-heading center">Choose a statement</span><span class="t-caption muted center">Import .xlsx, .xls, or .pdf from your device.</span><button class="btn btn--primary" disabled aria-label="Choose file" aria-busy="true"><span class="spinner spinner--on-accent"></span></button><span class="t-caption muted center">▣ Your financial data is processed on this device.</span></div>
+<div class="card card--accent progress-row"><span class="spinner"></span><div class="grow"><div class="t-small-em">Reading statement</div><div class="t-caption muted">Detecting the format, reconciling totals, and preparing a safe preview…</div></div></div>
+<div class="section"><span class="t-overline keep-case muted">Supported statements</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div></div>
+<div><div class="list-section__header"><span class="t-overline muted">IMPORT STATUS</span></div><div class="list"><div class="session-row"><span class="glyph glyph--accent t-small-em">✓</span><div class="grow"><div class="t-label truncate">21 transactions imported this session</div><div class="t-caption muted truncate">View the session list and review status.</div></div><span class="ms chev">chevron_right</span></div>
+<div class="session-row"><span class="glyph glyph--review t-small-em">!</span><div class="grow"><div class="t-label truncate">9 transactions need review</div><div class="t-caption muted truncate">Categorize them here, across every import.</div></div><span class="ms chev">chevron_right</span></div>
+<div class="session-row"><span class="glyph glyph--spend t-small-em">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Paytm_Oct_2026.xlsx · 21 added · 2026-11-12</div></div></div></div></div>
+<span class="diag-link t-small">ⓘ Import diagnostics</span>
+<span class="t-caption muted version">Finance Tracker v1.0.214 (261112.0941)</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="9"></nav>
+
+</div>
+<p class="frame-caption"><b>3 · Reading statement</b>After a file is picked: Choose file shows only its spinner (disabled), and the accent progress card appears under the picker. Here, earlier imports this session already saved 21 rows.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="phone-body">
+<div class="status-bar"></div>
+<div class="screen imp">
+<header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Import statement</h1><span class="info-circle t-small-em" aria-label="Which statements can I import?">ⓘ</span></div></header>
+<div class="steps" role="progressbar" aria-label="Import progress: step 1 of 3, File">
+<div class="step"><span class="step__line step__line--r"></span><span class="step__circle is-on">1</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__line step__line--r"></span><span class="step__circle">2</span><span class="t-caption muted">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card pick-card"><span class="upload-icon t-heading">↑</span><span class="t-heading center">Choose a statement</span><span class="t-caption muted center">Import .xlsx, .xls, or .pdf from your device.</span><button class="btn btn--primary">Choose file</button><span class="t-caption muted center">▣ Your financial data is processed on this device.</span></div>
+<div class="section"><span class="t-overline keep-case muted">Supported statements</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div></div>
+<div><div class="list-section__header"><span class="t-overline muted">IMPORT STATUS</span></div><div class="list"><div class="session-row"><span class="glyph glyph--muted t-small-em">◷</span><div class="grow"><div class="t-label truncate">Nothing imported this session</div><div class="t-caption muted truncate">Your saved history is available in Activity.</div></div></div>
+<div class="session-row"><span class="glyph glyph--review t-small-em">!</span><div class="grow"><div class="t-label truncate">4 transactions need review</div><div class="t-caption muted truncate">Categorize them here, across every import.</div></div><span class="ms chev">chevron_right</span></div>
+<div class="session-row"><span class="glyph glyph--spend t-small-em">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Axis_Sep_2026.xls · 46 added · 2026-11-08</div></div></div></div></div>
+<span class="diag-link t-small">ⓘ Import diagnostics</span>
+<span class="t-caption muted version">Finance Tracker v1.0.214 (261112.0941)</span>
+</div>
+<div class="overlay overlay--center" role="dialog" aria-label="Unlock statement">
+<div class="pw-card">
+<span class="lock-icon t-small-em">▣</span>
+<span class="t-heading">Unlock statement</span>
+<span class="t-small muted">“Axis_CC_Oct_2026.pdf” is password-protected. Enter its password to prepare the import preview.</span>
+<div class="pw-input"><span>••••••••••</span><span class="caret"></span></div>
+<span class="t-caption muted">The password and file contents stay on this device.</span>
+<div class="pw-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Unlock</button></div>
+</div></div>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+
+</div>
+<p class="frame-caption"><b>4 · Unlock locked PDF</b>PasswordPrompt is an inline absolute overlay inside the screen view, so the native tab bar stays visible and is not dimmed. Unlock is enabled once something is typed (disabled while empty).</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="phone-body">
+<div class="status-bar"></div>
+<div class="screen imp">
+<header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Import statement</h1><span class="info-circle t-small-em" aria-label="Which statements can I import?">ⓘ</span></div></header>
+<div class="steps" role="progressbar" aria-label="Import progress: step 1 of 3, File">
+<div class="step"><span class="step__line step__line--r"></span><span class="step__circle is-on">1</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__line step__line--r"></span><span class="step__circle">2</span><span class="t-caption muted">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card pick-card"><span class="upload-icon t-heading">↑</span><span class="t-heading center">Choose a statement</span><span class="t-caption muted center">Import .xlsx, .xls, or .pdf from your device.</span><button class="btn btn--primary">Choose file</button><span class="t-caption muted center">▣ Your financial data is processed on this device.</span></div>
+<div class="section"><span class="t-overline keep-case muted">Supported statements</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div></div>
+<div><div class="list-section__header"><span class="t-overline muted">IMPORT STATUS</span></div><div class="list"><div class="session-row"><span class="glyph glyph--muted t-small-em">◷</span><div class="grow"><div class="t-label truncate">Nothing imported this session</div><div class="t-caption muted truncate">Your saved history is available in Activity.</div></div></div>
+<div class="session-row"><span class="glyph glyph--review t-small-em">!</span><div class="grow"><div class="t-label truncate">4 transactions need review</div><div class="t-caption muted truncate">Categorize them here, across every import.</div></div><span class="ms chev">chevron_right</span></div>
+<div class="session-row"><span class="glyph glyph--spend t-small-em">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Axis_Sep_2026.xls · 46 added · 2026-11-08</div></div></div></div></div>
+<span class="diag-link t-small">ⓘ Import diagnostics</span>
+<span class="t-caption muted version">Finance Tracker v1.0.214 (261112.0941)</span>
+</div>
+<div class="overlay overlay--center" role="dialog" aria-label="Unlock statement">
+<div class="pw-card">
+<span class="lock-icon t-small-em">▣</span>
+<span class="t-heading">Unlock statement</span>
+<span class="t-small muted">“Axis_CC_Oct_2026.pdf” is password-protected. Enter its password to prepare the import preview.</span>
+<div class="pw-input"><span>••••••••••</span><span class="caret"></span></div>
+<span class="t-small c-spend">Incorrect password. Check it and try again.</span>
+<span class="t-caption muted">The password and file contents stay on this device.</span>
+<div class="pw-actions"><button class="btn">Cancel</button><button class="btn btn--primary">Unlock</button></div>
+</div></div>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+
+</div>
+<p class="frame-caption"><b>5 · Wrong password</b>WrongPasswordError keeps the prompt open and shows the spend-coloured message above the privacy caption.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="phone-body">
+<div class="status-bar"></div>
+<div class="screen imp">
+<header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Import statement</h1><span class="info-circle t-small-em" aria-label="Which statements can I import?">ⓘ</span></div></header>
+<div class="steps" role="progressbar" aria-label="Import progress: step 1 of 3, File">
+<div class="step"><span class="step__line step__line--r"></span><span class="step__circle is-on">1</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__line step__line--r"></span><span class="step__circle">2</span><span class="t-caption muted">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card pick-card"><span class="upload-icon t-heading">↑</span><span class="t-heading center">Choose a statement</span><span class="t-caption muted center">Import .xlsx, .xls, or .pdf from your device.</span><button class="btn btn--primary">Choose file</button><span class="t-caption muted center">▣ Your financial data is processed on this device.</span></div>
+<div class="section"><span class="t-overline keep-case muted">Supported statements</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div></div>
+<div><div class="list-section__header"><span class="t-overline muted">IMPORT STATUS</span></div><div class="list"><div class="session-row"><span class="glyph glyph--muted t-small-em">◷</span><div class="grow"><div class="t-label truncate">Nothing imported this session</div><div class="t-caption muted truncate">Your saved history is available in Activity.</div></div></div>
+<div class="session-row"><span class="glyph glyph--review t-small-em">!</span><div class="grow"><div class="t-label truncate">4 transactions need review</div><div class="t-caption muted truncate">Categorize them here, across every import.</div></div><span class="ms chev">chevron_right</span></div>
+<div class="session-row"><span class="glyph glyph--spend t-small-em">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Axis_Sep_2026.xls · 46 added · 2026-11-08</div></div></div></div></div>
+<span class="diag-link t-small">ⓘ Import diagnostics</span>
+<span class="t-caption muted version">Finance Tracker v1.0.214 (261112.0941)</span>
+</div>
+<div class="overlay overlay--center" role="dialog" aria-label="Unlock statement">
+<div class="pw-card">
+<span class="lock-icon t-small-em">▣</span>
+<span class="t-heading">Unlock statement</span>
+<span class="t-small muted">“Axis_CC_Oct_2026.pdf” is password-protected. Enter its password to prepare the import preview.</span>
+<div class="pw-input"><span>••••••••••</span></div>
+<div class="progress-row"><span class="spinner"></span><span class="t-small muted">Unlocking and reading statement…</span></div>
+<span class="t-caption muted">The password and file contents stay on this device.</span>
+<div class="pw-actions"><button class="btn" disabled>Cancel</button><button class="btn btn--primary" disabled aria-label="Unlock" aria-busy="true"><span class="spinner spinner--on-accent"></span></button></div>
+</div></div>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+
+</div>
+<p class="frame-caption"><b>6 · Unlocking</b>busy: the input is not editable, Cancel is disabled, and Unlock shows only a spinner. The busy row sits above the caption.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen imp">
+<header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Import statement</h1><span class="info-circle t-small-em" aria-label="Which statements can I import?">ⓘ</span></div></header>
+<div class="steps" role="progressbar" aria-label="Import progress: step 1 of 3, File">
+<div class="step"><span class="step__line step__line--r"></span><span class="step__circle is-on">1</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__line step__line--r"></span><span class="step__circle">2</span><span class="t-caption muted">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card pick-card"><span class="upload-icon t-heading">↑</span><span class="t-heading center">Choose a statement</span><span class="t-caption muted center">Import .xlsx, .xls, or .pdf from your device.</span><button class="btn btn--primary">Choose file</button><span class="t-caption muted center">▣ Your financial data is processed on this device.</span></div>
+<div class="card card--danger err-card"><span class="t-small-em c-spend">Could not prepare this statement</span><span class="t-small muted">Could not recognize this file. No matching statement reader was found.</span><button class="btn">Choose another file</button></div>
+<div class="section"><span class="t-overline keep-case muted">Supported statements</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div></div>
+<div><div class="list-section__header"><span class="t-overline muted">IMPORT STATUS</span></div><div class="list"><div class="session-row"><span class="glyph glyph--muted t-small-em">◷</span><div class="grow"><div class="t-label truncate">Nothing imported this session</div><div class="t-caption muted truncate">Your saved history is available in Activity.</div></div></div>
+<div class="session-row"><span class="glyph glyph--review t-small-em">!</span><div class="grow"><div class="t-label truncate">4 transactions need review</div><div class="t-caption muted truncate">Categorize them here, across every import.</div></div><span class="ms chev">chevron_right</span></div>
+<div class="session-row"><span class="glyph glyph--spend t-small-em">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Axis_Sep_2026.xls · 46 added · 2026-11-08</div></div></div></div></div>
+<span class="diag-link t-small">ⓘ Import diagnostics</span>
+<span class="t-caption muted version">Finance Tracker v1.0.214 (261112.0941)</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+
+</div>
+<p class="frame-caption"><b>7 · Unrecognized file</b>The danger card shows under the picker with the error text and a secondary “Choose another file”.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="pv">
+<div class="pv__head">
+<div class="title-row"><span class="pv__back t-subtitle" aria-label="Back to file selection">‹</span><span class="t-heading grow">Import preview</span><span class="t-link">Cancel</span></div>
+<div class="steps" role="progressbar" aria-label="Import progress: step 2 of 3, Preview">
+<div class="step"><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__line step__line--r"></span><span class="step__circle is-on">2</span><span class="t-caption c-accent">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card card--sm file-card"><span class="file-icon t-small-em">▤</span><div class="grow"><div class="t-label truncate">Paytm_Oct_2026.xlsx</div><div class="t-caption muted truncate">Paytm UPI · 24 rows</div></div><span class="t-caption c-income">✓ Recognized</span></div>
+<div class="card card--none summary-card"><div class="metric-grid"><div class="metric"><span class="t-stat">24</span><span class="t-caption muted">Total</span></div><div class="metric"><span class="t-stat">21</span><span class="t-caption muted">New</span></div><div class="metric"><span class="t-stat">2</span><span class="t-caption muted">Duplicates</span></div><div class="metric"><span class="t-stat c-review">5</span><span class="t-caption muted">Need review</span></div><div class="metric"><span class="t-stat c-review">1</span><span class="t-caption muted">Salvaged</span></div><div class="metric"><span class="t-stat">1</span><span class="t-caption muted">Skipped</span></div></div><div class="totals"><div class="total"><span class="t-caption muted">Total debit</span><span class="t-stat c-spend">₹38,412.50</span></div><div class="total"><span class="t-caption muted">Total credit</span><span class="t-stat c-income">₹52,000.00</span></div></div></div>
+<div class="disc"><div class="disc__row"><div class="disc__content"><span class="t-overline muted">PREVIEW</span><span class="t-caption c-accent">5 need review</span></div><span class="info-btn" aria-label="About the preview" aria-expanded="false"><span class="ms">info</span></span></div></div>
+</div>
+<div class="pv__list">
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Zomato Limited</div><div class="t-caption muted truncate">2026-10-30 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹450.00</span><span class="cat-chip cat-chip--accent">🍽️ Food &amp; Dining</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Ananya Rao</div><div class="t-caption muted truncate">2026-10-29 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular c-income">+₹5,000.00</span><span class="cat-chip cat-chip--income">Received</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Axis Bank - 15</div><div class="t-caption muted truncate">2026-10-28 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular c-review">⇄₹27,000.00</span><span class="cat-chip cat-chip--accent">Transfer</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">ZEPTO Marketplace</div><div class="t-caption muted truncate">2026-10-27 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹380.00</span><span class="cat-chip cat-chip--accent">🛒 Groceries</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Corner Store</div><div class="t-caption muted truncate">2026-10-26 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹120.00</span><span class="cat-chip cat-chip--review">Pending category · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Ravi Kumar</div><div class="t-caption muted truncate">2026-10-25 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹500.00</span><span class="cat-chip cat-chip--review">Pending category · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Airtel Prepaid</div><div class="t-caption muted truncate">2026-10-24 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹299.00</span><span class="cat-chip cat-chip--accent">🧾 Recharge</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">UPI payment</div><div class="t-caption muted truncate">2026-10-22 · Paytm UPI · Salvaged</div></div><div class="pv-row__end"><span class="t-label tabular">−₹210.00</span><span class="cat-chip cat-chip--review">Pending category · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Swiggy</div><div class="t-caption muted truncate">2026-10-21 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹386.00</span><span class="cat-chip cat-chip--review">🍽️ Food &amp; Dining · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Uber India</div><div class="t-caption muted truncate">2026-10-20 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹243.50</span><span class="cat-chip cat-chip--accent">🚕 Commute</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Groww</div><div class="t-caption muted truncate">2026-10-18 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹5,000.00</span><span class="cat-chip cat-chip--accent">🪙 Investments &amp; Mutual Funds</span></div></div>
+<div class="card card--subtle card--sm skip-card"><span class="t-small-em">2 duplicates and 1 skipped row</span><span class="t-caption muted">Duplicates are checked again when you save. Skipped rows could not be safely interpreted as transactions.</span><span class="t-caption muted">Row 18: Amount is not a number</span></div>
+</div>
+<div class="pv__bar">
+<span class="t-caption muted center">Cancel leaves your history untouched.</span>
+<button class="btn btn--primary">Save and review 21 transactions</button>
+</div>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+
+</div>
+<p class="frame-caption"><b>8 · Preview (dry run)</b>Step 2. Nothing is written yet. Chip tones: review if flagged, income for money in, otherwise accent. Amounts: ⇄ in review colour, + in income, − in text colour. The confirm bar is pinned above the tab bar.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="pv">
+<div class="pv__head">
+<div class="title-row"><span class="pv__back t-subtitle" aria-label="Back to file selection">‹</span><span class="t-heading grow">Import preview</span><span class="t-link">Cancel</span></div>
+<div class="steps" role="progressbar" aria-label="Import progress: step 2 of 3, Preview">
+<div class="step"><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__line step__line--r"></span><span class="step__circle is-on">2</span><span class="t-caption c-accent">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card card--sm file-card"><span class="file-icon t-small-em">▤</span><div class="grow"><div class="t-label truncate">Paytm_Oct_2026.xlsx</div><div class="t-caption muted truncate">Paytm UPI · 24 rows</div></div><span class="t-caption c-income">✓ Recognized</span></div>
+<div class="card card--none summary-card"><div class="metric-grid"><div class="metric"><span class="t-stat">24</span><span class="t-caption muted">Total</span></div><div class="metric"><span class="t-stat">21</span><span class="t-caption muted">New</span></div><div class="metric"><span class="t-stat">2</span><span class="t-caption muted">Duplicates</span></div><div class="metric"><span class="t-stat c-review">5</span><span class="t-caption muted">Need review</span></div><div class="metric"><span class="t-stat c-review">1</span><span class="t-caption muted">Salvaged</span></div><div class="metric"><span class="t-stat">1</span><span class="t-caption muted">Skipped</span></div></div><div class="totals"><div class="total"><span class="t-caption muted">Total debit</span><span class="t-stat c-spend">₹38,412.50</span></div><div class="total"><span class="t-caption muted">Total credit</span><span class="t-stat c-income">₹52,000.00</span></div></div></div>
+<div class="disc"><div class="disc__row"><div class="disc__content"><span class="t-overline muted">PREVIEW</span><span class="t-caption c-accent">5 need review</span></div><span class="info-btn" aria-label="About the preview" aria-expanded="false"><span class="ms">info</span></span></div></div>
+</div>
+<div class="pv__list">
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Zomato Limited</div><div class="t-caption muted truncate">2026-10-30 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹450.00</span><span class="cat-chip cat-chip--accent">🍽️ Food &amp; Dining</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Ananya Rao</div><div class="t-caption muted truncate">2026-10-29 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular c-income">+₹5,000.00</span><span class="cat-chip cat-chip--income">Received</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Axis Bank - 15</div><div class="t-caption muted truncate">2026-10-28 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular c-review">⇄₹27,000.00</span><span class="cat-chip cat-chip--accent">Transfer</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">ZEPTO Marketplace</div><div class="t-caption muted truncate">2026-10-27 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹380.00</span><span class="cat-chip cat-chip--accent">🛒 Groceries</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Corner Store</div><div class="t-caption muted truncate">2026-10-26 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹120.00</span><span class="cat-chip cat-chip--review">Pending category · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Ravi Kumar</div><div class="t-caption muted truncate">2026-10-25 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹500.00</span><span class="cat-chip cat-chip--review">Pending category · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Airtel Prepaid</div><div class="t-caption muted truncate">2026-10-24 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹299.00</span><span class="cat-chip cat-chip--accent">🧾 Recharge</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">UPI payment</div><div class="t-caption muted truncate">2026-10-22 · Paytm UPI · Salvaged</div></div><div class="pv-row__end"><span class="t-label tabular">−₹210.00</span><span class="cat-chip cat-chip--review">Pending category · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Swiggy</div><div class="t-caption muted truncate">2026-10-21 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹386.00</span><span class="cat-chip cat-chip--review">🍽️ Food &amp; Dining · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Uber India</div><div class="t-caption muted truncate">2026-10-20 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹243.50</span><span class="cat-chip cat-chip--accent">🚕 Commute</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Groww</div><div class="t-caption muted truncate">2026-10-18 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹5,000.00</span><span class="cat-chip cat-chip--accent">🪙 Investments &amp; Mutual Funds</span></div></div>
+<div class="card card--subtle card--sm skip-card"><span class="t-small-em">2 duplicates and 1 skipped row</span><span class="t-caption muted">Duplicates are checked again when you save. Skipped rows could not be safely interpreted as transactions.</span><span class="t-caption muted">Row 18: Amount is not a number</span></div>
+</div>
+<div class="pv__bar">
+<span class="t-caption muted center">Cancel leaves your history untouched.</span>
+<button class="btn btn--primary">Save and review 21 transactions</button>
+</div>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+<div class="overlay"><div class="sheet rd" role="dialog" aria-label="Row details"><div class="sheet-handle"></div><div class="sheet__body"><div class="rd__heading"><span class="t-amount">−₹120.00</span><span class="t-heading two-line">Corner Store</span></div><div class="rd__suggest"><span class="t-small-em">No category yet</span><span class="t-small muted">Unrecognized merchant</span></div><div class="banner banner--review banner--wrap"><span class="ms">warning</span><div class="banner__copy"><span class="t-small-em banner__title">Flagged for review</span><span class="t-small muted">It will be waiting in the needs-review list on the next step, where you can set its category.</span></div></div><div><div class="list-section__header"><span class="t-overline muted">PARSED FROM THE STATEMENT</span></div><div class="list"><div class="detail-row"><span class="t-small muted detail-row__label">Date</span><span class="t-small detail-row__value">2026-10-26 · 19:42:10</span></div>
+<div class="detail-row"><span class="t-small muted detail-row__label">Type</span><span class="t-small detail-row__value">Paid</span></div>
+<div class="detail-row"><span class="t-small muted detail-row__label">Account</span><span class="t-small detail-row__value">Paytm UPI - 7310</span></div>
+<div class="detail-row"><span class="t-small muted detail-row__label">UPI id</span><span class="t-small detail-row__value">cornerstore@ptys</span></div>
+<div class="detail-row"><span class="t-small muted detail-row__label">Reference</span><span class="t-small detail-row__value">629914583302</span></div>
+<div class="detail-row"><span class="t-small muted detail-row__label">Statement</span><span class="t-small detail-row__value">Paytm_Oct_2026.xlsx · Paytm UPI</span></div>
+<div class="detail-row"><span class="t-small muted detail-row__label">Statement text</span><span class="t-small detail-row__value">Paid to Corner Store</span></div>
+<div class="detail-row"><span class="t-small muted detail-row__label">Remarks</span><span class="t-small detail-row__value">—</span></div>
+<div class="detail-row"><span class="t-small muted detail-row__label">Tag</span><span class="t-small detail-row__value">—</span></div></div></div><span class="t-caption muted">Nothing here is saved yet, so it cannot be edited. Categories, notes and splits become available on the review step, once Save and review has written it.</span><button class="btn">Close</button></div></div></div>
+</div>
+<p class="frame-caption"><b>9 · Preview row detail</b>Tapping a preview row opens the read-only ImportRowDetail BottomSheet. A flagged row shows the review banner; the amount uses text colour for money out.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="pv">
+<div class="pv__head">
+<div class="title-row"><span class="pv__back t-subtitle is-disabled" aria-label="Back to file selection">‹</span><span class="t-heading grow">Saving import</span><span class="t-link is-disabled">Cancel</span></div>
+<div class="steps" role="progressbar" aria-label="Import progress: step 2 of 3, Preview">
+<div class="step"><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__line step__line--r"></span><span class="step__circle is-on">2</span><span class="t-caption c-accent">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card card--sm file-card"><span class="file-icon t-small-em">▤</span><div class="grow"><div class="t-label truncate">Paytm_Oct_2026.xlsx</div><div class="t-caption muted truncate">Paytm UPI · 24 rows</div></div><span class="t-caption c-income">✓ Recognized</span></div>
+<div class="card card--none summary-card"><div class="metric-grid"><div class="metric"><span class="t-stat">24</span><span class="t-caption muted">Total</span></div><div class="metric"><span class="t-stat">21</span><span class="t-caption muted">New</span></div><div class="metric"><span class="t-stat">2</span><span class="t-caption muted">Duplicates</span></div><div class="metric"><span class="t-stat c-review">5</span><span class="t-caption muted">Need review</span></div><div class="metric"><span class="t-stat c-review">1</span><span class="t-caption muted">Salvaged</span></div><div class="metric"><span class="t-stat">1</span><span class="t-caption muted">Skipped</span></div></div><div class="totals"><div class="total"><span class="t-caption muted">Total debit</span><span class="t-stat c-spend">₹38,412.50</span></div><div class="total"><span class="t-caption muted">Total credit</span><span class="t-stat c-income">₹52,000.00</span></div></div></div>
+<div class="disc"><div class="disc__row"><div class="disc__content"><span class="t-overline muted">PREVIEW</span><span class="t-caption c-accent">5 need review</span></div><span class="info-btn" aria-label="About the preview" aria-expanded="true"><span class="ms">info</span></span></div><div class="t-caption muted disc__text">Categories and review labels are a dry-run preview. Nothing is written until you tap Save and review.</div></div>
+</div>
+<div class="pv__list">
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Zomato Limited</div><div class="t-caption muted truncate">2026-10-30 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹450.00</span><span class="cat-chip cat-chip--accent">🍽️ Food &amp; Dining</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Ananya Rao</div><div class="t-caption muted truncate">2026-10-29 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular c-income">+₹5,000.00</span><span class="cat-chip cat-chip--income">Received</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Axis Bank - 15</div><div class="t-caption muted truncate">2026-10-28 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular c-review">⇄₹27,000.00</span><span class="cat-chip cat-chip--accent">Transfer</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">ZEPTO Marketplace</div><div class="t-caption muted truncate">2026-10-27 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹380.00</span><span class="cat-chip cat-chip--accent">🛒 Groceries</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Corner Store</div><div class="t-caption muted truncate">2026-10-26 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹120.00</span><span class="cat-chip cat-chip--review">Pending category · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Ravi Kumar</div><div class="t-caption muted truncate">2026-10-25 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹500.00</span><span class="cat-chip cat-chip--review">Pending category · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Airtel Prepaid</div><div class="t-caption muted truncate">2026-10-24 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹299.00</span><span class="cat-chip cat-chip--accent">🧾 Recharge</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">UPI payment</div><div class="t-caption muted truncate">2026-10-22 · Paytm UPI · Salvaged</div></div><div class="pv-row__end"><span class="t-label tabular">−₹210.00</span><span class="cat-chip cat-chip--review">Pending category · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Swiggy</div><div class="t-caption muted truncate">2026-10-21 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹386.00</span><span class="cat-chip cat-chip--review">🍽️ Food &amp; Dining · Review</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Uber India</div><div class="t-caption muted truncate">2026-10-20 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹243.50</span><span class="cat-chip cat-chip--accent">🚕 Commute</span></div></div>
+<div class="pv-row"><div class="grow"><div class="t-label truncate">Groww</div><div class="t-caption muted truncate">2026-10-18 · Paytm UPI</div></div><div class="pv-row__end"><span class="t-label tabular">−₹5,000.00</span><span class="cat-chip cat-chip--accent">🪙 Investments &amp; Mutual Funds</span></div></div>
+<div class="card card--subtle card--sm skip-card"><span class="t-small-em">2 duplicates and 1 skipped row</span><span class="t-caption muted">Duplicates are checked again when you save. Skipped rows could not be safely interpreted as transactions.</span><span class="t-caption muted">Row 18: Amount is not a number</span></div>
+</div>
+<div class="pv__bar">
+<div class="progress-row"><span class="spinner"></span><span class="t-small muted">Rechecking duplicates and saving securely on this device…</span></div>
+<button class="btn btn--primary" disabled aria-busy="true" aria-label="Save and review 21 transactions"><span class="spinner spinner--on-accent"></span></button>
+</div>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+
+</div>
+<p class="frame-caption"><b>10 · Saving import</b>Title becomes “Saving import”; back and Cancel are disabled; the confirm bar shows the saving row and a spinner-only button. Shown here with the PREVIEW disclosure expanded.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="pv">
+<div class="pv__head">
+<div class="title-row"><span class="pv__back t-subtitle" aria-label="Back to file selection">‹</span><span class="t-heading grow">Import preview</span><span class="t-link">Cancel</span></div>
+<div class="steps" role="progressbar" aria-label="Import progress: step 2 of 3, Preview">
+<div class="step"><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__line step__line--r"></span><span class="step__circle is-on">2</span><span class="t-caption c-accent">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card card--sm file-card"><span class="file-icon t-small-em">▤</span><div class="grow"><div class="t-label truncate">Paytm_Sep_2026.xlsx</div><div class="t-caption muted truncate">Paytm UPI · 3 rows</div></div><span class="t-caption c-income">✓ Recognized</span></div>
+<div class="card card--none summary-card"><div class="metric-grid"><div class="metric"><span class="t-stat">3</span><span class="t-caption muted">Total</span></div><div class="metric"><span class="t-stat">0</span><span class="t-caption muted">New</span></div><div class="metric"><span class="t-stat">3</span><span class="t-caption muted">Duplicates</span></div><div class="metric"><span class="t-stat">0</span><span class="t-caption muted">Need review</span></div><div class="metric"><span class="t-stat">0</span><span class="t-caption muted">Salvaged</span></div><div class="metric"><span class="t-stat">0</span><span class="t-caption muted">Skipped</span></div></div><div class="totals"><div class="total"><span class="t-caption muted">Total debit</span><span class="t-stat c-spend">₹1,086.00</span></div><div class="total"><span class="t-caption muted">Total credit</span><span class="t-stat c-income">₹0.00</span></div></div></div>
+<div class="disc"><div class="disc__row"><div class="disc__content"><span class="t-overline muted">PREVIEW</span><span class="t-caption c-accent">Nothing flagged</span></div><span class="info-btn" aria-label="About the preview" aria-expanded="false"><span class="ms">info</span></span></div></div>
+</div>
+<div class="pv__list">
+<div class="t-small muted pv-empty">Every recognized transaction is already in your history.</div>
+<div class="card card--subtle card--sm skip-card"><span class="t-small-em">3 duplicates and 0 skipped rows</span><span class="t-caption muted">Duplicates are checked again when you save. Skipped rows could not be safely interpreted as transactions.</span></div>
+</div>
+<div class="pv__bar">
+<span class="t-caption muted center">Cancel leaves your history untouched.</span>
+<button class="btn btn--primary">Check 3 duplicates</button>
+</div>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+
+</div>
+<p class="frame-caption"><b>11 · Nothing new (all duplicates)</b>Every row is already in history: the list shows the empty copy, and the primary action becomes a duplicate re-check.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen rv">
+<div class="rv-head">
+<div class="title-row"><span class="t-heading">Review transactions</span><span class="t-link">Done</span></div>
+<div class="steps" role="progressbar" aria-label="Import progress: step 3 of 3, Review">
+<div class="step"><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">Preview</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__circle is-on">3</span><span class="t-caption c-accent">Review</span></div>
+</div>
+<div class="banner banner--success banner--wrap"><span class="ms">check_circle</span><div class="banner__copy"><span class="t-small-em banner__title">21 transactions saved</span><span class="t-small muted">Paytm_Oct_2026.xlsx · 2 duplicates checked · 1 existing row updated</span></div></div>
+<div class="card card--sm"><div class="stat-strip"><div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹11,412.50</span></div><div class="stat-divider"></div><div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹52,000.00</span></div><div class="stat-divider"></div><div class="stat-col"><span class="t-caption muted">Imported</span><span class="t-stat">21</span></div></div></div>
+<div class="card card--review card--sm review-card"><div class="review-card__copy"><span class="t-small-em c-review">!&nbsp; 9 transactions need review</span><span class="t-caption muted">The queue spans every import, not just this session</span></div><button class="btn btn--sm">Accept all</button></div>
+<div class="list"><div class="session-row"><span class="glyph glyph--muted t-caption">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Paytm_Oct_2026.xlsx · 21 added · 2026-11-12</div></div></div></div>
+<div class="seg" role="tablist"><span class="seg__item is-selected">This session 21</span><span class="seg__item">Needs review 9</span></div>
+<div class="period-row"><span class="chip is-selected">All</span><span class="chip">Oct 2026</span><span class="chip">Sep 2026</span></div>
+</div>
+<div class="period-head"><span class="t-overline keep-case muted">Oct 2026</span></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Corner Store</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-10-26</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹120.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Ravi Kumar</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-10-25</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹500.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Swiggy</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🍽️ Food &amp; Dining · 2026-10-21</span><span class="rev-badge">Review</span><span class="tag-chip">🥘 Food</span></div></div><span class="txn-row__amount c-spend">− ₹386.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">UPI payment</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-10-22</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹210.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Zomato Limited</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🍽️ Food &amp; Dining · 2026-10-30</span></div></div><span class="txn-row__amount c-spend">− ₹450.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Ananya Rao</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Received · 2026-10-29</span></div></div><span class="txn-row__amount c-income">+ ₹5,000.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Axis Bank - 15</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Transfer · 2026-10-28</span></div></div><span class="txn-row__amount c-review">⇄ ₹27,000.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">ZEPTO Marketplace</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🛒 Groceries · 2026-10-27</span></div></div><span class="txn-row__amount c-spend">− ₹380.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Airtel Prepaid</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🧾 Recharge · 2026-10-24</span></div></div><span class="txn-row__amount c-spend">− ₹299.00</span></div></div>
+<div class="period-head"><span class="t-overline keep-case muted">Sep 2026</span></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Medplus Pharmacy</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-09-30</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹642.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Uber India</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🚕 Commute · 2026-09-29</span></div></div><span class="txn-row__amount c-spend">− ₹243.50</span></div></div>
+<span class="t-caption muted rv-footer">Your full saved history is available in Activity. Finance Tracker v1.0.214 (261112.0941)</span><span class="diag-link t-small">ⓘ Import diagnostics</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="9"></nav>
+
+</div>
+<p class="frame-caption"><b>12 · Review (this session)</b>Step 3 after saving. The success banner, totals, needs-review card, revert row, scope toggle and month chips are the list header; rows are card-variant TxnRows grouped by month. A flagged row with a statement tag shows the tag chip (“#” stripped).</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen rv">
+<div class="rv-head">
+<div class="title-row"><span class="t-heading">Needs review</span><span class="t-link">Done</span></div>
+<div class="steps" role="progressbar" aria-label="Import progress: step 3 of 3, Review">
+<div class="step"><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">Preview</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__circle is-on">3</span><span class="t-caption c-accent">Review</span></div>
+</div>
+<div class="banner banner--success banner--wrap"><span class="ms">check_circle</span><div class="banner__copy"><span class="t-small-em banner__title">21 transactions saved</span><span class="t-small muted">Paytm_Oct_2026.xlsx · 2 duplicates checked · 1 existing row updated</span></div></div>
+<div class="card card--sm"><div class="stat-strip"><div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹11,412.50</span></div><div class="stat-divider"></div><div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹52,000.00</span></div><div class="stat-divider"></div><div class="stat-col"><span class="t-caption muted">Imported</span><span class="t-stat">21</span></div></div></div>
+<div class="card card--review card--sm review-card"><div class="review-card__copy"><span class="t-small-em c-review">!&nbsp; 9 transactions need review</span><span class="t-caption muted">Tap a transaction to set its category</span></div><button class="btn btn--sm">Accept all</button></div>
+<div class="list"><div class="session-row"><span class="glyph glyph--muted t-caption">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Paytm_Oct_2026.xlsx · 21 added · 2026-11-12</div></div></div></div>
+<div class="seg" role="tablist"><span class="seg__item">This session 21</span><span class="seg__item is-selected">Needs review 9</span></div>
+</div>
+<div class="period-head"><span class="t-overline keep-case muted">Oct 2026</span></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Corner Store</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-10-26</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹120.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Ravi Kumar</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-10-25</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹500.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Swiggy</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🍽️ Food &amp; Dining · 2026-10-21</span><span class="rev-badge">Review</span><span class="tag-chip">🥘 Food</span></div></div><span class="txn-row__amount c-spend">− ₹386.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">UPI payment</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-10-22</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹210.00</span></div></div>
+<div class="period-head"><span class="t-overline keep-case muted">Sep 2026</span></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Medplus Pharmacy</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-09-30</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹642.00</span></div></div>
+<span class="t-caption muted rv-footer">Your full saved history is available in Activity. Finance Tracker v1.0.214 (261112.0941)</span><span class="diag-link t-small">ⓘ Import diagnostics</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="9"></nav>
+
+</div>
+<p class="frame-caption"><b>13 · Review (needs review)</b>“Needs review” scope: the title changes, the card copy says “Tap a transaction to set its category”, and the period chips are hidden. Only flagged rows across every import are listed.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen rv">
+<div class="rv-head">
+<div class="title-row"><span class="t-heading">Needs review</span><span class="t-link">Done</span></div>
+<div class="steps" role="progressbar" aria-label="Import progress: step 3 of 3, Review">
+<div class="step"><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">Preview</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__circle is-on">3</span><span class="t-caption c-accent">Review</span></div>
+</div>
+<div class="banner banner--success banner--wrap"><span class="ms">check_circle</span><div class="banner__copy"><span class="t-small-em banner__title">21 transactions saved</span><span class="t-small muted">Paytm_Oct_2026.xlsx · 2 duplicates checked · 1 existing row updated</span></div></div>
+<div class="card card--sm"><div class="stat-strip"><div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹11,412.50</span></div><div class="stat-divider"></div><div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹52,000.00</span></div><div class="stat-divider"></div><div class="stat-col"><span class="t-caption muted">Imported</span><span class="t-stat">21</span></div></div></div>
+<div class="list"><div class="session-row"><span class="glyph glyph--muted t-caption">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Paytm_Oct_2026.xlsx · 21 added · 2026-11-12</div></div></div></div>
+<div class="seg" role="tablist"><span class="seg__item">This session 21</span><span class="seg__item is-selected">Needs review 0</span></div>
+</div>
+<div class="empty rv-empty"><span class="t-heading">Nothing needs review</span><span class="t-small muted">Every imported transaction has a category you have accepted.</span></div>
+<span class="t-caption muted rv-footer">Your full saved history is available in Activity. Finance Tracker v1.0.214 (261112.0941)</span><span class="diag-link t-small">ⓘ Import diagnostics</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="0"></nav>
+
+</div>
+<p class="frame-caption"><b>14 · Needs review (empty)</b>After Accept all: the review card disappears, the scope toggle stays because the scope is “flagged”, and the list shows the empty state.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen rv">
+<div class="rv-head">
+<div class="title-row"><span class="t-heading">Review transactions</span><span class="t-link">Done</span></div>
+<div class="steps" role="progressbar" aria-label="Import progress: step 3 of 3, Review">
+<div class="step"><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__line step__line--r is-on"></span><span class="step__circle is-on">✓</span><span class="t-caption c-accent">Preview</span></div>
+<div class="step"><span class="step__line step__line--l is-on"></span><span class="step__circle is-on">3</span><span class="t-caption c-accent">Review</span></div>
+</div>
+<div class="banner banner--success banner--wrap"><span class="ms">check_circle</span><div class="banner__copy"><span class="t-small-em banner__title">21 transactions saved</span><span class="t-small muted">Paytm_Oct_2026.xlsx · 2 duplicates checked · 1 existing row updated</span></div></div>
+<div class="card card--sm"><div class="stat-strip"><div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹11,412.50</span></div><div class="stat-divider"></div><div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹52,000.00</span></div><div class="stat-divider"></div><div class="stat-col"><span class="t-caption muted">Imported</span><span class="t-stat">21</span></div></div></div>
+<div class="card card--review card--sm review-card"><div class="review-card__copy"><span class="t-small-em c-review">!&nbsp; 9 transactions need review</span><span class="t-caption muted">The queue spans every import, not just this session</span></div><button class="btn btn--sm">Accept all</button></div>
+<div class="list"><div class="session-row"><span class="glyph glyph--muted t-caption">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Paytm_Oct_2026.xlsx · 21 added · 2026-11-12</div></div></div></div>
+<div class="seg" role="tablist"><span class="seg__item is-selected">This session 21</span><span class="seg__item">Needs review 9</span></div>
+<div class="period-row"><span class="chip is-selected">All</span><span class="chip">Oct 2026</span><span class="chip">Sep 2026</span></div>
+</div>
+<div class="period-head"><span class="t-overline keep-case muted">Oct 2026</span></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Corner Store</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-10-26</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹120.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Ravi Kumar</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-10-25</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹500.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Swiggy</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🍽️ Food &amp; Dining · 2026-10-21</span><span class="rev-badge">Review</span><span class="tag-chip">🥘 Food</span></div></div><span class="txn-row__amount c-spend">− ₹386.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">UPI payment</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Uncategorized · 2026-10-22</span><span class="rev-badge">Review</span></div></div><span class="txn-row__amount c-spend">− ₹210.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Zomato Limited</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🍽️ Food &amp; Dining · 2026-10-30</span></div></div><span class="txn-row__amount c-spend">− ₹450.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Ananya Rao</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Received · 2026-10-29</span></div></div><span class="txn-row__amount c-income">+ ₹5,000.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Axis Bank - 15</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">Transfer · 2026-10-28</span></div></div><span class="txn-row__amount c-review">⇄ ₹27,000.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">ZEPTO Marketplace</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🛒 Groceries · 2026-10-27</span></div></div><span class="txn-row__amount c-spend">− ₹380.00</span></div></div>
+<div class="card-wrap"><div class="txn-row card-row"><div class="txn-row__left"><span class="t-label truncate">Airtel Prepaid</span><div class="txn-row__meta"><span class="t-caption muted truncate txn-meta">🧾 Recharge · 2026-10-24</span></div></div><span class="txn-row__amount c-spend">− ₹299.00</span></div></div>
+<span class="t-caption muted rv-footer">Your full saved history is available in Activity. Finance Tracker v1.0.214 (261112.0941)</span><span class="diag-link t-small">ⓘ Import diagnostics</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="9"></nav>
+<div class="overlay overlay--center"><div class="alert" role="alertdialog"><span class="alert__title">Accept all suggestions?</span><span class="t-default muted">Clears the “Needs review” flag on 9 transactions, keeping the auto-picked categories. You can still edit any of them later.</span><div class="alert__actions"><span class="alert__btn">Cancel</span><span class="alert__btn">Accept all</span></div></div></div>
+</div>
+<p class="frame-caption"><b>15 · Accept all (system alert)</b>Alert.alert from the needs-review card.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen imp">
+<header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Import statement</h1><span class="info-circle t-small-em" aria-label="Which statements can I import?">ⓘ</span></div></header>
+<div class="steps" role="progressbar" aria-label="Import progress: step 1 of 3, File">
+<div class="step"><span class="step__line step__line--r"></span><span class="step__circle is-on">1</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__line step__line--r"></span><span class="step__circle">2</span><span class="t-caption muted">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card pick-card"><span class="upload-icon t-heading">↑</span><span class="t-heading center">Choose a statement</span><span class="t-caption muted center">Import .xlsx, .xls, or .pdf from your device.</span><button class="btn btn--primary">Choose file</button><span class="t-caption muted center">▣ Your financial data is processed on this device.</span></div>
+<div class="section"><span class="t-overline keep-case muted">Supported statements</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div></div>
+<div><div class="list-section__header"><span class="t-overline muted">IMPORT STATUS</span></div><div class="list"><div class="session-row"><span class="glyph glyph--muted t-small-em">◷</span><div class="grow"><div class="t-label truncate">Nothing imported this session</div><div class="t-caption muted truncate">Your saved history is available in Activity.</div></div></div>
+<div class="session-row"><span class="glyph glyph--review t-small-em">!</span><div class="grow"><div class="t-label truncate">4 transactions need review</div><div class="t-caption muted truncate">Categorize them here, across every import.</div></div><span class="ms chev">chevron_right</span></div>
+<div class="session-row"><span class="glyph glyph--spend t-small-em">↶</span><div class="grow"><div class="t-label truncate">Revert last import</div><div class="t-caption muted truncate">Axis_Sep_2026.xls · 46 added · 2026-11-08</div></div></div></div></div>
+<span class="diag-link t-small">ⓘ Import diagnostics</span>
+<span class="t-caption muted version">Finance Tracker v1.0.214 (261112.0941)</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="4"></nav>
+<div class="overlay overlay--center"><div class="alert" role="alertdialog"><span class="alert__title">Revert this import?</span><span class="t-default muted">Permanently deletes all 46 transactions added by “Axis_Sep_2026.xls” — including any you’ve since edited, categorized, split, or attached to a loan. This can’t be undone. (Duplicates it merely merged into earlier imports are kept.)</span><div class="alert__actions"><span class="alert__btn">Cancel</span><span class="alert__btn">Delete all</span></div></div></div>
+</div>
+<p class="frame-caption"><b>16 · Revert last import (system alert)</b>Alert.alert from the revert row (here on the landing). The “destructive” style has no visual effect on Android.</p>
+</section>
+<section class="frame">
+<div class="phone">
+<div class="status-bar"></div>
+<div class="screen imp">
+<header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Import statement</h1><span class="info-circle t-small-em" aria-label="Which statements can I import?">ⓘ</span></div></header>
+<div class="steps" role="progressbar" aria-label="Import progress: step 1 of 3, File">
+<div class="step"><span class="step__line step__line--r"></span><span class="step__circle is-on">1</span><span class="t-caption c-accent">File</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__line step__line--r"></span><span class="step__circle">2</span><span class="t-caption muted">Preview</span></div>
+<div class="step"><span class="step__line step__line--l"></span><span class="step__circle">3</span><span class="t-caption muted">Review</span></div>
+</div>
+<div class="card pick-card"><span class="upload-icon t-heading">↑</span><span class="t-heading center">Choose a statement</span><span class="t-caption muted center">Import .xlsx, .xls, or .pdf from your device.</span><button class="btn btn--primary">Choose file</button><span class="t-caption muted center">▣ Your financial data is processed on this device.</span></div>
+<div class="section"><span class="t-overline keep-case muted">Supported statements</span><div class="fmt-list">
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Paytm UPI</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Axis Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xls · .xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">Karur Vysya Bank</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">🏦</span><span class="t-label grow truncate">State Bank of India</span><span class="fmt-row__meta"><span class="t-caption muted">.xlsx</span></span></div>
+<div class="fmt-row"><span class="fmt-row__icon">💳</span><span class="t-label grow truncate">Axis Credit Card</span><span class="fmt-row__meta"><span class="t-caption muted">Locked PDF supported</span><span class="t-caption muted">.pdf</span></span></div>
+</div></div>
+<div><div class="list-section__header"><span class="t-overline muted">IMPORT STATUS</span></div><div class="list"><div class="session-row"><span class="glyph glyph--muted t-small-em">◷</span><div class="grow"><div class="t-label truncate">Nothing imported this session</div><div class="t-caption muted truncate">Your saved history is available in Activity.</div></div></div></div></div>
+<span class="diag-link t-small">ⓘ Import diagnostics</span>
+<span class="t-caption muted version">Finance Tracker v1.0.214 (261112.0941)</span>
+</div>
+<nav class="tabbar" data-active="import" data-badge="0"></nav>
+<div class="overlay overlay--center"><div class="alert" role="alertdialog"><span class="alert__title">Import reverted</span><span class="t-default muted">Removed 46 transactions.</span><div class="alert__actions"><span class="alert__btn">OK</span></div></div></div>
+</div>
+<p class="frame-caption"><b>17 · Import reverted (system alert)</b>The result alert after the batch is deleted. Behind it the landing has no revert row any more.</p>
+</section>
+
+    </div>
+  </main>
+  <script src="assets/mock.js"></script>
+</body>
+</html>

@@ -1,0 +1,1230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Transaction detail</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    /* Page-specific styles for transaction-detail.tsx, transaction-counting-actions.tsx,
+       category-picker.tsx and last-edited-pill.tsx. Values mirror their StyleSheets. */
+    [hidden] { display: none !important; }
+
+    /* BottomSheet: padding 12 horizontal / 8 top, no gap; children stack directly under the grabber. */
+    .ds-sheet { gap: 0; padding: var(--sp-2) var(--sp-3) 0; }
+    /* SafeAreaView edges=['bottom'] — ~16px Android gesture-nav inset */
+    .ds-safe { display: flex; flex-direction: column; min-height: 0; flex-shrink: 1; padding-bottom: var(--sp-4); }
+
+    /* --- TransactionDetail header --- */
+    .ds-topbar { min-height: 24px; display: flex; align-items: center; justify-content: space-between; }
+    .ds-header { display: flex; flex-direction: column; gap: var(--sp-half); padding-top: var(--sp-1); }
+    .ds-title-row { display: flex; align-items: center; gap: var(--sp-2); }
+    .ds-badge {
+      width: 28px; height: 28px; border-radius: var(--r-pill); flex-shrink: 0;
+      background: var(--accent-muted); color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .ds-badge .ms { font-size: 15px; }
+    .ds-badge--neutral { background: var(--background-selected); color: var(--text-secondary); }
+    .ds-badge--neutral .ms { font-size: 14px; }
+    .ds-amount { flex: 0 0 auto; white-space: nowrap; }
+
+    .ds-tabs { display: flex; margin-top: var(--sp-2); border-bottom: var(--hairline) solid var(--border); }
+    .ds-tab {
+      flex: 1; min-height: 32px; display: flex; align-items: center; justify-content: center;
+      border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 0;
+      background: none; color: var(--text-secondary); font-family: inherit; cursor: pointer;
+    }
+    .ds-tab.is-selected { border-bottom-color: var(--accent); color: var(--accent); }
+
+    .ds-scroll { margin-top: var(--sp-2); overflow-y: auto; min-height: 0; flex-shrink: 1; scrollbar-width: none; }
+    .ds-scroll::-webkit-scrollbar { display: none; }
+    .ds-body { display: flex; flex-direction: column; gap: var(--sp-2); padding-bottom: var(--sp-3); }
+    .ds-section { display: flex; flex-direction: column; gap: var(--sp-1); }
+
+    /* Category row */
+    .ds-cat-row { min-height: 46px; display: flex; align-items: center; gap: var(--sp-2); }
+    .ds-cat-tap { min-height: var(--touch); flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); }
+    .ds-cat-tap > .ms { font-size: 14px; color: var(--text-secondary); }
+    .ds-status { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1); }
+    .ds-status .ms { font-size: 13px; color: var(--review); }
+    .ds-text-action { min-height: var(--touch); display: flex; align-items: center; color: var(--spend); }
+    .ds-review-line { display: flex; justify-content: flex-end; padding-bottom: var(--sp-1); border-top: var(--hairline) solid var(--border); }
+    .ds-review-line .btn .ms { font-size: 14px; }
+
+    /* TransactionCountingActions */
+    .cc-wrap { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .cc-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+    .cc-chip {
+      min-height: 30px; flex: 1 0 auto; display: flex; align-items: center; justify-content: center;
+      gap: var(--sp-half); padding: 0 6px; border: var(--hairline) solid var(--border-strong); border-radius: var(--r-pill);
+      background: var(--background-element); color: var(--text-secondary); white-space: nowrap;
+    }
+    .cc-chip .ms { font-size: 14px; }
+    .cc-chip .ms.cc-check { font-size: 12px; }
+    .cc-chip.is-selected { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .status-row {
+      min-height: 44px; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2);
+      border: var(--hairline) solid var(--accent); border-radius: var(--r-sm); background: var(--accent-muted);
+    }
+    .status-row > .ms { font-size: 15px; color: var(--accent); }
+    .status-row--subtle { background: var(--background-selected); border-color: var(--border); }
+    .status-row--subtle > .ms { color: var(--text-secondary); }
+
+    /* Notes */
+    .ds-note-rows > * + * { border-top: var(--hairline) solid var(--border); }
+    .ds-note-row { min-height: var(--touch); display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; }
+    .ds-note-row > .ms, .ds-add-note .ms { font-size: 15px; color: var(--accent); }
+    .ds-note-label { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+    .clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .ds-add-note { min-height: var(--touch); display: flex; align-items: center; gap: var(--sp-2); color: var(--accent); }
+    .ds-note-editor { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-1) 0; }
+    .ds-note-input {
+      min-height: 64px; border: var(--hairline) solid var(--border-strong); border-radius: var(--r-sm);
+      padding: var(--sp-2); font-size: 14px; line-height: 19px; background: var(--background); color: var(--text);
+    }
+    .caret { display: inline-block; width: 1px; height: 17px; background: var(--focus); vertical-align: text-bottom; margin-left: 1px; }
+    .ds-check-row { min-height: 28px; display: flex; align-items: center; gap: var(--sp-2); }
+    .ds-checkbox {
+      width: 18px; height: 18px; border-radius: var(--r-xs); border: 1px solid var(--border-strong); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .ds-checkbox.is-checked { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .ds-checkbox .ms { font-size: 13px; }
+    .ds-note-actions { display: flex; gap: var(--sp-2); }
+    .ds-note-actions .btn { flex: 1; }
+
+    /* Statement details link + linked cards */
+    .ds-link-group { border-top: var(--hairline) solid var(--border); }
+    .ds-link-row { min-height: var(--touch); display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+    .ds-link-row--flush { padding-left: 0; padding-right: 0; }
+    .ds-link-row > .ms { font-size: 15px; color: var(--accent); }
+    .ds-link-row > .ms.chev-muted { color: var(--text-secondary); }
+
+    .ds-autosave { display: flex; align-items: center; justify-content: center; gap: var(--sp-1); padding: var(--sp-2) 0; color: var(--text-secondary); }
+    .ds-autosave .ms { font-size: 12px; }
+    .ds-delete { margin-top: var(--sp-1); }
+    .ds-delete .ms { font-size: 14px; }
+
+    /* DetailList */
+    .dl-row { min-height: 36px; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; border-bottom: var(--hairline) solid var(--border); }
+    .dl-row:last-child { border-bottom: 0; }
+    .dl-cell { flex: 1; min-width: 0; }
+    .dl-cell > * { display: block; }
+    .dl-div { width: var(--hairline); align-self: stretch; background: var(--border); }
+    .dl-label { width: 96px; flex-shrink: 0; }
+    .dl-value {
+      flex: 1; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .dl-block { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+    /* CategoryPicker */
+    .cp-header { min-height: 32px; display: flex; align-items: center; justify-content: space-between; }
+    .cp-action { min-width: 56px; min-height: 32px; display: flex; align-items: center; color: var(--text-secondary); }
+    .cp-title { flex: 1; text-align: center; }
+    .cp-spacer { width: 56px; }
+    .cp-sub { text-align: center; margin-top: var(--sp-half); }
+    .cp-list { margin-top: var(--sp-2); overflow-y: auto; min-height: 0; flex-shrink: 1; padding-bottom: var(--sp-2); scrollbar-width: none; }
+    .cp-list::-webkit-scrollbar { display: none; }
+    .cp-row { min-height: var(--touch); display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-1) 0; }
+    .cp-row + .cp-row { border-top: var(--hairline) solid var(--border); }
+    .cp-row.is-selected { background: var(--background-selected); }
+    .cp-trailing { display: flex; align-items: center; gap: var(--sp-2); }
+    .cp-form { margin-top: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); }
+    .cp-add-row { display: flex; gap: var(--sp-2); }
+    .cp-input {
+      min-height: var(--touch); border-radius: var(--r-sm); border: var(--hairline) solid var(--border-strong);
+      padding: var(--sp-2); font-size: 15px; background: var(--background); color: var(--text);
+      display: flex; align-items: center;
+    }
+    .cp-input--emoji { width: 52px; justify-content: center; color: var(--text-secondary); }
+    .cp-input--name { flex: 1; }
+
+    /* Simulated soft keyboard (BottomSheet pads the backdrop by the keyboard height) */
+    .kb { flex-shrink: 0; height: 252px; background: var(--background-selected); padding: var(--sp-2) var(--sp-1); display: flex; flex-direction: column; gap: var(--sp-2); }
+    .kb-row { flex: 1; display: flex; gap: var(--sp-1); }
+    .kb-row span { flex: 1; border-radius: var(--r-xs); background: var(--background-element); }
+    .kb-row--mid { padding: 0 14px; }
+    .kb-row span.kb-wide { flex: 5; }
+
+    /* Android native Alert.alert (platform dialog, approximated) */
+    .alert-native {
+      width: 100%; max-width: 312px; background: var(--background-element); border-radius: var(--r-xl);
+      padding: 24px 24px 12px; display: flex; flex-direction: column; gap: var(--sp-3);
+      box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow) 30%, transparent);
+    }
+    .alert-native__title { font-size: 20px; line-height: 26px; font-weight: 500; }
+    .alert-native__msg { font-size: 14px; line-height: 20px; color: var(--text-secondary); }
+    .alert-native__msg p { margin: 0 0 10px; }
+    .alert-native__actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
+    .alert-native__actions span { min-height: 40px; padding: 0 12px; display: flex; align-items: center; font-size: 14px; font-weight: 500; color: var(--accent); }
+
+    /* LastEditedPill: full-width pill (wrap padding 12), bottom = BottomTabInset(80) + 8 */
+    .le-wrap { position: absolute; left: 0; right: 0; bottom: 88px; z-index: 20; display: flex; justify-content: center; padding: 0 var(--sp-3); }
+    .le-pill {
+      display: flex; align-items: center; gap: var(--sp-2); width: 100%; max-width: 460px;
+      padding-left: var(--sp-2); padding-right: var(--sp-1); border-radius: var(--r-pill);
+      border: var(--hairline) solid var(--border-strong); background: var(--background-element);
+      box-shadow: 0 3px 8px color-mix(in srgb, var(--shadow) 18%, transparent);
+    }
+    .le-tap { min-height: var(--touch); flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); }
+    .le-icon { width: 26px; height: 26px; border-radius: var(--r-pill); background: var(--accent-muted); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .le-icon .ms { font-size: 14px; }
+    .le-label { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .le-dismiss { width: 32px; height: var(--touch); display: flex; align-items: center; justify-content: center; color: var(--text-secondary); }
+    .le-dismiss .ms { font-size: 16px; }
+
+    /* Underlying (dimmed) Activity screen */
+    .under-list .txn-row { border-radius: 0; }
+  </style>
+</head>
+<body>
+  <main class="mock-page">
+    <p class="mock-intro">
+      The ONE app-wide transaction detail sheet (two tabs: Overview / Details), its "How it’s counted" chips,
+      the note editor, the category picker it opens, the delete confirmation, and the Last-edited pill.
+      The sheet replaces itself with the category picker / Money Lent / Card bill sheet (only one is visible at a time).
+      Source: <code>mobile/src/components/transaction-detail.tsx</code>, <code>transaction-detail-controller.tsx</code>,
+      <code>transaction-counting-actions.tsx</code>, <code>category-picker.tsx</code>, <code>last-edited-pill.tsx</code>,
+      <code>bottom-sheet.tsx</code>, <code>sheet-handle.tsx</code>, <code>feedback-banner.tsx</code>.
+      The Details tab scrolls inside the height the Overview tab measured.
+    </p>
+    <div class="frames">
+
+      <!-- ============ 1. Normal debit — interactive tabs ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Zomato</span><span class="t-caption muted">Food &amp; Dining</span></div><span class="txn-row__amount c-spend">−₹452.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">MedPlus Pharmacy</span><span class="t-caption muted">Medicine &amp; Health</span></div><span class="txn-row__amount c-spend">−₹386.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Uber India</span><span class="t-caption muted">Commute</span></div><span class="txn-row__amount c-spend">−₹218.40</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Flipkart Payments</span><span class="t-caption muted">CashBack</span></div><span class="txn-row__amount c-income">+₹1,299.00</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+
+          <div class="overlay">
+            <div class="sheet ds-sheet" data-tabs>
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row">
+                    <span class="ds-badge"><span class="ms">north_east</span></span>
+                    <span class="t-heading truncate grow">Zomato</span>
+                    <span class="t-amount ds-amount c-spend">−₹452.00</span>
+                  </div>
+                  <span class="t-small muted truncate">Money out · 31 Aug 2025 · 8:14 PM</span>
+                </div>
+                <div class="ds-tabs" role="tablist">
+                  <button class="ds-tab t-small-em is-selected" data-tab="overview" role="tab">Overview</button>
+                  <button class="ds-tab t-small-em" data-tab="details" role="tab">Details</button>
+                </div>
+                <div class="ds-scroll" style="height:296px">
+                  <!-- Overview -->
+                  <div class="ds-body" data-panel="overview">
+                    <div class="ds-section">
+                      <span class="t-overline muted">CATEGORY</span>
+                      <div class="ds-cat-row">
+                        <div class="ds-cat-tap">
+                          <span class="ds-badge ds-badge--neutral"><span class="t-small">🍽️</span></span>
+                          <div class="grow"><div class="t-label truncate">Food &amp; Dining · Restaurant</div><div class="ds-status"><span class="t-small muted">Auto-categorized</span></div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                        <span class="ds-text-action t-small-em">Remove</span>
+                        <span class="icon-btn" aria-label="Re-categorize"><span class="ms">refresh</span></span>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">HOW IT’S COUNTED</span>
+                      <div class="cc-wrap">
+                        <div class="cc-chips">
+                          <span class="cc-chip t-small-em"><span class="ms">swap_horiz</span>Self-transfer</span>
+                          <span class="cc-chip t-small-em"><span class="ms">group</span>Money Lent</span>
+                          <span class="cc-chip t-small-em"><span class="ms">credit_card</span>Card bill</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">NOTES</span>
+                      <div class="ds-note-rows"><div class="ds-add-note"><span class="ms">edit</span><span class="t-small-em">Add note</span></div></div>
+                    </div>
+                    <div class="ds-link-group">
+                      <div class="ds-link-row ds-link-row--flush">
+                        <span class="ms">description</span>
+                        <div class="grow"><div class="t-label">Statement details</div><div class="t-caption muted truncate">Paytm_UPI_Statement_Aug2025.xlsx, UPI reference, account, original text</div></div>
+                        <span class="ms chev-muted">chevron_right</span>
+                      </div>
+                    </div>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                  <!-- Details -->
+                  <div class="ds-body" data-panel="details" hidden>
+                    <div class="ds-section">
+                      <span class="t-overline muted">TRANSACTION</span>
+                      <div>
+                        <div class="dl-row"><div class="dl-cell"><span class="t-small muted">Direction</span><span class="t-small tabular">Outgoing</span></div><div class="dl-div"></div><div class="dl-cell"><span class="t-small muted">Amount</span><span class="t-small tabular">−₹452.00</span></div></div>
+                        <div class="dl-row"><div class="dl-cell"><span class="t-small muted">Date</span><span class="t-small tabular">31 Aug 2025</span></div><div class="dl-div"></div><div class="dl-cell"><span class="t-small muted">Time</span><span class="t-small tabular">8:14 PM</span></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Type</span><span class="t-small dl-value">Paid to a merchant</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Paid to</span><span class="t-small dl-value">Zomato</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">UPI ID</span><span class="t-small dl-value">zomatoorder@paytm</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Account</span><span class="t-small dl-value">HDFC Bank - 09</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Category</span><span class="t-small dl-value">🍽️ Food &amp; Dining · Restaurant</span></div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">PROVENANCE</span>
+                      <div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Source</span><span class="t-small dl-value">Paytm UPI statement</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Imported from</span><span class="t-small dl-value">Paytm_UPI_Statement_Aug2025.xlsx</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Imported on</span><span class="t-small dl-value">2025-09-02T08:14:27.498Z</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Import batch</span><span class="t-small dl-value">#7</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">UPI reference</span><span class="t-small dl-value">524311908765</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Order ID</span><span class="t-small dl-value">ZOM8824415906</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Account</span><span class="t-small dl-value">HDFC Bank - 09</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Raw Paytm tag</span><span class="t-small dl-value">#Food</span></div>
+                        <div class="dl-row"><div class="dl-block"><div class="t-small muted">Original statement text</div><div class="t-small">Paid to Zomato</div></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Added to app</span><span class="t-small dl-value">2025-09-02T08:14:27.512Z</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Record ID</span><span class="t-small dl-value">#1284</span></div>
+                      </div>
+                    </div>
+                    <span class="btn btn--danger btn--sm ds-delete"><span class="ms">delete</span>Delete transaction</span>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Debit · Overview (tabs clickable)</b>Normal money-out, auto-categorized, no note yet. Tap Overview / Details to switch. Card bill chip shows because a card statement has been imported.</p>
+      </section>
+
+      <!-- ============ 2. Normal debit — Details ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Zomato</span><span class="t-caption muted">Food &amp; Dining</span></div><span class="txn-row__amount c-spend">−₹452.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">MedPlus Pharmacy</span><span class="t-caption muted">Medicine &amp; Health</span></div><span class="txn-row__amount c-spend">−₹386.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Uber India</span><span class="t-caption muted">Commute</span></div><span class="txn-row__amount c-spend">−₹218.40</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">north_east</span></span><span class="t-heading truncate grow">Zomato</span><span class="t-amount ds-amount c-spend">−₹452.00</span></div>
+                  <span class="t-small muted truncate">Money out · 31 Aug 2025 · 8:14 PM</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em">Overview</span><span class="ds-tab t-small-em is-selected">Details</span></div>
+                <div class="ds-scroll" style="height:296px">
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">TRANSACTION</span>
+                      <div>
+                        <div class="dl-row"><div class="dl-cell"><span class="t-small muted">Direction</span><span class="t-small tabular">Outgoing</span></div><div class="dl-div"></div><div class="dl-cell"><span class="t-small muted">Amount</span><span class="t-small tabular">−₹452.00</span></div></div>
+                        <div class="dl-row"><div class="dl-cell"><span class="t-small muted">Date</span><span class="t-small tabular">31 Aug 2025</span></div><div class="dl-div"></div><div class="dl-cell"><span class="t-small muted">Time</span><span class="t-small tabular">8:14 PM</span></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Type</span><span class="t-small dl-value">Paid to a merchant</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Paid to</span><span class="t-small dl-value">Zomato</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">UPI ID</span><span class="t-small dl-value">zomatoorder@paytm</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Account</span><span class="t-small dl-value">HDFC Bank - 09</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Category</span><span class="t-small dl-value">🍽️ Food &amp; Dining · Restaurant</span></div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">PROVENANCE</span>
+                      <div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Source</span><span class="t-small dl-value">Paytm UPI statement</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Imported from</span><span class="t-small dl-value">Paytm_UPI_Statement_Aug2025.xlsx</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Imported on</span><span class="t-small dl-value">2025-09-02T08:14:27.498Z</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Import batch</span><span class="t-small dl-value">#7</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">UPI reference</span><span class="t-small dl-value">524311908765</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Order ID</span><span class="t-small dl-value">ZOM8824415906</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Account</span><span class="t-small dl-value">HDFC Bank - 09</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Raw Paytm tag</span><span class="t-small dl-value">#Food</span></div>
+                        <div class="dl-row"><div class="dl-block"><div class="t-small muted">Original statement text</div><div class="t-small">Paid to Zomato</div></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Added to app</span><span class="t-small dl-value">2025-09-02T08:14:27.512Z</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Record ID</span><span class="t-small dl-value">#1284</span></div>
+                      </div>
+                    </div>
+                    <span class="btn btn--danger btn--sm ds-delete"><span class="ms">delete</span>Delete transaction</span>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Debit · Details tab</b>Short facts pair into two columns; long ones are label / right-aligned value; statement text is a full block. Scrolls inside the Overview’s height (scroll to see Delete).</p>
+      </section>
+
+      <!-- ============ 3. Needs review + note + imported remarks ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">MedPlus Pharmacy</span><span class="t-caption muted">Medicine &amp; Health</span></div><span class="txn-row__amount c-spend">−₹386.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Uber India</span><span class="t-caption muted">Commute</span></div><span class="txn-row__amount c-spend">−₹218.40</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">north_east</span></span><span class="t-heading truncate grow">MedPlus Pharmacy</span><span class="t-amount ds-amount c-spend">−₹386.00</span></div>
+                  <span class="t-small muted truncate">Money out · 28 Aug 2025 · 7:42 PM</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em is-selected">Overview</span><span class="ds-tab t-small-em">Details</span></div>
+                <div class="ds-scroll">
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">CATEGORY</span>
+                      <div>
+                        <div class="ds-cat-row">
+                          <div class="ds-cat-tap">
+                            <span class="ds-badge ds-badge--neutral"><span class="t-small">🏥</span></span>
+                            <div class="grow"><div class="t-label truncate">Medicine &amp; Health · Tablet</div><div class="ds-status"><span class="ms">warning</span><span class="t-small c-review">Needs review</span></div></div>
+                            <span class="ms">chevron_right</span>
+                          </div>
+                          <span class="ds-text-action t-small-em">Remove</span>
+                          <span class="icon-btn"><span class="ms">refresh</span></span>
+                        </div>
+                        <div class="ds-review-line"><span class="btn btn--ghost btn--sm"><span class="ms">check</span>Looks right</span></div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">HOW IT’S COUNTED</span>
+                      <div class="cc-wrap"><div class="cc-chips">
+                        <span class="cc-chip t-small-em"><span class="ms">swap_horiz</span>Self-transfer</span>
+                        <span class="cc-chip t-small-em"><span class="ms">group</span>Money Lent</span>
+                        <span class="cc-chip t-small-em"><span class="ms">credit_card</span>Card bill</span>
+                      </div></div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">NOTES</span>
+                      <div class="ds-note-rows">
+                        <div class="ds-note-row">
+                          <div class="grow"><div class="ds-note-label"><span class="t-caption muted">Note</span></div><div class="t-small clamp-3">BP tablets – monthly refill for amma</div></div>
+                          <span class="ms">edit</span>
+                        </div>
+                        <div class="ds-note-row">
+                          <div class="grow"><div class="ds-note-label"><span class="t-caption muted">Imported remarks</span><span class="t-caption muted">Read-only</span></div><div class="t-small clamp-3">Medicines</div></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="ds-link-group">
+                      <div class="ds-link-row ds-link-row--flush">
+                        <span class="ms">description</span>
+                        <div class="grow"><div class="t-label">Statement details</div><div class="t-caption muted truncate">Paytm_UPI_Statement_Aug2025.xlsx, UPI reference, account, original text</div></div>
+                        <span class="ms chev-muted">chevron_right</span>
+                      </div>
+                    </div>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Needs review · note + imported remarks</b>Review status in review colour with “Looks right”. Note row is tappable (edit icon); Paytm remarks are read-only.</p>
+      </section>
+
+      <!-- ============ 4. Editing the note ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Zomato</span><span class="t-caption muted">Food &amp; Dining</span></div><span class="txn-row__amount c-spend">−₹452.00</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">north_east</span></span><span class="t-heading truncate grow">Zomato</span><span class="t-amount ds-amount c-spend">−₹452.00</span></div>
+                  <span class="t-small muted truncate">Money out · 31 Aug 2025 · 8:14 PM</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em is-selected">Overview</span><span class="ds-tab t-small-em">Details</span></div>
+                <div class="ds-scroll">
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">CATEGORY</span>
+                      <div class="ds-cat-row">
+                        <div class="ds-cat-tap">
+                          <span class="ds-badge ds-badge--neutral"><span class="t-small">🍽️</span></span>
+                          <div class="grow"><div class="t-label truncate">Food &amp; Dining · Restaurant</div><div class="ds-status"><span class="t-small muted">Auto-categorized</span></div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                        <span class="ds-text-action t-small-em">Remove</span>
+                        <span class="icon-btn"><span class="ms">refresh</span></span>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">HOW IT’S COUNTED</span>
+                      <div class="cc-wrap"><div class="cc-chips">
+                        <span class="cc-chip t-small-em"><span class="ms">swap_horiz</span>Self-transfer</span>
+                        <span class="cc-chip t-small-em"><span class="ms">group</span>Money Lent</span>
+                        <span class="cc-chip t-small-em"><span class="ms">credit_card</span>Card bill</span>
+                      </div></div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">NOTES</span>
+                      <div class="ds-note-editor">
+                        <div class="ds-note-input">Biryani for team dinner<span class="caret"></span></div>
+                        <div class="ds-check-row"><span class="ds-checkbox is-checked"><span class="ms">check</span></span><span class="t-small grow">Re-categorize using this note</span></div>
+                        <div class="ds-note-actions"><span class="btn btn--sm">Cancel</span><span class="btn btn--primary btn--sm">Save note</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="kb"><div class="kb-row"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="kb-row kb-row--mid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="kb-row"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="kb-row"><span></span><span></span><span class="kb-wide"></span><span></span><span></span></div></div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Editing the note</b>“Add note” / tap on a note opens the inline editor (autofocus). “Re-categorize using this note” is checked by default. BottomSheet lifts above the keyboard; the rest scrolls.</p>
+      </section>
+
+      <!-- ============ 5. Incoming credit — refund ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Flipkart Payments</span><span class="t-caption muted">CashBack</span></div><span class="txn-row__amount c-income">+₹1,299.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Uber India</span><span class="t-caption muted">Commute</span></div><span class="txn-row__amount c-spend">−₹218.40</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">south_west</span></span><span class="t-heading truncate grow">Flipkart Payments</span><span class="t-amount ds-amount c-income">+₹1,299.00</span></div>
+                  <span class="t-small muted truncate">Money in · 12 Sep 2025 · 11:02 AM</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em is-selected">Overview</span><span class="ds-tab t-small-em">Details</span></div>
+                <div class="ds-scroll">
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">CATEGORY</span>
+                      <div class="ds-cat-row">
+                        <div class="ds-cat-tap">
+                          <span class="ds-badge ds-badge--neutral"><span class="t-small">↩️</span></span>
+                          <div class="grow"><div class="t-label truncate">CashBack · Refund</div><div class="ds-status"><span class="t-small muted">Set by you</span></div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                        <span class="ds-text-action t-small-em">Remove</span>
+                        <span class="icon-btn"><span class="ms">refresh</span></span>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">HOW IT’S COUNTED</span>
+                      <div class="cc-wrap">
+                        <div class="cc-chips">
+                          <span class="cc-chip t-small-em"><span class="ms">swap_horiz</span>Self-transfer</span>
+                          <span class="cc-chip t-small-em is-selected"><span class="ms">undo</span>Refund<span class="ms cc-check">check</span></span>
+                          <span class="cc-chip t-small-em"><span class="ms">group</span>Money Lent</span>
+                        </div>
+                        <div class="banner banner--success banner--wrap"><span class="ms">check_circle</span><div class="banner__copy"><div class="t-small-em">Offsets spending</div><div class="t-small muted">This incoming transaction is treated as a refund and is not counted as income.</div></div></div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">NOTES</span>
+                      <div class="ds-note-rows"><div class="ds-add-note"><span class="ms">edit</span><span class="t-small-em">Add note</span></div></div>
+                    </div>
+                    <div class="ds-link-group">
+                      <div class="ds-link-row ds-link-row--flush">
+                        <span class="ms">description</span>
+                        <div class="grow"><div class="t-label">Statement details</div><div class="t-caption muted truncate">Paytm_UPI_Statement_Sep2025.xlsx, UPI reference, account, original text</div></div>
+                        <span class="ms chev-muted">chevron_right</span>
+                      </div>
+                    </div>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Incoming credit · marked Refund</b>Refund chip appears only for money-in. Selected chip = accent fill + check; success banner explains the effect. Card bill chip hidden (not money-out, not linked).</p>
+      </section>
+
+      <!-- ============ 6. Self-transfer ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Transfer to own account</span><span class="t-caption muted">Self-transfer</span></div><span class="txn-row__amount c-review">⇄₹25,000.00</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">swap_horiz</span></span><span class="t-heading truncate grow">Transfer to own account</span><span class="t-amount ds-amount c-review">⇄₹25,000.00</span></div>
+                  <span class="t-small muted truncate">Between own accounts · 5 Sep 2025 · 9:30 AM</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em is-selected">Overview</span><span class="ds-tab t-small-em">Details</span></div>
+                <div class="ds-scroll">
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">CATEGORY</span>
+                      <div class="ds-cat-row">
+                        <div class="ds-cat-tap">
+                          <span class="ds-badge ds-badge--neutral"><span class="ms">sell</span></span>
+                          <div class="grow"><div class="t-label truncate">Not categorized (transfer)</div><div class="ds-status"><span class="t-small muted">Not categorized</span></div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                        <span class="icon-btn"><span class="ms">refresh</span></span>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">HOW IT’S COUNTED</span>
+                      <div class="cc-wrap">
+                        <div class="cc-chips">
+                          <span class="cc-chip t-small-em is-selected"><span class="ms">swap_horiz</span>Self-transfer<span class="ms cc-check">check</span></span>
+                          <span class="cc-chip t-small-em"><span class="ms">group</span>Money Lent</span>
+                        </div>
+                        <div class="banner banner--review banner--wrap"><span class="ms">warning</span><div class="banner__copy"><div class="t-small-em">Excluded from spent, received and net spent</div><div class="t-small muted">Tap Self-transfer again to restore the original direction.</div></div></div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">NOTES</span>
+                      <div class="ds-note-rows"><div class="ds-add-note"><span class="ms">edit</span><span class="t-small-em">Add note</span></div></div>
+                    </div>
+                    <div class="ds-link-group">
+                      <div class="ds-link-row ds-link-row--flush">
+                        <span class="ms">description</span>
+                        <div class="grow"><div class="t-label">Statement details</div><div class="t-caption muted truncate">Paytm_UPI_Statement_Sep2025.xlsx, UPI reference, account, original text</div></div>
+                        <span class="ms chev-muted">chevron_right</span>
+                      </div>
+                    </div>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Self-transfer</b>Direction “self”: ⇄ sign in review colour, swap icon, “Transfer to own account” when there’s no counterparty. No Remove (no category). Review banner under the chips.</p>
+      </section>
+
+      <!-- ============ 7. Card bill linked — Overview ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">BILLPAY HDFC CREDIT CARD 4421</span><span class="t-caption muted">Credit Card Payment</span></div><span class="txn-row__amount c-spend">−₹38,642.50</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">credit_card</span></span><span class="t-heading truncate grow">BILLPAY HDFC CREDIT CARD 4421</span><span class="t-amount ds-amount c-spend">−₹38,642.50</span></div>
+                  <span class="t-small muted truncate">Money out · 14 Nov 2025</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em is-selected">Overview</span><span class="ds-tab t-small-em">Details</span></div>
+                <div class="ds-scroll">
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">CATEGORY</span>
+                      <div class="ds-cat-row">
+                        <div class="ds-cat-tap">
+                          <span class="ds-badge ds-badge--neutral"><span class="t-small">💳</span></span>
+                          <div class="grow"><div class="t-label truncate">Credit Card Payment · Bill payment</div><div class="ds-status"><span class="t-small muted">Auto-categorized</span></div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                        <span class="ds-text-action t-small-em">Remove</span>
+                        <span class="icon-btn"><span class="ms">refresh</span></span>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">HOW IT’S COUNTED</span>
+                      <div class="cc-wrap">
+                        <div class="cc-chips">
+                          <span class="cc-chip t-small-em"><span class="ms">swap_horiz</span>Self-transfer</span>
+                          <span class="cc-chip t-small-em"><span class="ms">group</span>Money Lent</span>
+                          <span class="cc-chip t-small-em is-selected"><span class="ms">credit_card</span>Card bill<span class="ms cc-check">check</span></span>
+                        </div>
+                        <div class="status-row">
+                          <div class="grow"><div class="t-small-em truncate">Linked to HDFC Regalia · ••4421 · Oct 2025 · 23 items</div><div class="t-small muted">This bill-payment leg is excluded; the card purchases remain expenses.</div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">NOTES</span>
+                      <div class="ds-note-rows"><div class="ds-add-note"><span class="ms">edit</span><span class="t-small-em">Add note</span></div></div>
+                    </div>
+                    <div class="ds-link-group">
+                      <div class="ds-link-row ds-link-row--flush">
+                        <span class="ms">description</span>
+                        <div class="grow"><div class="t-label">Statement details</div><div class="t-caption muted truncate">SBI_Statement_Nov2025.pdf, account, original text</div></div>
+                        <span class="ms chev-muted">chevron_right</span>
+                      </div>
+                    </div>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Credit-card bill payment · linked</b>Bank-statement debit linked to a card statement: card icon in the header, Card bill chip selected, accent status row (title truncates to one line) opens the Card bill sheet.</p>
+      </section>
+
+      <!-- ============ 8. Card bill linked — Details ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">credit_card</span></span><span class="t-heading truncate grow">BILLPAY HDFC CREDIT CARD 4421</span><span class="t-amount ds-amount c-spend">−₹38,642.50</span></div>
+                  <span class="t-small muted truncate">Money out · 14 Nov 2025</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em">Overview</span><span class="ds-tab t-small-em is-selected">Details</span></div>
+                <div class="ds-scroll" style="height:364px" data-scroll-end>
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">TRANSACTION</span>
+                      <div>
+                        <div class="dl-row"><div class="dl-cell"><span class="t-small muted">Direction</span><span class="t-small tabular">Outgoing</span></div><div class="dl-div"></div><div class="dl-cell"><span class="t-small muted">Amount</span><span class="t-small tabular">−₹38,642.50</span></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Date</span><span class="t-small dl-value">14 Nov 2025</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Type</span><span class="t-small dl-value">Credit-card bill payment</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Account</span><span class="t-small dl-value">SBI Savings ••3307</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Category</span><span class="t-small dl-value">💳 Credit Card Payment · Bill payment</span></div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">PROVENANCE</span>
+                      <div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Source</span><span class="t-small dl-value">Bank statement</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Imported from</span><span class="t-small dl-value">SBI_Statement_Nov2025.pdf</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Imported on</span><span class="t-small dl-value">2025-11-20T17:05:11.204Z</span></div>
+                        <div class="dl-row"><div class="dl-cell"><span class="t-small muted">Import batch</span><span class="t-small tabular">#12</span></div><div class="dl-div"></div><div class="dl-cell"><span class="t-small muted">Statement period</span><span class="t-small tabular">Nov 2025</span></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Account</span><span class="t-small dl-value">SBI Savings ••3307</span></div>
+                        <div class="dl-row"><div class="dl-block"><div class="t-small muted">Original statement text</div><div class="t-small">BILLPAY HDFC CREDIT CARD 4421 IB REF 88213094</div></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Added to app</span><span class="t-small dl-value">2025-11-20T17:05:11.230Z</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Record ID</span><span class="t-small dl-value">#2051</span></div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">CARD BILL</span>
+                      <div class="card card--accent card--none">
+                        <div class="ds-link-row">
+                          <div class="grow"><div class="t-label truncate">HDFC Regalia · ••4421 · Oct 2025</div><div class="t-caption muted">23 statement items · Bill payment excluded; purchases remain expenses.</div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                      </div>
+                    </div>
+                    <span class="btn btn--danger btn--sm ds-delete"><span class="ms">delete</span>Delete transaction</span>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Card bill · Details tab (scrolled to end)</b>Linked statement card under Provenance. No time (bank rows), so Date sits alone; Import batch + Statement period pair up.</p>
+      </section>
+
+      <!-- ============ 9. Card bill suggested ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">north_east</span></span><span class="t-heading truncate grow">CRED Club</span><span class="t-amount ds-amount c-spend">−₹21,480.00</span></div>
+                  <span class="t-small muted truncate">Money out · 9 Dec 2025 · 10:21 AM</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em is-selected">Overview</span><span class="ds-tab t-small-em">Details</span></div>
+                <div class="ds-scroll">
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">CATEGORY</span>
+                      <div class="ds-cat-row">
+                        <div class="ds-cat-tap">
+                          <span class="ds-badge ds-badge--neutral"><span class="ms">sell</span></span>
+                          <div class="grow"><div class="t-label truncate">Uncategorized</div><div class="ds-status"><span class="t-small muted">Not categorized</span></div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                        <span class="icon-btn"><span class="ms">refresh</span></span>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">HOW IT’S COUNTED</span>
+                      <div class="cc-wrap">
+                        <div class="cc-chips">
+                          <span class="cc-chip t-small-em"><span class="ms">swap_horiz</span>Self-transfer</span>
+                          <span class="cc-chip t-small-em"><span class="ms">group</span>Money Lent</span>
+                          <span class="cc-chip t-small-em"><span class="ms">credit_card</span>Card bill</span>
+                        </div>
+                        <div class="status-row status-row--subtle">
+                          <div class="grow"><div class="t-small-em truncate">Suggested: HDFC Regalia · ••4421 · Nov 2025</div><div class="t-small muted">The statement due matches this payment amount. Review before linking.</div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">NOTES</span>
+                      <div class="ds-note-rows"><div class="ds-add-note"><span class="ms">edit</span><span class="t-small-em">Add note</span></div></div>
+                    </div>
+                    <div class="ds-link-group">
+                      <div class="ds-link-row ds-link-row--flush">
+                        <span class="ms">description</span>
+                        <div class="grow"><div class="t-label">Statement details</div><div class="t-caption muted truncate">Paytm_UPI_Statement_Dec2025.xlsx, UPI reference, account, original text</div></div>
+                        <span class="ms chev-muted">chevron_right</span>
+                      </div>
+                    </div>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Card bill · suggested match</b>Unlinked money-out whose amount equals a statement’s Total Payment Due: subtle status row; tapping it (or the chip) opens Card bill linking.</p>
+      </section>
+
+      <!-- ============ 10. Money lent — single loan ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">north_east</span></span><span class="t-heading truncate grow">RAVI KUMAR</span><span class="t-amount ds-amount c-spend">−₹25,000.00</span></div>
+                  <span class="t-small muted truncate">Money out · 3 Oct 2025 · 6:45 PM</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em is-selected">Overview</span><span class="ds-tab t-small-em">Details</span></div>
+                <div class="ds-scroll">
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">CATEGORY</span>
+                      <div class="ds-cat-row">
+                        <div class="ds-cat-tap">
+                          <span class="ds-badge ds-badge--neutral"><span class="ms">sell</span></span>
+                          <div class="grow"><div class="t-label truncate">Uncategorized</div><div class="ds-status"><span class="t-small muted">Not categorized</span></div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                        <span class="icon-btn"><span class="ms">refresh</span></span>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">HOW IT’S COUNTED</span>
+                      <div class="cc-wrap">
+                        <div class="cc-chips">
+                          <span class="cc-chip t-small-em"><span class="ms">swap_horiz</span>Self-transfer</span>
+                          <span class="cc-chip t-small-em is-selected"><span class="ms">group</span>Money Lent<span class="ms cc-check">check</span></span>
+                          <span class="cc-chip t-small-em"><span class="ms">credit_card</span>Card bill</span>
+                        </div>
+                        <div class="status-row">
+                          <div class="grow"><div class="t-small-em truncate">One loan · Ravi Kumar · Home renovation</div><div class="t-small muted">Principal · ₹25,000.00</div><div class="t-small muted">This transaction is loan principal or repayment, so it is excluded from normal spending and income.</div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">NOTES</span>
+                      <div class="ds-note-rows"><div class="ds-add-note"><span class="ms">edit</span><span class="t-small-em">Add note</span></div></div>
+                    </div>
+                    <div class="ds-link-group">
+                      <div class="ds-link-row ds-link-row--flush">
+                        <span class="ms">description</span>
+                        <div class="grow"><div class="t-label">Statement details</div><div class="t-caption muted truncate">Paytm_UPI_Statement_Oct2025.xlsx, UPI reference, account, original text</div></div>
+                        <span class="ms chev-muted">chevron_right</span>
+                      </div>
+                    </div>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Money lent · one loan (principal)</b>Money Lent chip selected; accent status row with loan, part · amount and the exclusion rule. Tapping opens the Money Lent manager.</p>
+      </section>
+
+      <!-- ============ 11. Money lent — split, Details ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet" data-tabs>
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">south_west</span></span><span class="t-heading truncate grow">SHEKHAR REDDY</span><span class="t-amount ds-amount c-income">+₹10,500.00</span></div>
+                  <span class="t-small muted truncate">Money in · 18 Oct 2025 · 9:12 PM</span>
+                </div>
+                <div class="ds-tabs" role="tablist"><button class="ds-tab t-small-em" data-tab="overview">Overview</button><button class="ds-tab t-small-em is-selected" data-tab="details">Details</button></div>
+                <div class="ds-scroll" style="height:420px">
+                  <div class="ds-body" data-panel="overview" hidden>
+                    <div class="ds-section">
+                      <span class="t-overline muted">CATEGORY</span>
+                      <div class="ds-cat-row">
+                        <div class="ds-cat-tap">
+                          <span class="ds-badge ds-badge--neutral"><span class="ms">sell</span></span>
+                          <div class="grow"><div class="t-label truncate">Uncategorized</div><div class="ds-status"><span class="t-small muted">Not categorized</span></div></div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                        <span class="icon-btn"><span class="ms">refresh</span></span>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">HOW IT’S COUNTED</span>
+                      <div class="cc-wrap">
+                        <div class="cc-chips">
+                          <span class="cc-chip t-small-em"><span class="ms">swap_horiz</span>Self-transfer</span>
+                          <span class="cc-chip t-small-em"><span class="ms">undo</span>Refund</span>
+                          <span class="cc-chip t-small-em is-selected"><span class="ms">group</span>Money Lent<span class="ms cc-check">check</span></span>
+                        </div>
+                        <div class="status-row">
+                          <div class="grow">
+                            <div class="t-small-em truncate">Split across 2 loans · 3 slices</div>
+                            <div class="t-small muted">Wedding · Repayment ₹6,000.00</div>
+                            <div class="t-small muted">Wedding · Interest ₹500.00</div>
+                            <div class="t-small muted">Bike loan · Repayment ₹4,000.00</div>
+                            <div class="t-small muted">Principal and repayment slices are excluded. ₹500.00 of interest or unallocated remainder stays in normal totals.</div>
+                          </div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">NOTES</span>
+                      <div class="ds-note-rows"><div class="ds-add-note"><span class="ms">edit</span><span class="t-small-em">Add note</span></div></div>
+                    </div>
+                    <div class="ds-link-group">
+                      <div class="ds-link-row ds-link-row--flush">
+                        <span class="ms">description</span>
+                        <div class="grow"><div class="t-label">Statement details</div><div class="t-caption muted truncate">Paytm_UPI_Statement_Oct2025.xlsx, UPI reference, account, original text</div></div>
+                        <span class="ms chev-muted">chevron_right</span>
+                      </div>
+                    </div>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                  <div class="ds-body" data-panel="details">
+                    <div class="ds-section">
+                      <span class="t-overline muted">TRANSACTION</span>
+                      <div>
+                        <div class="dl-row"><div class="dl-cell"><span class="t-small muted">Direction</span><span class="t-small tabular">Incoming</span></div><div class="dl-div"></div><div class="dl-cell"><span class="t-small muted">Amount</span><span class="t-small tabular">+₹10,500.00</span></div></div>
+                        <div class="dl-row"><div class="dl-cell"><span class="t-small muted">Date</span><span class="t-small tabular">18 Oct 2025</span></div><div class="dl-div"></div><div class="dl-cell"><span class="t-small muted">Time</span><span class="t-small tabular">9:12 PM</span></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Type</span><span class="t-small dl-value">Money received</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Received from</span><span class="t-small dl-value">SHEKHAR REDDY</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">UPI ID</span><span class="t-small dl-value">shekhar.r@okaxis</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Category</span><span class="t-small dl-value">Uncategorized</span></div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">PROVENANCE</span>
+                      <div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Source</span><span class="t-small dl-value">Paytm UPI statement</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Imported from</span><span class="t-small dl-value">Paytm_UPI_Statement_Oct2025.xlsx</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Imported on</span><span class="t-small dl-value">2025-11-01T09:40:02.118Z</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Import batch</span><span class="t-small dl-value">#10</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">UPI reference</span><span class="t-small dl-value">529117703412</span></div>
+                        <div class="dl-row"><div class="dl-block"><div class="t-small muted">Original statement text</div><div class="t-small">Received from SHEKHAR REDDY</div></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Added to app</span><span class="t-small dl-value">2025-11-01T09:40:02.131Z</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Record ID</span><span class="t-small dl-value">#1877</span></div>
+                      </div>
+                    </div>
+                    <div class="ds-section">
+                      <span class="t-overline muted">MONEY LENT</span>
+                      <div class="card card--accent card--none">
+                        <div class="ds-link-row">
+                          <div class="grow">
+                            <div class="t-label">Split across 2 loans · 3 slices</div>
+                            <div class="t-caption muted">Wedding · Repayment ₹6,000.00</div>
+                            <div class="t-caption muted">Wedding · Interest ₹500.00</div>
+                            <div class="t-caption muted">Bike loan · Repayment ₹4,000.00</div>
+                          </div>
+                          <span class="ms">chevron_right</span>
+                        </div>
+                      </div>
+                    </div>
+                    <span class="btn btn--danger btn--sm ds-delete"><span class="ms">delete</span>Delete transaction</span>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Money lent · split across loans (Details, tabs clickable)</b>Incoming repayment split into 3 slices. Details tab shows the Money Lent card; Overview shows the split status row with the countable-interest line.</p>
+      </section>
+
+      <!-- ============ 12. Delete confirmation ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="ds-topbar"><span class="t-overline muted">TRANSACTION</span><span class="t-link">Done</span></div>
+                <div class="ds-header">
+                  <div class="ds-title-row"><span class="ds-badge"><span class="ms">north_east</span></span><span class="t-heading truncate grow">Zomato</span><span class="t-amount ds-amount c-spend">−₹452.00</span></div>
+                  <span class="t-small muted truncate">Money out · 31 Aug 2025 · 8:14 PM</span>
+                </div>
+                <div class="ds-tabs"><span class="ds-tab t-small-em">Overview</span><span class="ds-tab t-small-em is-selected">Details</span></div>
+                <div class="ds-scroll" style="height:296px" data-scroll-end>
+                  <div class="ds-body">
+                    <div class="ds-section">
+                      <span class="t-overline muted">PROVENANCE</span>
+                      <div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Raw Paytm tag</span><span class="t-small dl-value">#Food</span></div>
+                        <div class="dl-row"><div class="dl-block"><div class="t-small muted">Original statement text</div><div class="t-small">Paid to Zomato</div></div></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Added to app</span><span class="t-small dl-value">2025-09-02T08:14:27.512Z</span></div>
+                        <div class="dl-row"><span class="t-small muted dl-label">Record ID</span><span class="t-small dl-value">#1284</span></div>
+                      </div>
+                    </div>
+                    <span class="btn btn--danger btn--sm ds-delete"><span class="ms">delete</span>Delete transaction</span>
+                    <div class="ds-autosave"><span class="ms">lock</span><span class="t-caption">Changes save automatically</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="overlay overlay--center" style="z-index:30">
+            <div class="alert-native" role="alertdialog">
+              <div class="alert-native__title">Delete this transaction?</div>
+              <div class="alert-native__msg">
+                <p>Zomato · −₹452.00 · 31 Aug 2025</p>
+                <p>The full record and its loan or card-statement link will be permanently removed from this device. This can’t be undone.</p>
+              </div>
+              <div class="alert-native__actions"><span>Cancel</span><span>Delete</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Delete confirmation</b>“Delete transaction” (bottom of Details) opens a native Alert.alert — the only confirm in the sheet; the counting chips apply immediately with no confirm. Delete also clears the Last-edited pill.</p>
+      </section>
+
+      <!-- ============ 13. Category picker — categories ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Zomato</span><span class="t-caption muted">Food &amp; Dining</span></div><span class="txn-row__amount c-spend">−₹452.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">MedPlus Pharmacy</span><span class="t-caption muted">Medicine &amp; Health</span></div><span class="txn-row__amount c-spend">−₹386.00</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="cp-header"><span class="cp-action t-link" style="color:var(--text-secondary)">Cancel</span><span class="cp-title t-small-em truncate">Choose category</span><span class="cp-spacer"></span></div>
+                <div class="cp-sub t-small muted truncate">Zomato</div>
+                <div class="cp-list">
+                  <div class="cp-row is-selected"><span class="t-label truncate grow">🍽️&nbsp; Food &amp; Dining</span><span class="cp-trailing"><span class="t-small-em c-accent">✓</span><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🛒&nbsp; Groceries</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🏍️&nbsp; Bike</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🚗&nbsp; Car</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🚕&nbsp; Commute</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🏥&nbsp; Medicine &amp; Health</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🧾&nbsp; Recharge</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🛍️&nbsp; Shopping</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">✈️&nbsp; Travel</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">💇&nbsp; Personal Care</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🏠&nbsp; Rent &amp; Utilities</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🎬&nbsp; Entertainment</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🪙&nbsp; Investments &amp; Mutual Funds</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">💪&nbsp; Fitness</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">💳&nbsp; Credit Card Payment</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🏦&nbsp; Services</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">📦&nbsp; Essentials</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">↩️&nbsp; CashBack</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">🔄&nbsp; Others</span><span class="cp-trailing"><span class="t-label muted">›</span></span></div>
+                  <div class="cp-row"><span class="t-small-em c-accent truncate grow">＋&nbsp; New category</span><span class="cp-trailing"></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Category picker · step 1</b>Opened from the Category row; the detail sheet hides while it’s up. Current category highlighted with ✓; › means it has sub-categories. Capped at 90% height, list scrolls.</p>
+      </section>
+
+      <!-- ============ 14. Category picker — sub-categories ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Zomato</span><span class="t-caption muted">Food &amp; Dining</span></div><span class="txn-row__amount c-spend">−₹452.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">MedPlus Pharmacy</span><span class="t-caption muted">Medicine &amp; Health</span></div><span class="txn-row__amount c-spend">−₹386.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Uber India</span><span class="t-caption muted">Commute</span></div><span class="txn-row__amount c-spend">−₹218.40</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="cp-header"><span class="cp-action t-link" style="color:var(--text-secondary)">‹ Back</span><span class="cp-title t-small-em truncate">Food &amp; Dining</span><span class="cp-spacer"></span></div>
+                <div class="cp-list">
+                  <div class="cp-row"><span class="t-label truncate grow">No sub-category</span><span class="cp-trailing"></span></div>
+                  <div class="cp-row is-selected"><span class="t-label truncate grow">Restaurant</span><span class="cp-trailing"><span class="t-small-em c-accent">✓</span></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">Biriyani</span><span class="cp-trailing"></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">Dosa</span><span class="cp-trailing"></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">Dominos</span><span class="cp-trailing"></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">Tea</span><span class="cp-trailing"></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">Juice</span><span class="cp-trailing"></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">Cake</span><span class="cp-trailing"></span></div>
+                  <div class="cp-row"><span class="t-label truncate grow">Snacks</span><span class="cp-trailing"></span></div>
+                  <div class="cp-row"><span class="t-small-em c-accent truncate grow">＋&nbsp; New sub-category</span><span class="cp-trailing"></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Category picker · step 2 (sub-category)</b>Picking a category with sub-categories drills in; the merchant subtitle is hidden here. Tapping a row assigns it and closes back to the detail sheet.</p>
+      </section>
+
+      <!-- ============ 15. Category picker — new category ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen under">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Zomato</span><span class="t-caption muted">Food &amp; Dining</span></div><span class="txn-row__amount c-spend">−₹452.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">MedPlus Pharmacy</span><span class="t-caption muted">Medicine &amp; Health</span></div><span class="txn-row__amount c-spend">−₹386.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Uber India</span><span class="t-caption muted">Commute</span></div><span class="txn-row__amount c-spend">−₹218.40</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet ds-sheet">
+              <div class="sheet-handle"></div>
+              <div class="ds-safe">
+                <div class="cp-header"><span class="cp-action t-link" style="color:var(--text-secondary)">‹ Back</span><span class="cp-title t-small-em truncate">New category</span><span class="cp-spacer"></span></div>
+                <div class="cp-form">
+                  <div class="cp-add-row">
+                    <div class="cp-input cp-input--emoji">🏷️</div>
+                    <div class="cp-input cp-input--name"><span class="muted">Category name</span><span class="caret"></span></div>
+                  </div>
+                  <button class="btn btn--primary btn--sm" disabled>Add category</button>
+                </div>
+              </div>
+            </div>
+            <div class="kb"><div class="kb-row"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="kb-row kb-row--mid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="kb-row"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="kb-row"><span></span><span></span><span class="kb-wide"></span><span></span><span></span></div></div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Category picker · “＋ New category”</b>Emoji + name inputs (name autofocused); “Add category” disabled until a name is typed, then drops into the new category’s sub-category step. The sub-category variant has no emoji box and reads “Add &amp; use subcategory”.</p>
+      </section>
+
+      <!-- ============ 16. Last-edited pill ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen">
+            <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><span class="icon-btn"><span class="ms">tune</span></span></div></header>
+            <div class="list-section__header"><span class="t-overline muted">Sun, 31 Aug</span></div>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Zomato</span><span class="t-caption muted">Food &amp; Dining · Biriyani</span></div><span class="txn-row__amount c-spend">−₹452.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Uber India</span><span class="t-caption muted">Commute · Auto</span></div><span class="txn-row__amount c-spend">−₹218.40</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Big Basket</span><span class="t-caption muted">Groceries · Vegetables</span></div><span class="txn-row__amount c-spend">−₹1,146.00</span></div>
+            </div>
+            <div class="list-section__header"><span class="t-overline muted">Thu, 28 Aug</span></div>
+            <div class="card card--none list under-list">
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">MedPlus Pharmacy</span><span class="t-caption muted">Medicine &amp; Health · Tablet</span></div><span class="txn-row__amount c-spend">−₹386.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Flipkart Payments</span><span class="t-caption muted">CashBack · Refund</span></div><span class="txn-row__amount c-income">+₹1,299.00</span></div>
+              <div class="txn-row"><div class="txn-row__left"><span class="t-label truncate">Transfer to own account</span><span class="t-caption muted">Self-transfer</span></div><span class="txn-row__amount c-review">⇄₹25,000.00</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="12"></nav>
+          <div class="le-wrap">
+            <div class="le-pill">
+              <div class="le-tap">
+                <span class="le-icon"><span class="ms">undo</span></span>
+                <div class="le-label"><span class="t-caption muted">Last edited</span><span class="t-small-em truncate">Zomato</span></div>
+                <span class="t-small-em tabular c-spend">−₹452.00</span>
+              </div>
+              <span class="le-dismiss" aria-label="Dismiss last edited transaction shortcut"><span class="ms">close</span></span>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Last-edited pill</b>After any edit in the sheet, a full-width pill floats above the tab bar on every tab; tap reopens that transaction, ✕ dismisses. Hidden while that transaction’s sheet is open. (Underlying list simplified.)</p>
+      </section>
+
+    </div>
+  </main>
+  <script src="assets/mock.js"></script>
+  <script>
+    // Show a few Details frames scrolled to their end (Card bill / Money Lent / Delete).
+    document.querySelectorAll('[data-scroll-end]').forEach(function (el) { el.scrollTop = el.scrollHeight; });
+  </script>
+</body>
+</html>

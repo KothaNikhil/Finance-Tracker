@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Home</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    /* Home ScrollView content: paddingTop 8, gutter 16, gap Spacing.two (8) — tighter than the default .screen gap. */
+    .screen.home { gap: var(--sp-2); }
+
+    /* InfoDisclosure (info-disclosure.tsx): row + 24px plain IconButton (15px icon), copy revealed below. */
+    .info-row { display: flex; align-items: center; gap: var(--sp-1); margin-right: calc(-1 * var(--sp-1)); }
+    .info-row__content { flex: 1; min-width: 0; }
+    .info-btn {
+      width: 24px; height: 24px; border-radius: var(--r-md); flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: var(--hairline) solid transparent; background: transparent; color: var(--accent);
+    }
+    .info-btn .ms { font-size: 15px; }
+    .info-text { margin: var(--sp-half) 0 0; color: var(--text-secondary); }
+
+    /* Section heads ("Monthly trend", "Where it went"): marginTop 8, baseline-aligned row. */
+    .section-head { margin-top: var(--sp-2); }
+    .section-head__row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); }
+
+    /* HomePeriodSelector: stepper card + Month/Year/All segmented control on one wrapping row. */
+    .period { display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--sp-2); }
+    .period__nav { min-width: 140px; flex: 1 1 150px; display: flex; align-items: center; justify-content: space-between; }
+    .period__label { flex: 1; min-width: 0; text-align: center; }
+    .period__modes { min-width: 150px; flex: 1 1 150px; display: flex; flex-direction: column; justify-content: center; }
+
+    /* Hero "NET SPENT" card. */
+    .hero { display: flex; flex-direction: column; gap: var(--sp-half); }
+    .hero__rule { height: var(--hairline); background: var(--border); margin: var(--sp-2) 0; }
+
+    /* SpendBarChart (spend-bar-chart.tsx): 96px plot, top + middle grid hairlines, 64%-wide bars. */
+    .chart__plot { position: relative; height: 96px; display: flex; align-items: flex-end; gap: var(--sp-half); }
+    .chart__grid { position: absolute; left: 0; right: 0; height: var(--hairline); background: var(--border); pointer-events: none; }
+    .chart__grid--top { top: 0; }
+    .chart__grid--mid { top: 50%; }
+    .chart__col { position: relative; flex: 1; min-width: 14px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+    .chart__bar { width: 64%; border-radius: 4px 4px 0 0; background: var(--accent); opacity: 0.78; }
+    .chart--selection .chart__bar { background: var(--border-strong); opacity: 0.72; }
+    .chart--selection .chart__bar.is-selected { background: var(--accent); opacity: 1; }
+    .chart .chart__bar.is-zero { background: var(--background-selected); }
+    .chart__baseline { height: 1px; margin-top: var(--sp-half); background: var(--background-selected); }
+    .chart__labels { display: flex; gap: var(--sp-half); margin-top: var(--sp-1); }
+    .chart__labels span { flex: 1; min-width: 0; text-align: center; color: var(--text-secondary); white-space: nowrap; overflow: hidden; }
+    .chart__labels span.is-selected { color: var(--text); }
+
+    /* CategoryBreakdown (category-breakdown.tsx): label · amount (92px) · pct (30px) · › chevron, 4px track below. */
+    .cb__row { min-height: 38px; display: flex; flex-direction: column; gap: var(--sp-half); padding: var(--sp-1) 0; }
+    .cb__row + .cb__row { border-top: var(--hairline) solid var(--border); }
+    .cb__head { display: flex; align-items: center; gap: var(--sp-1); }
+    .cb__label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cb__amt { width: 92px; flex-shrink: 1; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .cb__pct { width: 30px; flex-shrink: 0; text-align: right; color: var(--text-secondary); }
+    .cb__chev { width: 12px; flex-shrink: 0; font-size: 16px; line-height: 18px; text-align: right; color: var(--text-secondary); }
+    .cb__track { height: 4px; border-radius: 2px; background: var(--background-selected); overflow: hidden; }
+    .cb__fill { height: 100%; border-radius: 2px; background: var(--accent); }
+    .cb--spend .cb__fill { background: var(--spend); }
+
+    /* CategoryDetail sheet: ScreenHeader compact + body (paddingTop 8, gap 4). */
+    .sheet.cat-sheet { gap: 0; padding-bottom: 0; }
+    .cat-sheet .sheet__body { gap: var(--sp-1); padding: var(--sp-2) 0 var(--sp-4); }
+    .cat-sheet__summary { display: flex; flex-direction: column; gap: 0; }
+    .cat-sheet__section { margin: var(--sp-2) 0 var(--sp-1); color: var(--text-secondary); }
+    .cat-sheet .btn--block { margin-top: var(--sp-2); }
+
+    /* Skeleton pulse (skeleton.tsx: opacity 0.5 ↔ 0.9; static 0.72 with reduced motion). */
+    .skel-stack { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .skeleton.pulse { animation: skel-pulse 1.2s ease-in-out infinite alternate; opacity: 0.72; }
+    @keyframes skel-pulse { from { opacity: 0.5; } to { opacity: 0.9; } }
+    @media (prefers-reduced-motion: reduce) { .skeleton.pulse { animation: none; } }
+
+    .empty.home-empty { margin-top: var(--sp-3); }
+  </style>
+</head>
+<body>
+  <main class="mock-page">
+    <p class="mock-intro">
+      Home tab: net spent for the selected Month / Year / All period, the monthly (or yearly) trend, and the
+      "Where it went" category breakdown with its sub-category drill-down sheet. Opens on <b>Year</b> view for the newest
+      year with data. Header title is the signed-in user's first name (falls back to "Home").
+      Source: <code>mobile/src/app/index.tsx</code>, <code>components/home-period-selector.tsx</code>,
+      <code>stat-tile.tsx</code>, <code>spend-bar-chart.tsx</code>, <code>category-breakdown.tsx</code>,
+      <code>category-detail.tsx</code>, <code>info-disclosure.tsx</code>, <code>feedback-banner.tsx</code>,
+      <code>empty-state.tsx</code>, <code>skeleton.tsx</code>.
+    </p>
+    <div class="frames">
+
+      <!-- ============ 1. Year view (default) ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen home">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Priya</h1></div>
+            </header>
+
+            <div class="period">
+              <div class="card card--none period__nav">
+                <button class="icon-btn icon-btn--plain icon-btn--sm" aria-label="Previous year"><span class="ms">chevron_left</span></button>
+                <span class="t-label period__label truncate">2026</span>
+                <button class="icon-btn icon-btn--plain icon-btn--sm is-disabled" aria-label="Next year"><span class="ms">chevron_right</span></button>
+              </div>
+              <div class="period__modes">
+                <div class="seg" role="tablist" aria-label="Home period view">
+                  <span class="seg__item">Month</span><span class="seg__item is-selected">Year</span><span class="seg__item">All</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card hero">
+              <span class="t-overline muted">NET SPENT</span>
+              <span class="t-amount-lg">₹4,59,590.40</span>
+              <div class="info-row">
+                <div class="info-row__content"><span class="t-caption muted truncate" style="display:block">2026 · 1284 counted transactions</span></div>
+                <button class="info-btn" aria-label="How these totals are counted"><span class="ms">info</span></button>
+              </div>
+              <div class="hero__rule"></div>
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹4,78,214.40</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,86,500.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">Refunds</span><span class="t-stat c-accent">₹18,624.00</span></div>
+              </div>
+            </div>
+
+            <div class="section-head">
+              <div class="info-row">
+                <div class="info-row__content section-head__row"><span class="t-heading">Monthly trend</span><span class="t-small muted tabular">2026</span></div>
+                <button class="info-btn" aria-label="How to use the monthly trend"><span class="ms">info</span></button>
+              </div>
+            </div>
+            <div class="card card--sm">
+              <div class="chart">
+                <div class="chart__plot">
+                  <div class="chart__grid chart__grid--top"></div><div class="chart__grid chart__grid--mid"></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:67px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:64px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:86px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:74px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:60px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:55px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:65px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:77px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:72px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:96px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:35px"></div></div>
+                  <div class="chart__col"><div class="chart__bar is-zero" style="height:3px"></div></div>
+                </div>
+                <div class="chart__baseline"></div>
+                <div class="chart__labels t-caption">
+                  <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span>
+                  <span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="banner banner--review" role="status">
+              <span class="ms">warning</span>
+              <div class="banner__copy"><span class="t-small-em truncate" style="display:block">14 transactions need review</span></div>
+              <span class="banner__action">Review now</span>
+            </div>
+
+            <div class="section-head">
+              <div class="info-row">
+                <div class="info-row__content section-head__row"><span class="t-heading">Where it went</span><span class="t-caption muted">9 categories · 2026</span></div>
+                <button class="info-btn" aria-label="About the category breakdown"><span class="ms">info</span></button>
+              </div>
+            </div>
+            <div class="card card--sm">
+              <div class="cb">
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🏠 Rent &amp; Utilities</span><span class="t-label cb__amt">₹1,85,000.00</span><span class="t-caption cb__pct">39%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:100%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🍽️ Food &amp; Dining</span><span class="t-label cb__amt">₹1,12,460.00</span><span class="t-caption cb__pct">24%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:60.8%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🛒 Groceries</span><span class="t-label cb__amt">₹68,240.40</span><span class="t-caption cb__pct">14%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:36.9%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🛍️ Shopping</span><span class="t-label cb__amt">₹49,380.00</span><span class="t-caption cb__pct">10%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:26.7%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🚕 Travel</span><span class="t-label cb__amt">₹31,760.00</span><span class="t-caption cb__pct">7%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:17.2%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🏍️ Bike</span><span class="t-label cb__amt">₹14,890.00</span><span class="t-caption cb__pct">3%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:8%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">💊 Health</span><span class="t-label cb__amt">₹9,604.00</span><span class="t-caption cb__pct">2%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:5.2%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🎬 Entertainment</span><span class="t-label cb__amt">₹4,980.00</span><span class="t-caption cb__pct">1%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:2.7%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">Uncategorized</span><span class="t-label cb__amt">₹1,900.00</span><span class="t-caption cb__pct">0%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:2%"></div></div></div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="home" data-badge="14"></nav>
+        </div>
+        <p class="frame-caption"><b>Year view (default)</b>Opens on the newest year with data. All 12 month bars at 78% opacity, no selection; Dec has no data yet so it is a 3px <code>backgroundSelected</code> sliver. Next is disabled (newest year). Every category row, including Uncategorized, is tappable (›). Scroll for the full list.</p>
+      </section>
+
+      <!-- ============ 2. Month view ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen home">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Priya</h1></div>
+            </header>
+
+            <div class="period">
+              <div class="card card--none period__nav">
+                <button class="icon-btn icon-btn--plain icon-btn--sm" aria-label="Previous month"><span class="ms">chevron_left</span></button>
+                <span class="t-label period__label truncate">October 2026</span>
+                <button class="icon-btn icon-btn--plain icon-btn--sm" aria-label="Next month"><span class="ms">chevron_right</span></button>
+              </div>
+              <div class="period__modes">
+                <div class="seg" role="tablist" aria-label="Home period view">
+                  <span class="seg__item is-selected">Month</span><span class="seg__item">Year</span><span class="seg__item">All</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card hero">
+              <span class="t-overline muted">NET SPENT</span>
+              <span class="t-amount-lg">₹58,760.00</span>
+              <div class="info-row">
+                <div class="info-row__content"><span class="t-caption muted truncate" style="display:block">October 2026 · 143 counted transactions</span></div>
+                <button class="info-btn" aria-label="How these totals are counted"><span class="ms">info</span></button>
+              </div>
+              <div class="hero__rule"></div>
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹61,248.50</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹82,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">Refunds</span><span class="t-stat c-accent">₹2,488.50</span></div>
+              </div>
+            </div>
+
+            <div class="section-head">
+              <div class="info-row">
+                <div class="info-row__content section-head__row"><span class="t-heading">Monthly trend</span><span class="t-small muted tabular">2026</span></div>
+                <button class="info-btn" aria-label="How to use the monthly trend"><span class="ms">info</span></button>
+              </div>
+            </div>
+            <div class="card card--sm">
+              <div class="chart chart--selection">
+                <div class="chart__plot">
+                  <div class="chart__grid chart__grid--top"></div><div class="chart__grid chart__grid--mid"></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:67px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:64px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:86px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:74px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:60px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:55px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:65px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:77px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:72px"></div></div>
+                  <div class="chart__col"><div class="chart__bar is-selected" style="height:96px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:35px"></div></div>
+                  <div class="chart__col"><div class="chart__bar is-zero" style="height:3px"></div></div>
+                </div>
+                <div class="chart__baseline"></div>
+                <div class="chart__labels t-caption">
+                  <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span>
+                  <span>Jul</span><span>Aug</span><span>Sep</span><span class="is-selected">Oct</span><span>Nov</span><span>Dec</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="banner banner--review" role="status">
+              <span class="ms">warning</span>
+              <div class="banner__copy"><span class="t-small-em truncate" style="display:block">6 transactions need review</span></div>
+              <span class="banner__action">Review now</span>
+            </div>
+
+            <div class="section-head">
+              <div class="info-row">
+                <div class="info-row__content section-head__row"><span class="t-heading">Where it went</span><span class="t-caption muted">8 categories · October 2026</span></div>
+                <button class="info-btn" aria-label="About the category breakdown"><span class="ms">info</span></button>
+              </div>
+            </div>
+            <div class="card card--sm">
+              <div class="cb">
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🏠 Rent &amp; Utilities</span><span class="t-label cb__amt">₹18,500.00</span><span class="t-caption cb__pct">30%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:100%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🍽️ Food &amp; Dining</span><span class="t-label cb__amt">₹14,820.00</span><span class="t-caption cb__pct">24%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:80.1%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🛒 Groceries</span><span class="t-label cb__amt">₹8,964.50</span><span class="t-caption cb__pct">15%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:48.5%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🛍️ Shopping</span><span class="t-label cb__amt">₹7,420.00</span><span class="t-caption cb__pct">12%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:40.1%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🚕 Travel</span><span class="t-label cb__amt">₹4,860.00</span><span class="t-caption cb__pct">8%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:26.3%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🏍️ Bike</span><span class="t-label cb__amt">₹3,210.00</span><span class="t-caption cb__pct">5%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:17.4%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">💊 Health</span><span class="t-label cb__amt">₹1,840.00</span><span class="t-caption cb__pct">3%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:9.9%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">Uncategorized</span><span class="t-label cb__amt">₹1,634.00</span><span class="t-caption cb__pct">3%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:8.8%"></div></div></div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="home" data-badge="14"></nav>
+        </div>
+        <p class="frame-caption"><b>Month view (bar selected)</b>Tapping the Oct bar (or the Month segment) drills into October 2026: the selected bar is solid accent, the rest turn <code>borderStrong</code> at 72%, and its axis label switches to primary text. Both steppers are enabled (Nov 2026 is the newest month with data). Tapping Oct again returns to Year.</p>
+      </section>
+
+      <!-- ============ 3. All time + disclosures open ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen home">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Priya</h1></div>
+            </header>
+
+            <div class="period">
+              <div class="card card--none period__nav">
+                <button class="icon-btn icon-btn--plain icon-btn--sm is-disabled" aria-label="Previous period"><span class="ms">chevron_left</span></button>
+                <span class="t-label period__label truncate">All time</span>
+                <button class="icon-btn icon-btn--plain icon-btn--sm is-disabled" aria-label="Next period"><span class="ms">chevron_right</span></button>
+              </div>
+              <div class="period__modes">
+                <div class="seg" role="tablist" aria-label="Home period view">
+                  <span class="seg__item">Month</span><span class="seg__item">Year</span><span class="seg__item is-selected">All</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card hero">
+              <span class="t-overline muted">NET SPENT</span>
+              <span class="t-amount-lg">₹17,06,881.35</span>
+              <div>
+                <div class="info-row">
+                  <div class="info-row__content"><span class="t-caption muted truncate" style="display:block">All time · 4912 counted transactions</span></div>
+                  <button class="info-btn" aria-label="How these totals are counted" aria-expanded="true"><span class="ms">info</span></button>
+                </div>
+                <p class="t-caption info-text">Individual credit-card statement purchases count as spending here and in the trend. Self-transfers, lending principal, and a card bill payment once it is linked to its statement are excluded from these totals, so a card bill is never counted twice. A bill payment that is not linked to a statement still counts. Refunds and cashback reduce net spent and never count as income. Amounts are stored as integer paise and shown in Indian Rupees.</p>
+              </div>
+              <div class="hero__rule"></div>
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹17,58,402.15</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹38,42,600.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">Refunds</span><span class="t-stat c-accent">₹51,520.80</span></div>
+              </div>
+            </div>
+
+            <div class="section-head">
+              <div class="info-row">
+                <div class="info-row__content section-head__row"><span class="t-heading">Yearly trend</span></div>
+                <button class="info-btn" aria-label="How to use the yearly trend" aria-expanded="true"><span class="ms">info</span></button>
+              </div>
+              <p class="t-caption info-text">Select a year to open its monthly view.</p>
+            </div>
+            <div class="card card--sm">
+              <div class="chart">
+                <div class="chart__plot">
+                  <div class="chart__grid chart__grid--top"></div><div class="chart__grid chart__grid--mid"></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:34px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:89px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:96px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:80px"></div></div>
+                </div>
+                <div class="chart__baseline"></div>
+                <div class="chart__labels t-caption"><span>2023</span><span>2024</span><span>2025</span><span>2026</span></div>
+              </div>
+            </div>
+
+            <div class="banner banner--review" role="status">
+              <span class="ms">warning</span>
+              <div class="banner__copy"><span class="t-small-em truncate" style="display:block">14 transactions need review</span></div>
+              <span class="banner__action">Review now</span>
+            </div>
+
+            <div class="section-head">
+              <div class="info-row">
+                <div class="info-row__content section-head__row"><span class="t-heading">Where it went</span><span class="t-caption muted">10 categories · All time</span></div>
+                <button class="info-btn" aria-label="About the category breakdown" aria-expanded="true"><span class="ms">info</span></button>
+              </div>
+              <p class="t-caption info-text">Every category is shown. Select one for its sub-category breakdown.</p>
+            </div>
+            <div class="card card--sm">
+              <div class="cb">
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🏠 Rent &amp; Utilities</span><span class="t-label cb__amt">₹6,48,000.00</span><span class="t-caption cb__pct">37%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:100%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🍽️ Food &amp; Dining</span><span class="t-label cb__amt">₹4,02,316.00</span><span class="t-caption cb__pct">23%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:62.1%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🛒 Groceries</span><span class="t-label cb__amt">₹2,41,880.15</span><span class="t-caption cb__pct">14%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:37.3%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🛍️ Shopping</span><span class="t-label cb__amt">₹1,86,420.00</span><span class="t-caption cb__pct">11%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:28.8%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🚕 Travel</span><span class="t-label cb__amt">₹1,32,940.00</span><span class="t-caption cb__pct">8%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:20.5%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🏍️ Bike</span><span class="t-label cb__amt">₹61,230.00</span><span class="t-caption cb__pct">3%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:9.4%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">💊 Health</span><span class="t-label cb__amt">₹38,416.00</span><span class="t-caption cb__pct">2%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:5.9%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">🎬 Entertainment</span><span class="t-label cb__amt">₹22,180.00</span><span class="t-caption cb__pct">1%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:3.4%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">📚 Education</span><span class="t-label cb__amt">₹16,500.00</span><span class="t-caption cb__pct">1%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:2.5%"></div></div></div>
+                <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">Uncategorized</span><span class="t-label cb__amt">₹8,520.00</span><span class="t-caption cb__pct">0%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:2%"></div></div></div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="home" data-badge="14"></nav>
+        </div>
+        <p class="frame-caption"><b>All time (info disclosures open)</b>"All" swaps the chart for net spent per year ("Yearly trend", no year suffix); both steppers are disabled. Tapping a year bar opens that year in Year view. The three ⓘ buttons are shown expanded to document their verbatim copy (the trend hint in Month/Year modes reads "Select a bar for that month; select it again to return to the whole year.").</p>
+      </section>
+
+      <!-- ============ 4. Category detail sheet ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen home under">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Priya</h1></div>
+            </header>
+            <div class="period">
+              <div class="card card--none period__nav">
+                <button class="icon-btn icon-btn--plain icon-btn--sm"><span class="ms">chevron_left</span></button>
+                <span class="t-label period__label truncate">October 2026</span>
+                <button class="icon-btn icon-btn--plain icon-btn--sm"><span class="ms">chevron_right</span></button>
+              </div>
+              <div class="period__modes">
+                <div class="seg"><span class="seg__item is-selected">Month</span><span class="seg__item">Year</span><span class="seg__item">All</span></div>
+              </div>
+            </div>
+            <div class="card hero">
+              <span class="t-overline muted">NET SPENT</span>
+              <span class="t-amount-lg">₹58,760.00</span>
+              <div class="info-row">
+                <div class="info-row__content"><span class="t-caption muted truncate" style="display:block">October 2026 · 143 counted transactions</span></div>
+                <button class="info-btn"><span class="ms">info</span></button>
+              </div>
+              <div class="hero__rule"></div>
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹61,248.50</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹82,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">Refunds</span><span class="t-stat c-accent">₹2,488.50</span></div>
+              </div>
+            </div>
+            <div class="section-head">
+              <div class="info-row">
+                <div class="info-row__content section-head__row"><span class="t-heading">Monthly trend</span><span class="t-small muted tabular">2026</span></div>
+                <button class="info-btn"><span class="ms">info</span></button>
+              </div>
+            </div>
+            <div class="card card--sm">
+              <div class="chart chart--selection">
+                <div class="chart__plot">
+                  <div class="chart__grid chart__grid--top"></div><div class="chart__grid chart__grid--mid"></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:67px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:64px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:86px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:74px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:60px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:55px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:65px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:77px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:72px"></div></div>
+                  <div class="chart__col"><div class="chart__bar is-selected" style="height:96px"></div></div>
+                  <div class="chart__col"><div class="chart__bar" style="height:35px"></div></div>
+                  <div class="chart__col"><div class="chart__bar is-zero" style="height:3px"></div></div>
+                </div>
+                <div class="chart__baseline"></div>
+                <div class="chart__labels t-caption">
+                  <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span>
+                  <span>Jul</span><span>Aug</span><span>Sep</span><span class="is-selected">Oct</span><span>Nov</span><span>Dec</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="home" data-badge="14"></nav>
+
+          <div class="overlay">
+            <div class="sheet cat-sheet" role="dialog" aria-label="🍽️ Food &amp; Dining">
+              <div class="sheet-handle"></div>
+              <div class="sheet__header">
+                <span class="t-heading truncate">🍽️ Food &amp; Dining</span>
+                <button class="icon-btn icon-btn--plain" aria-label="Close category breakdown"><span class="ms">close</span></button>
+              </div>
+              <div class="sheet__body">
+                <div class="card card--sm cat-sheet__summary">
+                  <span class="t-amount c-spend">₹14,820.00</span>
+                  <span class="t-caption muted">Spent · October 2026 · 38 transactions</span>
+                </div>
+                <span class="t-overline cat-sheet__section">SUB-CATEGORIES</span>
+                <div class="card card--sm">
+                  <div class="cb cb--spend">
+                    <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">Restaurants</span><span class="t-label cb__amt">₹6,240.00</span><span class="t-caption cb__pct">42%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:100%"></div></div></div>
+                    <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">Food delivery</span><span class="t-label cb__amt">₹5,480.00</span><span class="t-caption cb__pct">37%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:87.8%"></div></div></div>
+                    <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">Cafes</span><span class="t-label cb__amt">₹1,920.00</span><span class="t-caption cb__pct">13%</span><span class="cb__chev">›</span></div><div class="cb__track"><div class="cb__fill" style="width:30.8%"></div></div></div>
+                    <div class="cb__row"><div class="cb__head"><span class="t-label cb__label">No sub-category</span><span class="t-label cb__amt">₹1,180.00</span><span class="t-caption cb__pct">8%</span></div><div class="cb__track"><div class="cb__fill" style="width:18.9%"></div></div></div>
+                  </div>
+                </div>
+                <button class="btn btn--primary btn--block">View in Activity</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Category detail sheet</b>Tapping a category opens its sub-category split for the current period (BottomSheet, drag-to-dismiss). Bars and the total use the spend colour. Real sub-categories show › and deep-link to Activity; "No sub-category" is not tappable. Uncategorized skips this sheet and goes straight to Activity.</p>
+      </section>
+
+      <!-- ============ 5. Summary loading (period switch) ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen home">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Priya</h1></div>
+            </header>
+            <div class="period">
+              <div class="card card--none period__nav">
+                <button class="icon-btn icon-btn--plain icon-btn--sm" aria-label="Previous year"><span class="ms">chevron_left</span></button>
+                <span class="t-label period__label truncate">2025</span>
+                <button class="icon-btn icon-btn--plain icon-btn--sm" aria-label="Next year"><span class="ms">chevron_right</span></button>
+              </div>
+              <div class="period__modes">
+                <div class="seg"><span class="seg__item">Month</span><span class="seg__item is-selected">Year</span><span class="seg__item">All</span></div>
+              </div>
+            </div>
+            <div class="skel-stack" aria-label="Loading summary">
+              <div class="skeleton pulse" style="height:132px"></div>
+              <div class="skeleton pulse" style="height:168px"></div>
+              <div class="skeleton pulse" style="height:120px"></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="home" data-badge="14"></nav>
+        </div>
+        <p class="frame-caption"><b>Summary loading</b>After stepping to another period, the selector stays interactive while the hero, trend and breakdown are replaced by three pulsing skeleton blocks (132 / 168 / 120px).</p>
+      </section>
+
+      <!-- ============ 6. Initial loading ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen home">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Priya</h1></div>
+            </header>
+            <div class="skel-stack" aria-label="Loading Home">
+              <div class="skeleton pulse" style="height:36px"></div>
+              <div class="skel-stack" aria-label="Loading summary">
+                <div class="skeleton pulse" style="height:132px"></div>
+                <div class="skeleton pulse" style="height:168px"></div>
+                <div class="skeleton pulse" style="height:120px"></div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="home" data-badge="14"></nav>
+        </div>
+        <p class="frame-caption"><b>Initial loading</b>While the transaction count loads: a 36px bar in place of the period selector, then the same three summary skeletons.</p>
+      </section>
+
+      <!-- ============ 7. Empty ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen home">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Priya</h1></div>
+            </header>
+            <div class="empty home-empty">
+              <div class="empty__icon"><span class="ms">download</span></div>
+              <span class="t-heading">Your overview starts here</span>
+              <span class="t-small muted">Import a bank or UPI statement to see net spending, trends, and every category in one place.</span>
+              <button class="btn btn--primary">Go to Import</button>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="home"></nav>
+        </div>
+        <p class="frame-caption"><b>Empty (no transactions)</b>Shown when the transaction count is 0. No period selector. "Go to Import" navigates to the Import tab. No review badge.</p>
+      </section>
+
+      <!-- ============ 8. Error ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen home">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Priya</h1></div>
+            </header>
+            <div class="empty home-empty">
+              <div class="empty__icon"><span class="ms">error</span></div>
+              <span class="t-heading">Couldn’t load Home</span>
+              <span class="t-small muted">Your finance data is still safe. Try loading the overview again.</span>
+              <button class="btn btn--primary">Try again</button>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="home" data-badge="14"></nav>
+        </div>
+        <p class="frame-caption"><b>Load error</b>If the count or period summary query fails. "Try again" retries both. Uses the same EmptyState treatment (accent icon tile), not a danger tone.</p>
+      </section>
+
+    </div>
+  </main>
+  <script src="assets/mock.js"></script>
+</body>
+</html>

@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Settings</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    /* explore.tsx content container: paddingHorizontal 12, paddingTop 8, gap 8 (not the 16px default gutter). */
+    .screen.settings { padding: var(--sp-2) var(--sp-3) var(--sp-4); gap: var(--sp-2); }
+    h1, h2 { margin: 0; }
+
+    /* ListSection rows (settings-landing.tsx SettingsRow): rows on the screen background, hairline dividers. */
+    .ls > .set-row + .set-row, .ls > .set-row + .acct-row, .ls > .acct-row + .set-row { border-top: var(--hairline) solid var(--border); }
+    .set-row {
+      min-height: 48px; display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-1) var(--sp-2); color: var(--text);
+    }
+    .set-row > .ms { font-size: 18px; color: var(--text-secondary); }
+    .set-row__copy { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .set-row__value { max-width: 42%; text-align: right; color: var(--text-secondary); }
+    .set-row > .chev { font-size: 16px; color: var(--text-secondary); }
+    .set-row--danger, .set-row--danger > .ms:first-child { color: var(--spend); }
+    .set-row.is-disabled { opacity: 0.45; }
+
+    /* Account row on the landing */
+    .acct-row { min-height: 48px; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+    .avatar {
+      width: 32px; height: 32px; border-radius: 16px; flex-shrink: 0;
+      background: var(--accent-muted); color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .acct-row__copy { flex: 1; min-width: 44px; display: flex; flex-direction: column; }
+    .delete-all { margin-top: var(--sp-1); }
+
+    /* FocusedHeader: ghost small "‹ Settings" back button + compact ScreenHeader */
+    .focused-header { display: flex; flex-direction: column; gap: var(--sp-half); margin-bottom: var(--sp-half); }
+    .back-btn { align-self: flex-start; margin-left: calc(-1 * var(--sp-2)); }
+
+    /* EditableList */
+    .el { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .el__reorder { align-self: flex-end; }
+    .el-row {
+      min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-1);
+      padding: var(--sp-half) var(--sp-2);
+    }
+    .el-row + .el-row { border-top: var(--hairline) solid var(--border); }
+    .el-row__main { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-1); }
+    .el-row__name { flex: 1; }
+    .el-row__main > .chev { font-size: 16px; color: var(--text-secondary); }
+    .el-row__actions { display: flex; align-items: center; gap: var(--sp-1); }
+    .el-editor { flex: 1; min-width: 0; display: flex; gap: var(--sp-2); }
+    .el-editor .emoji-box { width: 60px; padding: 0; justify-content: center; }
+    .el-editor .name-box { flex: 1; min-width: 80px; }
+    .el-empty { padding: var(--sp-3); }
+
+    /* InfoDisclosure: content + 24px plain "i" button (icon 15) */
+    .disclosure__row { display: flex; align-items: center; gap: var(--sp-1); margin-right: calc(-1 * var(--sp-1)); }
+    .disclosure__content { flex: 1; min-width: 0; }
+    .icon-btn--24 { width: 24px; height: 24px; border-radius: 10px; }
+    .icon-btn--24 .ms { font-size: 15px; }
+    .disclosure__text { margin-top: var(--sp-half); }
+
+    /* Busy row (ActivityIndicator + caption) */
+    .busy-row { min-height: 40px; display: flex; align-items: center; justify-content: center; gap: var(--sp-2); }
+    .spinner {
+      width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+      border: 2.5px solid var(--accent-muted); border-top-color: var(--accent);
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Account panel */
+    .account-panel { display: flex; flex-direction: column; gap: var(--sp-1); }
+
+    /* Subcategory manager: full-screen Modal (covers the tab bar) */
+    .sub-header { padding: var(--sp-2) var(--sp-3) 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+    .sub-content { flex: 1; overflow-y: auto; padding: var(--sp-2) var(--sp-3) var(--sp-5); scrollbar-width: none; }
+
+    /* ReorderSheet */
+    .sheet.reorder { gap: 0; padding: var(--sp-2) var(--sp-3) var(--sp-4); }
+    .reorder__header { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+    .reorder__list { display: flex; flex-direction: column; gap: var(--sp-1); padding-bottom: var(--sp-2); height: 420px; overflow-y: auto; scrollbar-width: none; }
+    .reorder-row {
+      height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-1) var(--sp-2); border: var(--hairline) solid var(--border); border-radius: var(--r-sm);
+      background: var(--background-element);
+    }
+    .reorder-row > .ms { font-size: 18px; color: var(--text-secondary); }
+    .reorder-row.is-active { background: var(--background-selected); transform: scale(1.03); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+    .reorder__revert { margin-bottom: var(--sp-2); width: 100%; }
+
+    /* ConfirmDeleteModal card (padding 12, gap 4; backdrop padding 12) */
+    .overlay--center.p12 { padding: var(--sp-3); }
+    .dialog.confirm { max-width: 420px; padding: var(--sp-3); gap: var(--sp-1); }
+    .confirm .spaced { margin-top: var(--sp-half); }
+    .confirm__actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-1); }
+    .confirm__actions .btn { flex: 1; }
+    .t-small .em { font-weight: 500; color: var(--text); }
+
+    /* Native Alert.alert (Android system dialog — approximated; colours come from the OS theme) */
+    .os-alert {
+      width: 100%; max-width: 312px; background: var(--background-element);
+      border-radius: var(--r-xl); padding: 24px 24px 12px; display: flex; flex-direction: column; gap: 16px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.24);
+    }
+    .os-alert__title { font-size: 20px; line-height: 26px; font-weight: 400; color: var(--text); }
+    .os-alert__msg { font-size: 14px; line-height: 20px; color: var(--text-secondary); }
+    .os-alert__actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-right: -12px; }
+    .os-alert__actions span { padding: 10px 12px; font-size: 14px; font-weight: 500; color: var(--accent); letter-spacing: 0.2px; }
+  </style>
+</head>
+<body>
+  <main class="mock-page">
+    <p class="mock-intro">
+      Settings tab: landing, the focused panels it swaps in (same route, no navigation push), the
+      subcategory full-screen modal, the reorder sheet, the delete-all dialog and the native
+      confirmation alerts. Source: <code>mobile/src/app/explore.tsx</code>,
+      <code>components/settings-landing.tsx</code>, <code>editable-list.tsx</code>,
+      <code>subcategory-manager.tsx</code>, <code>reorder-sheet.tsx</code>,
+      <code>confirm-delete-modal.tsx</code>, <code>info-disclosure.tsx</code>,
+      <code>segmented-control.tsx</code>, <code>list-section.tsx</code>.
+    </p>
+    <div class="frames">
+
+      <!-- 1. Landing (signed in, Drive available) -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle">Settings</h1></div>
+            </header>
+
+            <div class="ls">
+              <div class="acct-row">
+                <span class="avatar t-small-em">P</span>
+                <div class="acct-row__copy">
+                  <span class="t-label truncate">priya.sharma@example.com</span>
+                  <span class="t-caption muted">Signed in with Google</span>
+                </div>
+                <button class="btn btn--ghost btn--sm">Back up now</button>
+              </div>
+            </div>
+
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">ORGANIZE</span></div>
+              <div class="set-row"><span class="ms">label</span><div class="set-row__copy"><span class="t-label truncate">Categories</span></div><span class="t-caption set-row__value">20</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">credit_card</span><div class="set-row__copy"><span class="t-label truncate">Payment modes</span></div><span class="t-caption set-row__value">10</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">group</span><div class="set-row__copy"><span class="t-label truncate">People &amp; groups</span></div><span class="t-caption set-row__value">5</span><span class="ms chev">chevron_right</span></div>
+            </div>
+
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">PREFERENCES</span></div>
+              <div class="set-row"><span class="ms">dark_mode</span><div class="set-row__copy"><span class="t-label truncate">Appearance</span></div><span class="t-caption set-row__value">System</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">lock</span><div class="set-row__copy"><span class="t-label truncate">App lock</span></div><span class="t-caption set-row__value">Protected</span></div>
+              <div class="set-row"><span class="ms">currency_rupee</span><div class="set-row__copy"><span class="t-label truncate">Currency</span></div><span class="t-caption set-row__value">Indian Rupee (₹)</span></div>
+            </div>
+
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">DATA &amp; ACCOUNT</span></div>
+              <div class="set-row"><span class="ms">backup</span><div class="set-row__copy"><span class="t-label truncate">Backup &amp; restore</span></div><span class="t-caption set-row__value">Drive + local file</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">account_circle</span><div class="set-row__copy"><span class="t-label truncate">Account</span></div><span class="t-caption set-row__value">Google</span><span class="ms chev">chevron_right</span></div>
+            </div>
+
+            <button class="btn btn--danger delete-all"><span class="ms">delete</span>Delete all data</button>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>Landing — signed in</b>Account row + three groups. App lock and Currency are read-only (no chevron). App lock value is “Checking…” until ready, “Unavailable” without device PIN/biometrics.</p>
+      </section>
+
+      <!-- 2. Landing without account -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle">Settings</h1></div>
+            </header>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">ORGANIZE</span></div>
+              <div class="set-row"><span class="ms">label</span><div class="set-row__copy"><span class="t-label truncate">Categories</span></div><span class="t-caption set-row__value">20</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">credit_card</span><div class="set-row__copy"><span class="t-label truncate">Payment modes</span></div><span class="t-caption set-row__value">10</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">group</span><div class="set-row__copy"><span class="t-label truncate">People &amp; groups</span></div><span class="t-caption set-row__value">5</span><span class="ms chev">chevron_right</span></div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">PREFERENCES</span></div>
+              <div class="set-row"><span class="ms">dark_mode</span><div class="set-row__copy"><span class="t-label truncate">Appearance</span></div><span class="t-caption set-row__value">Dark</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">lock</span><div class="set-row__copy"><span class="t-label truncate">App lock</span></div><span class="t-caption set-row__value">Unavailable</span></div>
+              <div class="set-row"><span class="ms">currency_rupee</span><div class="set-row__copy"><span class="t-label truncate">Currency</span></div><span class="t-caption set-row__value">Indian Rupee (₹)</span></div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">DATA &amp; ACCOUNT</span></div>
+              <div class="set-row"><span class="ms">backup</span><div class="set-row__copy"><span class="t-label truncate">Backup &amp; restore</span></div><span class="t-caption set-row__value">Local file</span><span class="ms chev">chevron_right</span></div>
+            </div>
+            <button class="btn btn--danger delete-all"><span class="ms">delete</span>Delete all data</button>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>Landing — no account / web</b>Login not configured (or DEV bypass): no account row, no Account entry. On web Drive is unavailable, so backup reads “Local file”.</p>
+      </section>
+
+      <!-- 3. Categories panel -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Categories</h2></div>
+                <span class="t-small muted truncate">Rename, reorder, delete, or open one for its subcategories.</span>
+              </div>
+            </div>
+            <div class="el">
+              <button class="btn btn--ghost btn--sm el__reorder"><span class="ms">swap_vert</span>Reorder</button>
+              <div class="card card--none">
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🍽️</span><span class="t-label truncate el-row__name">Food &amp; Dining</span><span class="t-caption muted">8 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🛒</span><span class="t-label truncate el-row__name">Groceries</span><span class="t-caption muted">6 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🏍️</span><span class="t-label truncate el-row__name">Bike</span><span class="t-caption muted">4 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🚗</span><span class="t-label truncate el-row__name">Car</span><span class="t-caption muted">4 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🚕</span><span class="t-label truncate el-row__name">Commute</span><span class="t-caption muted">4 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🏥</span><span class="t-label truncate el-row__name">Medicine &amp; Health</span><span class="t-caption muted">5 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🧾</span><span class="t-label truncate el-row__name">Recharge</span><span class="t-caption muted">4 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🛍️</span><span class="t-label truncate el-row__name">Shopping</span><span class="t-caption muted">4 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">✈️</span><span class="t-label truncate el-row__name">Travel</span><span class="t-caption muted">3 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">💳</span><span class="t-label truncate el-row__name">Credit Card Payment</span><span class="t-caption muted">1 subcategory</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+              </div>
+              <button class="btn"><span class="ms">add</span>New category</button>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>Categories</b>EditableList with emoji. Tapping the row label opens its subcategories; pencil edits inline, trash asks to confirm. “Reorder” only when there are 2+ items. (List truncated; scrolls.)</p>
+      </section>
+
+      <!-- 4. Categories: inline rename + add -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Categories</h2></div>
+                <span class="t-small muted truncate">Rename, reorder, delete, or open one for its subcategories.</span>
+              </div>
+            </div>
+            <div class="el">
+              <button class="btn btn--ghost btn--sm el__reorder"><span class="ms">swap_vert</span>Reorder</button>
+              <div class="card card--none">
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🍽️</span><span class="t-label truncate el-row__name">Food &amp; Dining</span><span class="t-caption muted">8 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row">
+                  <div class="el-editor">
+                    <div class="field__box emoji-box">🛒</div>
+                    <div class="field__box name-box is-focused">Groceries &amp; Daily</div>
+                  </div>
+                  <div class="el-row__actions"><span class="icon-btn icon-btn--accent"><span class="ms">check</span></span><span class="icon-btn icon-btn--plain"><span class="ms">close</span></span></div>
+                </div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🏍️</span><span class="t-label truncate el-row__name">Bike</span><span class="t-caption muted">4 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🚗</span><span class="t-label truncate el-row__name">Car</span><span class="t-caption muted">4 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🔄</span><span class="t-label truncate el-row__name">Others</span><span class="t-caption muted">1 subcategory</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row">
+                  <div class="el-editor">
+                    <div class="field__box emoji-box"><span class="placeholder">🏷️</span></div>
+                    <div class="field__box name-box"><span class="placeholder">Name</span></div>
+                  </div>
+                  <div class="el-row__actions"><span class="icon-btn icon-btn--accent is-disabled"><span class="ms">check</span></span><span class="icon-btn icon-btn--plain"><span class="ms">close</span></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>Inline rename + add</b>Editing replaces the row with emoji (60px) + name fields; ✓ saves, ✕ cancels. While adding, the “New category” button is hidden and an empty editor row (✓ disabled until a name is typed) sits last.</p>
+      </section>
+
+      <!-- 5. Delete category native alert -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings under">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Categories</h2></div>
+                <span class="t-small muted truncate">Rename, reorder, delete, or open one for its subcategories.</span>
+              </div>
+            </div>
+            <div class="el">
+              <button class="btn btn--ghost btn--sm el__reorder"><span class="ms">swap_vert</span>Reorder</button>
+              <div class="card card--none">
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🍽️</span><span class="t-label truncate el-row__name">Food &amp; Dining</span><span class="t-caption muted">8 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🛒</span><span class="t-label truncate el-row__name">Groceries</span><span class="t-caption muted">6 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🏍️</span><span class="t-label truncate el-row__name">Bike</span><span class="t-caption muted">4 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+          <div class="overlay overlay--center">
+            <div class="os-alert" role="alertdialog">
+              <div class="os-alert__title">Delete “Bike”?</div>
+              <div class="os-alert__msg">This removes the category. If it's still used by any transaction it's hidden from lists but kept in your history.</div>
+              <div class="os-alert__actions"><span>Cancel</span><span>Delete</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Delete item — native alert</b><code>Alert.alert</code> (OS dialog, approximated). Same copy for payment modes/people with “payment mode” / “person”. Subcategories: “If it's used by any transaction it's hidden but kept in your history.”</p>
+      </section>
+
+      <!-- 6. Subcategory manager -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="sub-header">
+            <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Categories</button>
+            <div class="screen-header">
+              <div class="screen-header__row"><h2 class="t-heading truncate">🍽️ Food &amp; Dining</h2></div>
+              <span class="t-small muted truncate">Suggestions shown when categorizing a transaction.</span>
+            </div>
+          </div>
+          <div class="sub-content">
+            <div class="el">
+              <button class="btn btn--ghost btn--sm el__reorder"><span class="ms">swap_vert</span>Reorder</button>
+              <div class="card card--none">
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Restaurant</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Biriyani</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Dosa</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Dominos</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Tea</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Juice</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Cake</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Snacks</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+              </div>
+              <button class="btn"><span class="ms">add</span>New subcategory</button>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Subcategory manager</b>Full-screen Modal (slides up, covers the tab bar). Same EditableList without emoji, hints or drill-in.</p>
+      </section>
+
+      <!-- 7. Reorder sheet -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings under">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Categories</h2></div>
+                <span class="t-small muted truncate">Rename, reorder, delete, or open one for its subcategories.</span>
+              </div>
+            </div>
+            <div class="el">
+              <button class="btn btn--ghost btn--sm el__reorder"><span class="ms">swap_vert</span>Reorder</button>
+              <div class="card card--none">
+                <div class="el-row"><div class="el-row__main"><span class="t-default">🍽️</span><span class="t-label truncate el-row__name">Food &amp; Dining</span><span class="t-caption muted">8 subcategories</span><span class="ms chev">chevron_right</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+          <div class="overlay">
+            <div class="sheet reorder">
+              <div class="sheet-handle"></div>
+              <div class="reorder__header">
+                <div class="grow">
+                  <div class="disclosure__row">
+                    <div class="disclosure__content"><span class="t-small-em truncate" style="display:block">Reorder · Categories</span></div>
+                    <span class="icon-btn icon-btn--plain icon-btn--24" aria-label="How to reorder this list"><span class="ms">info</span></span>
+                  </div>
+                  <p class="t-caption muted disclosure__text" style="margin-bottom:0">Long-press a row and drag to reorder. Changes save as you go.</p>
+                </div>
+                <span class="t-link muted">Close</span>
+              </div>
+              <div class="reorder__list">
+                <div class="reorder-row"><span class="ms">drag_handle</span><span class="t-default">🍽️</span><span class="t-label truncate grow">Food &amp; Dining</span><span class="t-caption muted">1</span></div>
+                <div class="reorder-row is-active"><span class="ms">drag_handle</span><span class="t-default">🛒</span><span class="t-label truncate grow">Groceries</span><span class="t-caption muted">2</span></div>
+                <div class="reorder-row"><span class="ms">drag_handle</span><span class="t-default">🏍️</span><span class="t-label truncate grow">Bike</span><span class="t-caption muted">3</span></div>
+                <div class="reorder-row"><span class="ms">drag_handle</span><span class="t-default">🚗</span><span class="t-label truncate grow">Car</span><span class="t-caption muted">4</span></div>
+                <div class="reorder-row"><span class="ms">drag_handle</span><span class="t-default">🚕</span><span class="t-label truncate grow">Commute</span><span class="t-caption muted">5</span></div>
+                <div class="reorder-row"><span class="ms">drag_handle</span><span class="t-default">🏥</span><span class="t-label truncate grow">Medicine &amp; Health</span><span class="t-caption muted">6</span></div>
+                <div class="reorder-row"><span class="ms">drag_handle</span><span class="t-default">🧾</span><span class="t-label truncate grow">Recharge</span><span class="t-caption muted">7</span></div>
+                <div class="reorder-row"><span class="ms">drag_handle</span><span class="t-default">🛍️</span><span class="t-label truncate grow">Shopping</span><span class="t-caption muted">8</span></div>
+                <div class="reorder-row"><span class="ms">drag_handle</span><span class="t-default">✈️</span><span class="t-label truncate grow">Travel</span><span class="t-caption muted">9</span></div>
+                <div class="reorder-row"><span class="ms">drag_handle</span><span class="t-default">💇</span><span class="t-label truncate grow">Personal Care</span><span class="t-caption muted">10</span></div>
+              </div>
+              <button class="btn reorder__revert">Revert to previous order</button>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Reorder sheet</b>BottomSheet with a draggable list (row 2 shown mid-drag). Each drag saves immediately; “Revert to previous order” is disabled until the order changes. The “i” is shown expanded here; it starts collapsed.</p>
+      </section>
+
+      <!-- 8. Payment modes -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Payment modes</h2></div>
+                <span class="t-small muted truncate">The payment choices used by transaction pickers.</span>
+              </div>
+            </div>
+            <div class="el">
+              <button class="btn btn--ghost btn--sm el__reorder"><span class="ms">swap_vert</span>Reorder</button>
+              <div class="card card--none">
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Axis</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Axis CC</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Flipkart Axis CC</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">KVB</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Amazon Pay</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Sodexo</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Paytm</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Cash</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">UPI</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Niyo SBM</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+              </div>
+              <button class="btn"><span class="ms">add</span>New payment mode</button>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>Payment modes</b>Plain EditableList (no emoji, no drill-in).</p>
+      </section>
+
+      <!-- 9. People & groups (empty-ish example) -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">People &amp; groups</h2></div>
+                <span class="t-small muted truncate">Used in “For” pickers and in lending.</span>
+              </div>
+            </div>
+            <div class="el">
+              <button class="btn btn--ghost btn--sm el__reorder"><span class="ms">swap_vert</span>Reorder</button>
+              <div class="card card--none">
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Me</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Arjun</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Family</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">House</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+                <div class="el-row"><div class="el-row__main"><span class="t-label truncate el-row__name">Others</span></div><div class="el-row__actions"><span class="icon-btn icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--danger"><span class="ms">delete</span></span></div></div>
+              </div>
+              <button class="btn"><span class="ms">add</span>New person or group</button>
+            </div>
+
+            <span class="t-overline muted" style="margin-top:var(--sp-4)">Empty list variant</span>
+            <div class="el">
+              <div class="card card--none">
+                <p class="t-small muted el-empty" style="margin:0">Nothing here yet — add your first below.</p>
+              </div>
+              <button class="btn"><span class="ms">add</span>New person or group</button>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>People &amp; groups</b>Plain EditableList. Below: the empty-list hint any EditableList shows with 0 items (no Reorder button).</p>
+      </section>
+
+      <!-- 10. Appearance -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Appearance</h2></div>
+                <span class="t-small muted truncate">Light, dark, or follow your phone’s system setting.</span>
+              </div>
+            </div>
+            <div class="card card--sm">
+              <div class="disclosure__row">
+                <div class="disclosure__content">
+                  <div class="seg" role="tablist" aria-label="Appearance">
+                    <span class="seg__item is-selected">System</span>
+                    <span class="seg__item">Light</span>
+                    <span class="seg__item">Dark</span>
+                  </div>
+                </div>
+                <span class="icon-btn icon-btn--plain icon-btn--24" aria-label="How appearance modes work"><span class="ms">info</span></span>
+              </div>
+              <p class="t-caption muted disclosure__text" style="margin-bottom:0">System follows your device setting. Light and Dark stay fixed until you change them.</p>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>Appearance</b>Segmented System / Light / Dark inside a small-padding card. The “i” explanation is shown expanded; it is collapsed by default.</p>
+      </section>
+
+      <!-- 11. Backup & restore -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Backup &amp; restore</h2></div>
+                <span class="t-small muted truncate">Restoring replaces all current data.</span>
+              </div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">BACK UP</span></div>
+              <div class="set-row"><span class="ms">folder</span><div class="set-row__copy"><span class="t-label truncate">Save to a folder</span><span class="t-caption muted truncate">Choose a folder and save a complete .db backup.</span></div><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">share</span><div class="set-row__copy"><span class="t-label truncate">Share backup</span><span class="t-caption muted truncate">Send a complete backup with your device share sheet.</span></div><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">cloud_upload</span><div class="set-row__copy"><span class="t-label truncate">Google Drive</span><span class="t-caption muted truncate">Save a complete backup to your Finance Tracker Drive folder.</span></div><span class="ms chev">chevron_right</span></div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">RESTORE</span></div>
+              <div class="set-row set-row--danger"><span class="ms">upload_file</span><div class="set-row__copy"><span class="t-label truncate">Restore from file</span><span class="t-caption muted truncate">Pick a Finance Tracker backup from this device.</span></div><span class="ms chev">chevron_right</span></div>
+              <div class="set-row set-row--danger"><span class="ms">cloud_download</span><div class="set-row__copy"><span class="t-label truncate">Restore latest from Drive</span><span class="t-caption muted truncate">Use the most recent backup in your Drive folder.</span></div><span class="ms chev">chevron_right</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>Backup &amp; restore</b>Restore rows are destructive (spend-coloured title + icon). Without Drive (web) the “Google Drive” and “Restore latest from Drive” rows are omitted.</p>
+      </section>
+
+      <!-- 12. Backup busy -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Backup &amp; restore</h2></div>
+                <span class="t-small muted truncate">Restoring replaces all current data.</span>
+              </div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">BACK UP</span></div>
+              <div class="set-row is-disabled"><span class="ms">folder</span><div class="set-row__copy"><span class="t-label truncate">Save to a folder</span><span class="t-caption muted truncate">Choose a folder and save a complete .db backup.</span></div><span class="ms chev">chevron_right</span></div>
+              <div class="set-row is-disabled"><span class="ms">share</span><div class="set-row__copy"><span class="t-label truncate">Share backup</span><span class="t-caption muted truncate">Send a complete backup with your device share sheet.</span></div><span class="ms chev">chevron_right</span></div>
+              <div class="set-row is-disabled"><span class="ms">cloud_upload</span><div class="set-row__copy"><span class="t-label truncate">Google Drive</span><span class="t-caption muted truncate">Save a complete backup to your Finance Tracker Drive folder.</span></div><span class="ms chev">chevron_right</span></div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">RESTORE</span></div>
+              <div class="set-row set-row--danger is-disabled"><span class="ms">upload_file</span><div class="set-row__copy"><span class="t-label truncate">Restore from file</span><span class="t-caption muted truncate">Pick a Finance Tracker backup from this device.</span></div><span class="ms chev">chevron_right</span></div>
+              <div class="set-row set-row--danger is-disabled"><span class="ms">cloud_download</span><div class="set-row__copy"><span class="t-label truncate">Restore latest from Drive</span><span class="t-caption muted truncate">Use the most recent backup in your Drive folder.</span></div><span class="ms chev">chevron_right</span></div>
+            </div>
+            <div class="busy-row" aria-live="polite"><span class="spinner"></span><span class="t-small muted">Working on your data…</span></div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>Backup — working</b>While any backup/restore runs, every row is disabled (45% opacity) and a spinner row appears below. Success/failure is reported with native alerts (“Backed up to Drive”, “Restored”, “No backup found”…).</p>
+      </section>
+
+      <!-- 13. Restore confirm alert -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings under">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Backup &amp; restore</h2></div>
+                <span class="t-small muted truncate">Restoring replaces all current data.</span>
+              </div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">BACK UP</span></div>
+              <div class="set-row"><span class="ms">folder</span><div class="set-row__copy"><span class="t-label truncate">Save to a folder</span><span class="t-caption muted truncate">Choose a folder and save a complete .db backup.</span></div><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">share</span><div class="set-row__copy"><span class="t-label truncate">Share backup</span><span class="t-caption muted truncate">Send a complete backup with your device share sheet.</span></div><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">cloud_upload</span><div class="set-row__copy"><span class="t-label truncate">Google Drive</span><span class="t-caption muted truncate">Save a complete backup to your Finance Tracker Drive folder.</span></div><span class="ms chev">chevron_right</span></div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">RESTORE</span></div>
+              <div class="set-row set-row--danger"><span class="ms">upload_file</span><div class="set-row__copy"><span class="t-label truncate">Restore from file</span><span class="t-caption muted truncate">Pick a Finance Tracker backup from this device.</span></div><span class="ms chev">chevron_right</span></div>
+              <div class="set-row set-row--danger"><span class="ms">cloud_download</span><div class="set-row__copy"><span class="t-label truncate">Restore latest from Drive</span><span class="t-caption muted truncate">Use the most recent backup in your Drive folder.</span></div><span class="ms chev">chevron_right</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+          <div class="overlay overlay--center">
+            <div class="os-alert" role="alertdialog">
+              <div class="os-alert__title">Restore latest from Drive?</div>
+              <div class="os-alert__msg">This finds your most recent Google Drive backup and replaces ALL current data with it. This can’t be undone.</div>
+              <div class="os-alert__actions"><span>Cancel</span><span>Restore latest</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Restore confirm — native alert</b>File variant: “Restore from a file?” / “This replaces ALL current data in the app with the contents of the backup file you pick. This can’t be undone.” with “Choose file &amp; restore”.</p>
+      </section>
+
+      <!-- 14. Account -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings">
+            <div class="focused-header">
+              <button class="btn btn--ghost btn--sm back-btn"><span class="ms">chevron_left</span>Settings</button>
+              <div class="screen-header">
+                <div class="screen-header__row"><h2 class="t-heading truncate">Account</h2></div>
+                <span class="t-small muted truncate">Review your signed-in account and sign out safely.</span>
+              </div>
+            </div>
+            <div class="card account-panel">
+              <span class="t-overline muted">GOOGLE ACCOUNT</span>
+              <span class="t-label">priya.sharma@example.com</span>
+              <span class="t-small muted">Signed in as priya.sharma@example.com. Signing out backs up to Drive first.</span>
+              <button class="btn">Sign out</button>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+        </div>
+        <p class="frame-caption"><b>Account</b>Web copy: “Google Drive backup is unavailable on web.” If the pre-sign-out Drive backup fails, a native alert “Back up before signing out” blocks the sign-out.</p>
+      </section>
+
+      <!-- 15. Delete all data dialog -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen settings under">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle">Settings</h1></div>
+            </header>
+            <div class="ls">
+              <div class="acct-row">
+                <span class="avatar t-small-em">P</span>
+                <div class="acct-row__copy">
+                  <span class="t-label truncate">priya.sharma@example.com</span>
+                  <span class="t-caption muted">Signed in with Google</span>
+                </div>
+                <button class="btn btn--ghost btn--sm">Back up now</button>
+              </div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">ORGANIZE</span></div>
+              <div class="set-row"><span class="ms">label</span><div class="set-row__copy"><span class="t-label truncate">Categories</span></div><span class="t-caption set-row__value">20</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">credit_card</span><div class="set-row__copy"><span class="t-label truncate">Payment modes</span></div><span class="t-caption set-row__value">10</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">group</span><div class="set-row__copy"><span class="t-label truncate">People &amp; groups</span></div><span class="t-caption set-row__value">5</span><span class="ms chev">chevron_right</span></div>
+            </div>
+            <div class="ls">
+              <div class="list-section__header"><span class="t-overline muted">PREFERENCES</span></div>
+              <div class="set-row"><span class="ms">dark_mode</span><div class="set-row__copy"><span class="t-label truncate">Appearance</span></div><span class="t-caption set-row__value">System</span><span class="ms chev">chevron_right</span></div>
+              <div class="set-row"><span class="ms">lock</span><div class="set-row__copy"><span class="t-label truncate">App lock</span></div><span class="t-caption set-row__value">Protected</span></div>
+              <div class="set-row"><span class="ms">currency_rupee</span><div class="set-row__copy"><span class="t-label truncate">Currency</span></div><span class="t-caption set-row__value">Indian Rupee (₹)</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="settings" data-badge="12"></nav>
+          <div class="overlay overlay--center p12">
+            <div class="dialog confirm" role="dialog" aria-modal="true">
+              <span class="t-heading">Delete all data?</span>
+              <span class="t-small muted">This permanently removes all 1284 transactions on this device. Your categories and lists are kept. This can’t be undone.</span>
+              <button class="btn btn--sm spaced">Back up to Drive first</button>
+              <span class="t-small muted spaced">Type <span class="em">DELETE</span> to confirm.</span>
+              <div class="field__box"><span class="placeholder">DELETE</span></div>
+              <div class="confirm__actions">
+                <button class="btn btn--sm">Cancel</button>
+                <button class="btn btn--sm btn--danger" disabled>Delete all</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Delete all data</b>Centered modal. “Delete all” stays disabled until DELETE is typed; “Back up to Drive first” only when Drive is available. A spinner appears under the buttons while busy.</p>
+      </section>
+
+    </div>
+  </main>
+  <script src="assets/mock.js"></script>
+</body>
+</html>

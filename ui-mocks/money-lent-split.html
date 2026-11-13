@@ -1,0 +1,1243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Add to money lent</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    [hidden] { display: none !important; }
+    /* RN overline has no textTransform; strings are already upper-case where intended. */
+    .keep-case { text-transform: none; }
+
+    /* BottomSheet (bottom-sheet.tsx): padding 8 top / 12 sides, NO gap between children.
+       SafeAreaView edges=['bottom'] adds ~16px gesture-nav inset under the content. */
+    .rn-sheet { gap: 0; padding: var(--sp-2) var(--sp-3) 0; }
+    .rn-safe { display: flex; flex-direction: column; min-height: 0; flex-shrink: 1; padding-bottom: var(--sp-4); }
+    /* Compact sheet header: smallEmphasis title + "Close" link. */
+    .rn-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-2); flex-shrink: 0; }
+    .rn-head--32 { min-height: 32px; margin-bottom: var(--sp-1); }
+    .rn-close { min-height: 32px; display: inline-flex; align-items: center; }
+    /* ScrollView contentContainerStyle. */
+    .rn-body {
+      overflow-y: auto; min-height: 0; flex-shrink: 1; scrollbar-width: none;
+      display: flex; flex-direction: column; gap: var(--sp-2); padding-bottom: var(--sp-4);
+    }
+    .rn-body::-webkit-scrollbar { display: none; }
+    .rn-body > * { flex-shrink: 0; }
+    .rn-body--g1 { gap: var(--sp-1); }
+    .rn-body--pb2 { padding-bottom: var(--sp-2); }
+    .rn-body--pb3 { padding-bottom: var(--sp-3); }
+    /* Static stand-in for "scrolled to the end": the overflow is clipped at the top instead. */
+    .rn-body.at-end { justify-content: flex-end; }
+
+    .mt-half { margin-top: var(--sp-half); } .mt-1 { margin-top: var(--sp-1); }
+    .mt-2 { margin-top: var(--sp-2); } .mt-3 { margin-top: var(--sp-3); } .mt-4 { margin-top: var(--sp-4); }
+    .block { display: block; }
+    .ell { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .nowrap { white-space: nowrap; }
+
+    /* TextField error / caret */
+    .f-err { margin-left: var(--sp-half); color: var(--spend); }
+    .field__box .val { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
+    .caret { display: inline-block; width: 1px; height: 17px; background: var(--focus); vertical-align: text-bottom; margin-left: 1px; }
+
+    .chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+    .add-row { display: flex; align-items: center; gap: var(--sp-2); }
+    .add-row > .field { flex: 1; min-width: 0; }
+    .btn.px-3 { padding-left: var(--sp-3); padding-right: var(--sp-3); }
+    .btn.px-4 { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+    .btn .ms-14 { font-size: 14px; }
+
+    /* Android native Alert.alert (AlertDialog) — approximated with tokens. */
+    .alert { width: 100%; max-width: 300px; border-radius: var(--r-xl); gap: var(--sp-3); padding: var(--sp-5) var(--sp-5) var(--sp-3); }
+    .alert__title { font-size: 18px; line-height: 24px; font-weight: 500; }
+    .alert .dialog__actions { gap: var(--sp-1); }
+    .alert__btn { min-height: 40px; padding: 0 var(--sp-3); display: inline-flex; align-items: center; color: var(--accent); }
+
+    /* Activity backdrop (copied from activity.html so the dimmed screen matches). */
+    .screen.act { padding: var(--sp-2) var(--sp-3) var(--sp-4); gap: 0; }
+    .hgroup { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+    .fbar { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .fbar__actions { display: flex; align-items: stretch; gap: var(--sp-2); }
+    .fbar__actions > .field { flex: 1; min-width: 0; }
+    .search-box { padding-right: 4px; }
+    .search-box .grow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lhead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); margin-top: var(--sp-1); }
+    .ph { padding: var(--sp-2) 0 var(--sp-half); background: var(--background); }
+    .ph--day { padding-top: var(--sp-1); }
+    .arow { min-height: 54px; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-1); border-bottom: var(--hairline) solid var(--border); }
+    .arow__glyph { width: 28px; height: 28px; border-radius: 14px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .g-spend  { background: var(--spend-muted);  color: var(--spend); }
+    .g-income { background: var(--income-muted); color: var(--income); }
+    .arow__left { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .arow__left > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .arow__right { min-width: 88px; display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+
+    /* AddToMoneyLentSheet */
+    .ml-sum { min-height: var(--touch); display: flex; align-items: center; gap: var(--sp-2); }
+    .ml-badge { width: 28px; height: 28px; border-radius: var(--r-pill); flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--accent-muted); color: var(--accent); }
+    .ml-badge .ms { font-size: 15px; }
+    .ml-sum__left { flex: 1; min-width: 0; }
+    .ml-split-head { display: flex; align-items: center; justify-content: space-between; margin-top: var(--sp-1); }
+    .slice { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .slice__head { display: flex; align-items: center; gap: var(--sp-1); }
+    .slice__head > .grow { min-width: 0; }
+    .slice__remove { color: var(--spend); }
+    .lsel {
+      min-height: 38px; display: flex; align-items: center; gap: var(--sp-2);
+      border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2);
+    }
+    .lsel.is-error { border-color: var(--spend); }
+    .lsel > .t-small { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lsel > .ms { font-size: 15px; color: var(--text-secondary); }
+    .lopts { border: var(--hairline) solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+    .lopt { min-height: var(--touch); display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); background: var(--background-element); }
+    .lopt + .lopt { border-top: var(--hairline) solid var(--border); }
+    .lopt.is-sel { background: var(--background-selected); }
+    .lopt > .t-small { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tick { color: var(--accent); }
+    /* Loan list in single mode: no horizontal padding. */
+    .llist { overflow: hidden; }
+    .llist .lopt { padding-left: 0; padding-right: 0; justify-content: space-between; }
+    .lead-r { flex: 0 0 auto; }
+    .alloc { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .alloc__line { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+    .alloc__track { height: 4px; border-radius: var(--r-pill); overflow: hidden; background: var(--border); }
+    .alloc__fill { height: 100%; border-radius: var(--r-pill); background: var(--review); }
+    .alloc__fill.is-ok { background: var(--accent); }
+    .alloc__fill.is-over { background: var(--spend); }
+    .cur-loan { border: var(--hairline) solid var(--border); border-radius: var(--r-sm); padding: var(--sp-2); background: var(--background-selected); display: flex; flex-direction: column; }
+    .new-loan { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .ml-remove { min-height: var(--touch); margin-top: var(--sp-half); display: flex; align-items: center; justify-content: center; color: var(--spend); }
+
+  </style>
+</head>
+<body>
+  <main class="mock-page">
+    <p class="mock-intro">
+      Every state of the Money Lent sheet, opened from a transaction’s “Money Lent” chip. Source:
+      <code>mobile/src/components/add-to-money-lent-sheet.tsx</code>, <code>lending-split-validation.ts</code>.
+      Example source: an imported credit from Arjun Mehta, +₹50,000.00 on 2026-11-08, with 5 active loans.
+      What the transaction sheet shows after saving is on <a href="transaction-detail.html">Transaction detail</a>
+      (“Money lent · …” frames). The Lending tab is on <a href="lending.html">Lending</a>.
+    </p>
+    <div class="frames">
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
+                  <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
+                  <div class="seg"><span class="seg__item is-selected">Principal</span><span class="seg__item">Repayment</span><span class="seg__item">Interest</span></div>
+                  <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
+                  <div class="llist">
+                    <div class="lopt"><span class="t-small">Arjun Mehta · Wedding · lent</span></div>
+                    <div class="lopt"><span class="t-small">Arjun Mehta · Bike · lent</span></div>
+                    <div class="lopt"><span class="t-small">Priya Nair · borrowed</span></div>
+                    <div class="lopt"><span class="t-small">Rahul Verma · Emergency · lent</span></div>
+                    <div class="lopt"><span class="t-small">Sneha Iyer · Rent deposit · lent</span></div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Create a new loan</button>
+                  <button class="btn btn--primary mt-1" disabled>Add to Money Lent</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>One loan · fresh</b>Opened from the transaction sheet’s “Money Lent” chip (the detail sheet hides while this is up, so Activity shows dimmed underneath). Part defaults to Principal; no loan is pre-chosen, so “Add to Money Lent” is disabled.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
+                  <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
+                  <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                  <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
+                  <div class="llist">
+                    <div class="lopt is-sel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="t-small-em tick">✓</span></div>
+                    <div class="lopt"><span class="t-small">Arjun Mehta · Bike · lent</span></div>
+                    <div class="lopt"><span class="t-small">Priya Nair · borrowed</span></div>
+                    <div class="lopt"><span class="t-small">Rahul Verma · Emergency · lent</span></div>
+                    <div class="lopt"><span class="t-small">Sneha Iyer · Rent deposit · lent</span></div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Create a new loan</button>
+                  <button class="btn btn--primary mt-1">Add to Money Lent</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>One loan · loan chosen</b>Tapping a loan row tints it and shows ✓. Repayment on a lent loan is money in, matching the imported credit, so the button enables.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
+                  <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
+                  <div class="seg"><span class="seg__item is-selected">Principal</span><span class="seg__item">Repayment</span><span class="seg__item">Interest</span></div>
+                  <span class="t-small c-spend">This choice moves money out, but the imported transaction is money in. Choose a matching loan part.</span>
+                  <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
+                  <div class="llist">
+                    <div class="lopt is-sel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="t-small-em tick">✓</span></div>
+                    <div class="lopt"><span class="t-small">Arjun Mehta · Bike · lent</span></div>
+                    <div class="lopt"><span class="t-small">Priya Nair · borrowed</span></div>
+                    <div class="lopt"><span class="t-small">Rahul Verma · Emergency · lent</span></div>
+                    <div class="lopt"><span class="t-small">Sneha Iyer · Rent deposit · lent</span></div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Create a new loan</button>
+                  <button class="btn btn--primary mt-1" disabled>Add to Money Lent</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>One loan · direction mismatch</b>Principal on a lent loan moves money out, but this imported transaction is money in. The red hint appears and the button stays disabled. Manual transactions skip this check.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3 at-end">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
+                  <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
+                  <div class="seg"><span class="seg__item is-selected">Principal</span><span class="seg__item">Repayment</span><span class="seg__item">Interest</span></div>
+                  <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
+                  <div class="llist">
+                    <div class="lopt"><span class="t-small">Arjun Mehta · Wedding · lent</span></div>
+                    <div class="lopt"><span class="t-small">Arjun Mehta · Bike · lent</span></div>
+                    <div class="lopt"><span class="t-small">Priya Nair · borrowed</span></div>
+                    <div class="lopt"><span class="t-small">Rahul Verma · Emergency · lent</span></div>
+                    <div class="lopt"><span class="t-small">Sneha Iyer · Rent deposit · lent</span></div>
+                  </div>
+                  <button class="btn btn--sm btn--primary"><span class="ms">add</span>Create a new loan</button>
+                  <div class="card card--subtle card--sm new-loan">
+                    <span class="t-overline muted">NEW LOAN</span>
+                    <div class="seg"><span class="seg__item">I lent</span><span class="seg__item is-selected">I borrowed</span></div>
+                    <span class="t-caption muted">Choose a person</span>
+                    <div class="chips"><span class="chip">Arjun Mehta</span><span class="chip">Priya Nair</span><span class="chip">Rahul Verma</span><span class="chip">Sneha Iyer</span><span class="chip">Kiran Rao</span><span class="chip is-selected">Deepa Shah</span></div>
+                    <div class="add-row">
+                      <div class="field"><div class="field__box"><span class="placeholder">Add a new person…</span></div></div>
+                      <button class="btn btn--sm px-3" disabled>Add</button>
+                    </div>
+                    <div class="field"><span class="field__label">Loan name (optional)</span><div class="field__box"><span class="val">Home renovation</span></div></div>
+                  </div>
+                  <button class="btn btn--primary mt-1">Add to Money Lent</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>One loan · create a new loan inline</b>“Create a new loan” turns primary and opens the subtle card; any chosen list row is cleared. Borrowed principal is money in, so it matches. Enabled once a person is chosen; the loan is created and attached in one step.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
+                  <div class="seg"><span class="seg__item is-selected">Principal</span><span class="seg__item">Repayment</span><span class="seg__item">Interest</span></div>
+                  <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
+                  <div class="card card--sm"><span class="t-small muted">No active loans. Create one below.</span></div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Create a new loan</button>
+                  <button class="btn btn--primary mt-1" disabled>Add to Money Lent</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>One loan · no active loans</b>With no active loans the One loan / Split toggle is hidden, and the list is replaced by a hint card. Only the inline create path is available.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item">One loan</span><span class="seg__item is-selected">Split across loans</span></div>
+                  <div class="ml-split-head"><span class="t-overline muted">SLICES</span><span class="t-caption muted">5 active loans</span></div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="grow"></span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel is-error"><span class="t-small muted">Choose an active loan</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="placeholder">0.00</span></div>
+                    </div>
+                    <span class="t-small c-spend">Choose a loan.</span>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Add slice</button>
+                  <div class="card card--sm card--subtle alloc">
+                    <div class="alloc__line"><span class="t-small muted">Allocated</span><span class="t-small-em tabular">₹0.00 of ₹50,000.00</span></div>
+                    <div class="alloc__track"><div class="alloc__fill" style="width:0%"></div></div>
+                    <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹50,000.00 left</span></div>
+                  </div>
+                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <button class="btn btn--primary mt-1" disabled>Save split</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Split · default</b>Switching to “Split across loans” starts with one blank slice: part Repayment, no loan (more than one loan is active). Row errors show right away: the selector turns red with “Choose a loan.”. The bar is empty in review colour; Save is disabled.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item">One loan</span><span class="seg__item is-selected">Split across loans</span></div>
+                  <div class="ml-split-head"><span class="t-overline muted">SLICES</span><span class="t-caption muted">5 active loans</span></div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_less</span></div>
+                    <div class="lopts">
+                      <div class="lopt is-sel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="t-small-em tick">✓</span></div>
+                      <div class="lopt"><span class="t-small">Arjun Mehta · Bike · lent</span></div>
+                      <div class="lopt"><span class="t-small">Priya Nair · borrowed</span></div>
+                      <div class="lopt"><span class="t-small">Rahul Verma · Emergency · lent</span></div>
+                      <div class="lopt"><span class="t-small">Sneha Iyer · Rent deposit · lent</span></div>
+                    </div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box is-error"><span class="t-small muted lead-r">₹</span><span class="placeholder">0.00</span></div>
+                      <span class="field__error">Enter an amount greater than zero.</span>
+                    </div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Add slice</button>
+                  <div class="card card--sm card--subtle alloc">
+                    <div class="alloc__line"><span class="t-small muted">Allocated</span><span class="t-small-em tabular">₹0.00 of ₹50,000.00</span></div>
+                    <div class="alloc__track"><div class="alloc__fill" style="width:0%"></div></div>
+                    <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹50,000.00 left</span></div>
+                  </div>
+                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <button class="btn btn--primary mt-1" disabled>Save split</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Split · loan picker open</b>Tapping the selector expands the active-loan list inline; choosing one closes it. With the loan chosen but no amount, the amount field shows its own error.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item">One loan</span><span class="seg__item is-selected">Split across loans</span></div>
+                  <div class="ml-split-head"><span class="t-overline muted">SLICES</span><span class="t-caption muted">5 active loans</span></div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">30000</span></div>
+                    </div>
+                  </div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 2</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item">Repayment</span><span class="seg__item is-selected">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">2000</span></div>
+                    </div>
+                  </div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 3</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Rahul Verma · Emergency · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">15000</span></div>
+                    </div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Add slice</button>
+                  <div class="card card--sm card--subtle alloc">
+                    <div class="alloc__line"><span class="t-small muted">Allocated</span><span class="t-small-em tabular">₹47,000.00 of ₹50,000.00</span></div>
+                    <div class="alloc__track"><div class="alloc__fill is-ok" style="width:94%"></div></div>
+                    <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹3,000.00 left</span></div>
+                  </div>
+                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <button class="btn btn--primary mt-1">Save split</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Split · valid (top)</b>The same loan may appear twice (repayment + interest). Each slice header shows the direction it moves. The sheet grows to its 90% cap and the body scrolls.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3 at-end">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item">One loan</span><span class="seg__item is-selected">Split across loans</span></div>
+                  <div class="ml-split-head"><span class="t-overline muted">SLICES</span><span class="t-caption muted">5 active loans</span></div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">30000</span></div>
+                    </div>
+                  </div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 2</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item">Repayment</span><span class="seg__item is-selected">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">2000</span></div>
+                    </div>
+                  </div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 3</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Rahul Verma · Emergency · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">15000</span></div>
+                    </div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Add slice</button>
+                  <div class="card card--sm card--subtle alloc">
+                    <div class="alloc__line"><span class="t-small muted">Allocated</span><span class="t-small-em tabular">₹47,000.00 of ₹50,000.00</span></div>
+                    <div class="alloc__track"><div class="alloc__fill is-ok" style="width:94%"></div></div>
+                    <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹3,000.00 left</span></div>
+                  </div>
+                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <button class="btn btn--primary mt-1">Save split</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Split · valid (scrolled to end)</b>₹47,000.00 of ₹50,000.00 is allocated (94%, accent fill). A partial split is allowed; the rest stays an ordinary transaction. “Save split” is enabled.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3 at-end">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item">One loan</span><span class="seg__item is-selected">Split across loans</span></div>
+                  <div class="ml-split-head"><span class="t-overline muted">SLICES</span><span class="t-caption muted">5 active loans</span></div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">40000</span></div>
+                    </div>
+                  </div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 2</span><span class="t-caption muted grow">· Money out</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Priya Nair · borrowed</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">15000</span></div>
+                    </div>
+                  </div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 3</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Rahul Verma · Emergency · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box is-error"><span class="t-small muted lead-r">₹</span><span class="placeholder">0.00</span></div>
+                      <span class="field__error">Enter an amount greater than zero.</span>
+                    </div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Add slice</button>
+                  <div class="card card--sm card--danger alloc">
+                    <div class="alloc__line"><span class="t-small muted">Allocated</span><span class="t-small-em tabular">₹55,000.00 of ₹50,000.00</span></div>
+                    <div class="alloc__track"><div class="alloc__fill is-over" style="width:100%"></div></div>
+                    <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹0.00 left</span></div>
+                  </div>
+                  <span class="t-small c-spend">All slices must move money in the same direction.</span>
+                  <span class="t-small c-spend">Slices must be money in to match this transaction.</span>
+                  <span class="t-small c-spend">Allocated total cannot exceed the source transaction.</span>
+                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <button class="btn btn--primary mt-1" disabled>Save split</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Split · errors</b>Repaying a borrowed loan is money out, so it conflicts with the other slices and with the source. The total (₹55,000.00) is over the amount: the card turns danger, the fill goes red at 100%, and every global error is listed in order.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item">One loan</span><span class="seg__item is-selected">Split across loans</span></div>
+                  <div class="ml-split-head"><span class="t-overline muted">SLICES</span><span class="t-caption muted">5 active loans</span></div>
+                  <div class="card card--sm"><span class="t-small muted">No slices. Add one to build this split.</span></div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Add slice</button>
+                  <div class="card card--sm card--danger alloc">
+                    <div class="alloc__line"><span class="t-small muted">Allocated</span><span class="t-small-em tabular">₹0.00 of ₹50,000.00</span></div>
+                    <div class="alloc__track"><div class="alloc__fill" style="width:0%"></div></div>
+                    <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹50,000.00 left</span></div>
+                  </div>
+                  <span class="t-small c-spend">Add at least one slice.</span>
+                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <button class="btn btn--primary mt-1" disabled>Save split</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Split · all slices removed</b>Removing every slice leaves a hint card and the “Add at least one slice.” error (danger card).</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
+                  <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
+                  <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                  <div class="cur-loan"><span class="t-caption muted">CURRENT LOAN</span><span class="t-small-em ell">Arjun Mehta · Wedding</span></div>
+                  <button class="btn btn--primary mt-1">Update Money Lent</button>
+                  <span class="ml-remove t-small-em">Remove from Money Lent</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Already attached to one loan</b>Re-opened on a linked transaction: the current loan replaces the list. “Update Money Lent” saves a new part; “Remove from Money Lent” unlinks it. The toggle can still convert it into a split.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹50,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3 at-end">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">Money in · 2026-11-08</span></div>
+                    <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item">One loan</span><span class="seg__item is-selected">Split across loans</span></div>
+                  <div class="ml-split-head"><span class="t-overline muted">SLICES</span><span class="t-caption muted">5 active loans</span></div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">30000</span></div>
+                    </div>
+                  </div>
+                  <div class="card card--sm slice">
+                    <div class="slice__head"><span class="t-overline muted">SLICE 2</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
+                    <div class="lsel"><span class="t-small">Rahul Verma · Emergency · lent</span><span class="ms">expand_more</span></div>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="field">
+                      <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">20000</span></div>
+                    </div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Add slice</button>
+                  <div class="card card--sm card--subtle alloc">
+                    <div class="alloc__line"><span class="t-small muted">Allocated</span><span class="t-small-em tabular">₹50,000.00 of ₹50,000.00</span></div>
+                    <div class="alloc__track"><div class="alloc__fill is-ok" style="width:100%"></div></div>
+                    <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹0.00 left</span></div>
+                  </div>
+                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <button class="btn btn--primary mt-1">Save split</button>
+                  <span class="ml-remove t-small-em">Remove from Money Lent</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Editing an existing split</b>A split transaction re-opens in split mode, with its slices seeded as whole rupees (“30000”). It’s fully allocated (₹0.00 left). The remove link appears below Save.</p>
+      </section>
+    </div>
+  </main>
+  <script src="assets/mock.js"></script>
+</body>
+</html>
