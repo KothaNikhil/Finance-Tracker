@@ -3,10 +3,13 @@
   "private": true,
   "workspaces": [
     "packages/*",
-    "mobile"
+    "mobile",
+    "web"
   ],
   "scripts": {
     "test": "npm run test --workspace mobile -- --runInBand",
-    "typecheck": "npm run typecheck --workspace mobile"
+    "typecheck": "npm run typecheck --workspace mobile && npm run typecheck --workspace web",
+    "build:web": "npm run build --workspace web",
+    "test:web": "npm run test --workspace web"
   }
 }

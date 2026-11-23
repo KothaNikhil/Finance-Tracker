@@ -6,7 +6,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*"
+    "./*": "./src/*.ts"
   },
   "dependencies": {
     "crypto-js": "^4.2.0",

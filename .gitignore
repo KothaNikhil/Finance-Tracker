@@ -11,3 +11,5 @@ Thumbs.db
 
 # Node workspace dependencies
 node_modules/
+dist/
+*.tsbuildinfo

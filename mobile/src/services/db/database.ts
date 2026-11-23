@@ -10,8 +10,8 @@ import { Platform } from 'react-native';
 
 import { migrateSchema } from '@/core/db/migrations';
 import { configureDatabaseProvider } from '@/core/db/runtime';
+import { seedDatabase } from '@/core/db/seed-database';
 import * as schema from '@/core/db/schema';
-import { SEED_CATEGORIES, SEED_PAYMENT_MODES, SEED_PEOPLE } from '@/core/db/seed';
 
 /** The default/pre-login database (used when there's no signed-in account, e.g. unconfigured dev). */
 export const DB_NAME = 'finance.db';
@@ -86,7 +86,7 @@ export function getDb(): ExpoSQLiteDatabase<typeof schema> {
   });
 
   const db = drizzle(sqlite, { schema });
-  seedIfEmpty(db);
+  seedDatabase(db);
 
   cached = db;
   cachedSqlite = sqlite;
@@ -102,91 +102,6 @@ export function getDb(): ExpoSQLiteDatabase<typeof schema> {
 export function getSqlite(): SQLite.SQLiteDatabase {
   if (!cachedSqlite) getDb();
   return cachedSqlite!;
-}
-
-/**
- * Additive schema migrations for databases created before a column existed. `CREATE_TABLES_SQL` uses
- * `CREATE TABLE IF NOT EXISTS`, so it never alters an existing table — new columns are added here.
- * Each step is guarded (checks `PRAGMA table_info` / uses `IF NOT EXISTS`), so this is idempotent and
- * safe to run on every open. Fresh installs already have the column via `CREATE_TABLES_SQL`.
- */
-function migrate(sqlite: SQLite.SQLiteDatabase): void {
-  const txnCols = sqlite.getAllSync<{ name: string }>('PRAGMA table_info(transactions);');
-  // Money-lent / interest tracker: the transfer_role annotation column.
-  if (!txnCols.some((c) => c.name === 'transfer_role')) {
-    sqlite.execSync('ALTER TABLE transactions ADD COLUMN transfer_role TEXT;');
-  }
-  // Link a transaction to the loan (grouping) it's attached to.
-  if (!txnCols.some((c) => c.name === 'loan_id')) {
-    sqlite.execSync('ALTER TABLE transactions ADD COLUMN loan_id INTEGER;');
-  }
-  // The import run that added a transaction (so a whole import can be reverted).
-  if (!txnCols.some((c) => c.name === 'import_id')) {
-    sqlite.execSync('ALTER TABLE transactions ADD COLUMN import_id INTEGER;');
-  }
-  // Credit-card linking: the card-statement import a bank bill-payment row is linked to (Phase B).
-  if (!txnCols.some((c) => c.name === 'linked_import_id')) {
-    sqlite.execSync('ALTER TABLE transactions ADD COLUMN linked_import_id INTEGER;');
-  }
-  // User-typed note (separate from the imported `remarks`); feeds auto-categorization.
-  if (!txnCols.some((c) => c.name === 'note')) {
-    sqlite.execSync('ALTER TABLE transactions ADD COLUMN note TEXT;');
-  }
-  // The pre-self-transfer in/out direction, kept so "mark as self-transfer" can be undone exactly.
-  if (!txnCols.some((c) => c.name === 'original_direction')) {
-    sqlite.execSync('ALTER TABLE transactions ADD COLUMN original_direction TEXT;');
-  }
-
-  // Card-statement metadata on the import batch (only set for credit-card PDF imports).
-  const importCols = sqlite.getAllSync<{ name: string }>('PRAGMA table_info(imports);');
-  if (!importCols.some((c) => c.name === 'card_last4')) {
-    sqlite.execSync('ALTER TABLE imports ADD COLUMN card_last4 TEXT;');
-  }
-  if (!importCols.some((c) => c.name === 'statement_month')) {
-    sqlite.execSync('ALTER TABLE imports ADD COLUMN statement_month TEXT;');
-  }
-  if (!importCols.some((c) => c.name === 'total_due_paise')) {
-    sqlite.execSync('ALTER TABLE imports ADD COLUMN total_due_paise INTEGER;');
-  }
-
-  // Per-slice loan part on a split: which part (principal/repayment/interest) each slice settles, so
-  // one payment can be part repayment + part interest. Legacy rows (null) fall back to the txn's role.
-  const allocCols = sqlite.getAllSync<{ name: string }>('PRAGMA table_info(loan_allocations);');
-  if (!allocCols.some((c) => c.name === 'part')) {
-    sqlite.execSync('ALTER TABLE loan_allocations ADD COLUMN part TEXT;');
-  }
-
-  // Indexes created here (not in CREATE_TABLES_SQL) so they never reference a column an ALTER above
-  // just added; IF NOT EXISTS keeps them idempotent for fresh installs too.
-  sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_loan ON transactions(loan_id);');
-  sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_import ON transactions(import_id);');
-  sqlite.execSync('CREATE INDEX IF NOT EXISTS idx_transactions_linked_import ON transactions(linked_import_id);');
-}
-
-/** Insert the starter categories/sub-categories/payment modes/people if the DB is empty. */
-function seedIfEmpty(db: ExpoSQLiteDatabase<typeof schema>): void {
-  const already = db.select({ id: schema.categories.id }).from(schema.categories).limit(1).all();
-  if (already.length > 0) return;
-
-  SEED_CATEGORIES.forEach((cat, ci) => {
-    const inserted = db
-      .insert(schema.categories)
-      .values({ name: cat.name, emoji: cat.emoji, sortOrder: ci })
-      .returning({ id: schema.categories.id })
-      .all();
-    const categoryId = inserted[0].id;
-
-    cat.subcategories.forEach((name, si) => {
-      db.insert(schema.subcategories).values({ categoryId, name, sortOrder: si }).run();
-    });
-  });
-
-  SEED_PAYMENT_MODES.forEach((name, i) => {
-    db.insert(schema.paymentModes).values({ name, sortOrder: i }).run();
-  });
-  SEED_PEOPLE.forEach((name, i) => {
-    db.insert(schema.people).values({ name, sortOrder: i }).run();
-  });
 }
 
 configureDatabaseProvider(() => {
