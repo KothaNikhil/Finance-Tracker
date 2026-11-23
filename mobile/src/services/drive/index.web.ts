@@ -30,3 +30,7 @@ export async function restoreLatestFromDrive(): Promise<DriveRestoreResult> {
 export async function syncDownFromDrive(): Promise<DriveSyncResult> {
   return { restored: false, found: false };
 }
+
+export function startDriveSync(_onError: (error: Error) => void): () => void {
+  return () => {};
+}

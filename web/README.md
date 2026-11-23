@@ -25,3 +25,6 @@ deployment.
 
 The SQLite database and financial rows are held only in the current page's memory. Sign-out closes
 and clears that database; only the Supabase authentication session is persisted by the auth SDK.
+The phone keeps its own offline SQLite copy and now syncs with the same `finance-live.db` file.
+Both clients check Drive revisions before writing; if both have unsaved edits, the phone asks
+whether to reload Drive or overwrite it with the phone's copy.

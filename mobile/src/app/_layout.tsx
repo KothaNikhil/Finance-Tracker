@@ -2,7 +2,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { Alert, AppState, Platform, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
@@ -18,6 +18,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ThemePreferenceProvider } from '@/hooks/use-theme-preference';
 import { TransactionDetailProvider } from '@/hooks/use-transaction-detail';
 import { warmUpDatabaseAsync } from '@/services/db/database';
+import { startDriveSync } from '@/services/drive';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -52,6 +53,19 @@ function Gate() {
   const auth = useAuth();
   const lock = useAppLock();
   const dbReady = useDatabaseReady();
+  const userId = auth.session?.user.id;
+
+  useEffect(() => {
+    if (!auth.configured || !userId) return;
+    return startDriveSync((error) => {
+      console.error('Google Drive sync failed', error);
+      if (AppState.currentState !== 'active') return;
+      Alert.alert(
+        'Google Drive sync paused',
+        `Your changes remain on this phone. Sync will retry when you return online.\n\n${error.message}`,
+      );
+    });
+  }, [auth.configured, userId]);
 
   // Keep the splash up while we read the persisted session.
   if (auth.loading) return null;

@@ -38,6 +38,13 @@ export interface SaveOptions {
   now?: Date;
 }
 
+export function hasPendingLocalChanges(
+  localDataUpdatedAt: string | null,
+  syncedDataUpdatedAt: string | null,
+): boolean {
+  return syncedDataUpdatedAt !== null && (localDataUpdatedAt ?? '') !== syncedDataUpdatedAt;
+}
+
 export class RevisionConflictError extends Error {
   constructor() {
     super('The live Drive file changed before this update completed.');

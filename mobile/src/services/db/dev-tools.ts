@@ -9,6 +9,7 @@
 import { totalsFor, type AnalyticsTxn, type TxnFilter } from '@/core/analytics';
 import { categories, loanAllocations, transactions, type NewTransactionRow } from '@/core/db/schema';
 import { isTransferRole, type LoanPart } from '@/core/lending/roles';
+import { touchDataUpdatedAt } from '@/core/db/repository';
 import { getDb, getSqlite } from '@/services/db/database';
 import { periodTotalsQuery } from '@/services/db/queries/aggregates';
 import { selectFilteredTxns } from '@/services/db/queries/transactions';
@@ -70,6 +71,7 @@ export function seedRandomTransactions(n = 20000): number {
       db.insert(transactions).values(rows.slice(i, i + CHUNK)).run();
     }
   });
+  touchDataUpdatedAt();
   return rows.length;
 }
 

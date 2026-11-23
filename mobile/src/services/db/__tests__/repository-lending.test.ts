@@ -8,6 +8,7 @@ const mockGetSqlite = jest.fn();
 
 jest.mock('@/core/db/runtime', () => ({
   getDb: () => mockGetDb(),
+  getMeta: () => null,
   setMeta: (...args: unknown[]) => mockGetSqlite().runSync(...args),
 }));
 

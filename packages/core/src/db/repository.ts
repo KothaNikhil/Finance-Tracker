@@ -6,6 +6,7 @@
 
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
+import { nextDataUpdatedAt } from './data-updated-at';
 import { deleteMeta, getDb, getMeta, setMeta } from './runtime';
 import {
   categories,
@@ -167,7 +168,7 @@ export function clearPendingImport(): void {
 
 /** Mark the local data as changed right now. Call after any user-initiated data mutation. */
 export function touchDataUpdatedAt(): void {
-  setDataUpdatedAt(new Date().toISOString());
+  setDataUpdatedAt(nextDataUpdatedAt(getDataUpdatedAt()));
 }
 
 /** Run the auto-categorizer over one normalized transaction (shared by save + enrich). */

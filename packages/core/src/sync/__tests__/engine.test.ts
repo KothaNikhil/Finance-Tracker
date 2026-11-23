@@ -1,4 +1,10 @@
-import { DriveSyncEngine, type DriveSyncPort, type LiveDatabaseFile, type SnapshotFile } from '../engine';
+import {
+  DriveSyncEngine,
+  hasPendingLocalChanges,
+  type DriveSyncPort,
+  type LiveDatabaseFile,
+  type SnapshotFile,
+} from '../engine';
 
 function fakeDrive(): DriveSyncPort & {
   live: LiveDatabaseFile | null;
@@ -70,6 +76,11 @@ function fakeDrive(): DriveSyncPort & {
 }
 
 describe('DriveSyncEngine', () => {
+  it('detects an edit after the first empty database upload', () => {
+    expect(hasPendingLocalChanges('2026-03-01T10:00:00.001Z', '')).toBe(true);
+    expect(hasPendingLocalChanges(null, '')).toBe(false);
+  });
+
   it('seeds the live database from the newest snapshot when no live file exists', async () => {
     const drive = fakeDrive();
     const bytes = new Uint8Array([9, 8, 7]);

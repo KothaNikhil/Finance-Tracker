@@ -12,31 +12,23 @@
 
 import { File, Paths } from 'expo-file-system';
 
-import { backupFileName, isSqliteFile, type StampParts } from '@/core/backup';
+import { isSqliteFile } from '@/core/backup';
 import {
   buildListUrl,
-  buildMultipartRelatedBody,
-  bytesToBase64,
-  createFileMetaBody,
-  createFolderBody,
-  DRIVE_FILES_URL,
   folderChildrenQuery,
   folderSearchQuery,
   mediaDownloadUrl,
-  multipartRelatedContentType,
-  multipartUploadUrl,
-  parseFileId,
   parseFileList,
   pickLatestBackup,
-  shouldRestoreFromDrive,
   type DriveFile,
 } from '@/core/drive';
-import { restoreFromBytes, serializeDatabase } from '@/services/db/backup';
-import { getDataUpdatedAt } from '@/services/db/repository';
+import { restoreFromBytes } from '@/services/db/backup';
 import { ensureSignedIn, getAccessToken } from './auth';
+import { backupLiveDatabaseToDrive } from './sync';
 
-const JSON_MIME = 'application/json';
-const DB_MIME = 'application/x-sqlite3';
+export { syncDownFromDrive } from './sync';
+export { startDriveSync } from './sync';
+export type { DriveSyncResult } from './sync';
 
 /** A backup found in Drive, for a future "pick which one" UI. */
 export type DriveBackup = DriveFile;
@@ -44,18 +36,6 @@ export type DriveBackup = DriveFile;
 /** True on native — the Drive feature is available here (the web build has a stub). */
 export function driveAvailable(): boolean {
   return true;
-}
-
-/** Timestamp parts for the backup filename (device clock; not pure, so it lives here). */
-function nowStamp(): StampParts {
-  const d = new Date();
-  return {
-    year: d.getFullYear(),
-    month: d.getMonth() + 1,
-    day: d.getDate(),
-    hour: d.getHours(),
-    minute: d.getMinutes(),
-  };
 }
 
 /** A Drive REST call that returns JSON (or text), throwing a readable error on a non-2xx status. */
@@ -78,21 +58,6 @@ async function findFolderId(token: string): Promise<string | null> {
   return parseFileList(await driveFetch(token, url))[0]?.id ?? null;
 }
 
-/** Find our backup folder, creating it if it doesn't exist. */
-async function ensureFolderId(token: string): Promise<string> {
-  const existing = await findFolderId(token);
-  if (existing) return existing;
-
-  const created = await driveFetch(token, `${DRIVE_FILES_URL}?fields=id`, {
-    method: 'POST',
-    headers: { 'Content-Type': JSON_MIME },
-    body: JSON.stringify(createFolderBody()),
-  });
-  const id = parseFileId(created);
-  if (!id) throw new Error('Could not create the Finance Tracker folder in Drive.');
-  return id;
-}
-
 /** List the backups inside a folder, newest first. */
 async function listBackupsIn(token: string, folderId: string): Promise<DriveBackup[]> {
   const url = buildListUrl(folderChildrenQuery(folderId), {
@@ -100,7 +65,11 @@ async function listBackupsIn(token: string, folderId: string): Promise<DriveBack
     pageSize: 100,
     fields: 'files(id,name,modifiedTime)',
   });
-  return parseFileList(await driveFetch(token, url));
+  return parseFileList(await driveFetch(token, url)).filter(
+    (file) =>
+      file.name.startsWith('FinanceTracker-backup-') ||
+      file.name.startsWith('Finance-Tracker-backup-'),
+  );
 }
 
 export interface DriveBackupResult {
@@ -112,32 +81,10 @@ export interface DriveBackupResult {
 }
 
 /**
- * Back up the whole database to the user's Google Drive: sign in, make sure our folder exists,
- * then create the backup file — metadata (name + parent folder) and content together — in a single
- * `multipart/related` upload. The one-shot upload is what guarantees the file lands *inside* the
- * folder rather than in Drive's root.
+ * Save the phone's local database to the shared live file, taking a manual snapshot first.
  */
 export async function backupToDrive(): Promise<DriveBackupResult> {
-  const account = await ensureSignedIn();
-  if (!account) return { done: false, fileName: '', account: null };
-
-  const token = await getAccessToken();
-  const folderId = await ensureFolderId(token);
-  const fileName = backupFileName(nowStamp());
-
-  const body = buildMultipartRelatedBody(
-    createFileMetaBody(fileName, folderId),
-    bytesToBase64(serializeDatabase()),
-    DB_MIME,
-  );
-  const created = await driveFetch(token, multipartUploadUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': multipartRelatedContentType() },
-    body,
-  });
-  if (!parseFileId(created)) throw new Error('Could not upload the backup to Drive.');
-
-  return { done: true, fileName, account: account.email };
+  return backupLiveDatabaseToDrive();
 }
 
 /** List every backup in the user's Drive folder (newest first). Empty if signed out / none yet. */
@@ -183,40 +130,6 @@ export async function restoreLatestFromDrive(): Promise<DriveRestoreResult> {
   const backups = folderId ? await listBackupsIn(token, folderId) : [];
   const latest = pickLatestBackup(backups);
   if (!latest) return { restored: false, found: false };
-
-  await downloadAndRestore(token, latest.id);
-  return { restored: true, found: true, fileName: latest.name };
-}
-
-export interface DriveSyncResult {
-  /** True if a newer Drive backup was pulled in over local data. */
-  restored: boolean;
-  /** False when there's no backup in Drive to consider. */
-  found: boolean;
-  /** True when a backup existed but local data was as new or newer, so we kept local. */
-  keptLocal?: boolean;
-  fileName?: string;
-}
-
-/**
- * Sign-in sync: silently restore the latest Drive backup, but ONLY if it's newer than this device's
- * data (see {@link shouldRestoreFromDrive}). This is the "pick up where you left off on another
- * device" path — safe because it never overwrites newer local work. Runs silently (no confirm)
- * because the user just chose to sign in.
- */
-export async function syncDownFromDrive(): Promise<DriveSyncResult> {
-  const account = await ensureSignedIn();
-  if (!account) return { restored: false, found: false };
-
-  const token = await getAccessToken();
-  const folderId = await findFolderId(token);
-  const backups = folderId ? await listBackupsIn(token, folderId) : [];
-  const latest = pickLatestBackup(backups);
-  if (!latest) return { restored: false, found: false };
-
-  if (!shouldRestoreFromDrive(getDataUpdatedAt(), latest.modifiedTime)) {
-    return { restored: false, found: true, keptLocal: true, fileName: latest.name };
-  }
 
   await downloadAndRestore(token, latest.id);
   return { restored: true, found: true, fileName: latest.name };
