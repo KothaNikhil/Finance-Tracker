@@ -40,6 +40,9 @@ import {
   type LoanPart,
 } from '@/core/lending/roles';
 
+/** Notes longer than this many words are too free-form to learn as a rule. */
+const MAX_LEARNED_NOTE_WORDS = 2;
+
 /** All dedupe keys already stored — passed to the import pipeline to skip duplicates. */
 export function getExistingDedupeKeys(): Set<string> {
   const rows = getDb().select({ k: transactions.dedupeKey }).from(transactions).all();
@@ -899,7 +902,11 @@ export function deleteLoanTransaction(txnId: number): void {
   touchDataUpdatedAt();
 }
 
-/** Teach the categorizer from a confirmed row: payee (VPA + merchant) → category, concise note → sub. */
+/**
+ * Teach the categorizer from a confirmed row. A concise note is the reason for the category, so it
+ * is learned INSTEAD of the payee — otherwise one "snacks" payment to a person would overwrite what
+ * that person is usually paid for. Without a learnable note, learn the payee (VPA + merchant).
+ */
 function learnFromTxn(txnId: number, categoryId: number, subcategoryId: number | null): void {
   const row = getDb()
     .select({
@@ -914,17 +921,17 @@ function learnFromTxn(txnId: number, categoryId: number, subcategoryId: number |
   if (!row) return;
 
   const now = new Date().toISOString();
-  // Learn by the most specific identifiers we have for this payee (teaches the category).
+
+  // Only CONCISE notes (e.g. "uthappam", "biriyani") become rules; long free text would be noisy.
+  // Prefer the user's hand-typed note over the imported remarks.
+  const note = normalizeText(row.note || row.remarks);
+  if (note && note.split(' ').length <= MAX_LEARNED_NOTE_WORDS) {
+    upsertRule('note', note, categoryId, subcategoryId, now);
+    return;
+  }
+
   upsertRule('vpa', normalizeText(row.vpa), categoryId, subcategoryId, now);
   upsertRule('merchant', normalizeText(row.name), categoryId, subcategoryId, now);
-
-  // Learn from a CONCISE note (1–2 words, e.g. "uthappam", "biriyani") so the same note auto-fills
-  // its sub-category next time. Prefer the user's hand-typed note over the imported remarks. Long
-  // free-text notes are skipped to avoid noisy rules.
-  const note = normalizeText(row.note || row.remarks);
-  if (note && note.split(' ').length <= 2) {
-    upsertRule('note', note, categoryId, subcategoryId, now);
-  }
 }
 
 /**
