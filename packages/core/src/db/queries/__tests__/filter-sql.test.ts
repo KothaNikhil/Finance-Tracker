@@ -1,6 +1,6 @@
 import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core';
 
-import type { TxnFilter } from '@/core/analytics';
+import type { TxnFilter } from '../../../analytics';
 import { buildTxnConditions } from '../filter-sql';
 
 const dialect = new SQLiteSyncDialect();

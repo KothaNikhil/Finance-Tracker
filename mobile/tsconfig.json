@@ -4,6 +4,9 @@
     "strict": true,
     "types": ["jest", "node", "react"],
     "paths": {
+      "@/core/*": [
+        "../packages/core/src/*"
+      ],
       "@/*": [
         "./src/*"
       ],

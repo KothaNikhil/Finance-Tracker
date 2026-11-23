@@ -2,8 +2,8 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 
-import * as schema from '@/core/db/schema';
-import { CREATE_TABLES_SQL } from '@/core/db/schema';
+import * as schema from '../../schema';
+import { CREATE_TABLES_SQL } from '../../schema';
 import {
   cashbackQuery,
   categoryBreakdownQuery,

@@ -6,9 +6,9 @@ import {
 const mockGetDb = jest.fn();
 const mockGetSqlite = jest.fn();
 
-jest.mock('../database', () => ({
+jest.mock('@/core/db/runtime', () => ({
   getDb: () => mockGetDb(),
-  getSqlite: () => mockGetSqlite(),
+  setMeta: (...args: unknown[]) => mockGetSqlite().runSync(...args),
 }));
 
 interface SourceRow {

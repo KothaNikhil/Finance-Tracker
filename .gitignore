@@ -8,3 +8,6 @@ Refernce sample data/
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Node workspace dependencies
+node_modules/

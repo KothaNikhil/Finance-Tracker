@@ -28,12 +28,12 @@ import {
   type AnalyticsTxn,
   type FilterableTxn,
   type TxnFilter,
-} from '@/core/analytics';
-import * as schema from '@/core/db/schema';
-import { CREATE_TABLES_SQL } from '@/core/db/schema';
-import type { Direction } from '@/core/domain/money';
-import { buildFilteredWorkbook, type ExportTxn } from '@/core/export';
-import { LOAN_PARTS, ROLE_META, type LoanPart, type TransferRole } from '@/core/lending/roles';
+} from '../../../analytics';
+import * as schema from '../../schema';
+import { CREATE_TABLES_SQL } from '../../schema';
+import type { Direction } from '../../../domain/money';
+import { buildFilteredWorkbook, type ExportTxn } from '../../../export';
+import { LOAN_PARTS, ROLE_META, type LoanPart, type TransferRole } from '../../../lending/roles';
 import {
   accountSpendQuery,
   cashbackQuery,

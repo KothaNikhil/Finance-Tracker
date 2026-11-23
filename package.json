@@ -1,0 +1,12 @@
+{
+  "name": "finance-tracker",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "mobile"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace mobile -- --runInBand",
+    "typecheck": "npm run typecheck --workspace mobile"
+  }
+}

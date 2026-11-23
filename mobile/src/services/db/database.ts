@@ -8,6 +8,8 @@ import { drizzle, type ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
 
+import { migrateSchema } from '@/core/db/migrations';
+import { configureDatabaseProvider } from '@/core/db/runtime';
 import * as schema from '@/core/db/schema';
 import { SEED_CATEGORIES, SEED_PAYMENT_MODES, SEED_PEOPLE } from '@/core/db/seed';
 
@@ -78,8 +80,10 @@ export function getDb(): ExpoSQLiteDatabase<typeof schema> {
   // enableChangeListener lets Drizzle's useLiveQuery refresh screens automatically.
   const sqlite = SQLite.openDatabaseSync(targetName, { enableChangeListener: true });
   sqlite.execSync('PRAGMA foreign_keys = ON;');
-  sqlite.execSync(schema.CREATE_TABLES_SQL);
-  migrate(sqlite);
+  migrateSchema({
+    execute: (sql) => sqlite.execSync(sql),
+    all: <T>(sql: string) => sqlite.getAllSync<T>(sql),
+  });
 
   const db = drizzle(sqlite, { schema });
   seedIfEmpty(db);
@@ -184,3 +188,23 @@ function seedIfEmpty(db: ExpoSQLiteDatabase<typeof schema>): void {
     db.insert(schema.people).values({ name, sortOrder: i }).run();
   });
 }
+
+configureDatabaseProvider(() => {
+  const sqlite = getSqlite();
+  return {
+    db: getDb(),
+    getMeta(key) {
+      return sqlite.getFirstSync<{ value: string }>('SELECT value FROM meta WHERE key = ?', key)?.value ?? null;
+    },
+    setMeta(key, value) {
+      sqlite.runSync(
+        'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        key,
+        value,
+      );
+    },
+    deleteMeta(key) {
+      sqlite.runSync('DELETE FROM meta WHERE key = ?', key);
+    },
+  };
+});
