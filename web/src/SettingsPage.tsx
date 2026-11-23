@@ -250,7 +250,7 @@ export function SettingsPage(props: SettingsPageProps) {
 }
 
 function SectionButton({ item, active, onClick, danger = false }: { item: (typeof SECTIONS)[number]; active: boolean; onClick: () => void; danger?: boolean }) {
-  return <button className={`settings-nav-item${active ? ' active' : ''}${danger ? ' danger' : ''}`} onClick={onClick}><span className="material-symbols-rounded">{item.icon}</span>{item.label}</button>;
+  return <button className={`settings-nav-item${active ? ' active' : ''}${danger ? ' danger' : ''}`} onClick={onClick}><span className="material-symbols-rounded" aria-hidden="true">{item.icon}</span>{item.label}</button>;
 }
 
 function NameList({

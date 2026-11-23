@@ -1,18 +1,27 @@
 import { drizzle } from 'drizzle-orm/sql-js';
-import initSqlJs, { type Database } from 'sql.js';
-import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
+import type { Database } from 'sql.js';
 
 import { migrateSchema } from '@finance-tracker/core/db/migrations';
 import { configureDatabaseProvider } from '@finance-tracker/core/db/runtime';
 import { seedDatabase } from '@finance-tracker/core/db/seed-database';
 import * as schema from '@finance-tracker/core/db/schema';
 
-let sqlPromise: ReturnType<typeof initSqlJs> | null = null;
+interface SqlRuntime {
+  Database: new (bytes?: Uint8Array) => Database;
+}
+
+let sqlPromise: Promise<SqlRuntime> | null = null;
 let database: Database | null = null;
 
-function getSql(): ReturnType<typeof initSqlJs> {
+function getSql(): Promise<SqlRuntime> {
   if (!sqlPromise) {
-    sqlPromise = initSqlJs({ locateFile: () => wasmUrl, useOldExtensionFunctions: false });
+    sqlPromise = Promise.all([
+      import('sql.js'),
+      import('sql.js/dist/sql-wasm.wasm?url'),
+    ]).then(([sql, wasm]) => sql.default({
+      locateFile: () => wasm.default,
+      useOldExtensionFunctions: false,
+    }));
   }
   return sqlPromise;
 }

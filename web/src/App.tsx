@@ -1,18 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
-import { touchDataUpdatedAt } from '@finance-tracker/core/db/repository';
 import type { SnapshotFile } from '@finance-tracker/core/sync/engine';
 import { createDriveSyncEngine, DriveReconnectRequiredError, GoogleDriveSyncPort } from './drive';
 import { closeDatabase, exportDatabase, openDatabase } from './database';
 import { requestDriveAccessToken, revokeDriveAccessToken, supabase } from './auth';
-import { DashboardPage } from './DashboardPage';
-import { TransactionsPage } from './TransactionsPage';
-import { ImportPage } from './ImportPage';
-import { LendingPage } from './LendingPage';
-import { SettingsPage } from './SettingsPage';
-import { buildExportBytes, downloadExport } from './export-workbook';
 import './styles.css';
+
+const DashboardPage = lazy(() => import('./DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const TransactionsPage = lazy(() => import('./TransactionsPage').then((module) => ({ default: module.TransactionsPage })));
+const ImportPage = lazy(() => import('./ImportPage').then((module) => ({ default: module.ImportPage })));
+const LendingPage = lazy(() => import('./LendingPage').then((module) => ({ default: module.LendingPage })));
+const SettingsPage = lazy(() => import('./SettingsPage').then((module) => ({ default: module.SettingsPage })));
 
 type SaveStatus =
   | 'idle'
@@ -395,6 +394,7 @@ function App() {
       setDbEpoch((epoch) => epoch + 1);
       setStatus('unsaved');
       setConflictAvailable(false);
+      const { touchDataUpdatedAt } = await import('@finance-tracker/core/db/repository');
       touchDataUpdatedAt();
     } catch (error) {
       setStatus(error instanceof DriveReconnectRequiredError ? 'reconnect' : 'error');
@@ -407,11 +407,13 @@ function App() {
 
   const exportExcel = useCallback(async (toDrive: boolean) => {
     if (!toDrive) {
+      const { downloadExport } = await import('./export-workbook');
       downloadExport();
       return;
     }
     const token = driveTokenRef.current;
     if (!token) throw new DriveReconnectRequiredError();
+    const { buildExportBytes } = await import('./export-workbook');
     const { bytes, fileName } = buildExportBytes();
     await new GoogleDriveSyncPort(token).uploadFile(
       fileName,
@@ -614,6 +616,19 @@ function AppShell({
   onExportExcel: (toDrive: boolean) => Promise<void>;
 }) {
   const [search, setSearch] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (!searchRef.current?.getClientRects().length) return;
+      event.preventDefault();
+      searchRef.current.focus();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
   const statusText = status === 'saved'
     ? `Saved${savedAt ? ` · ${savedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}`
     : (({
@@ -639,13 +654,13 @@ function AppShell({
     <div className="app-shell" inert={databaseReplacementInProgress} aria-busy={databaseReplacementInProgress}>
       <aside className="sidebar">
         <NavLink className="brand" to="/">
-          <span className="brand-mark brand-mark-small"><span className="material-symbols-rounded">account_balance_wallet</span></span>
+          <span className="brand-mark brand-mark-small"><span className="material-symbols-rounded" aria-hidden="true">account_balance_wallet</span></span>
           <span className="brand-name">Finance Tracker</span>
         </NavLink>
         <nav className="side-nav" aria-label="Main navigation">
           {NAV_ITEMS.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-              <span className="material-symbols-rounded">{item.icon}</span>
+            <NavLink key={item.to} to={item.to} end={item.end} aria-label={item.label} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+              <span className="material-symbols-rounded" aria-hidden="true">{item.icon}</span>
               <span className="nav-label">{item.label}</span>
             </NavLink>
           ))}
@@ -657,22 +672,23 @@ function AppShell({
       </aside>
       <div className="app-column">
         <header className="topbar">
-          <div className="mobile-brand"><span className="brand-mark brand-mark-small"><span className="material-symbols-rounded">account_balance_wallet</span></span><strong>Finance Tracker</strong></div>
+          <div className="mobile-brand"><span className="brand-mark brand-mark-small"><span className="material-symbols-rounded" aria-hidden="true">account_balance_wallet</span></span><strong>Finance Tracker</strong></div>
           <div className="topbar-search">
-            <span className="material-symbols-rounded">search</span>
-            <input aria-label="Search transactions" placeholder="Search transactions" value={search} onChange={(event) => setSearch(event.target.value)} />
-            <kbd>/</kbd>
+            <span className="material-symbols-rounded" aria-hidden="true">search</span>
+            <input ref={searchRef} aria-label="Search transactions" aria-keyshortcuts="/" placeholder="Search transactions" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <kbd aria-hidden="true">/</kbd>
           </div>
           <div className="topbar-spacer" />
           <button className="backup-now" disabled={status === 'saving' || status === 'conflict' || status === 'reconnect'} onClick={() => void onBackupNow()} title="Create a Drive backup now">
-            <span className="material-symbols-rounded">backup</span><span>Back up now</span>
+            <span className="material-symbols-rounded" aria-hidden="true">backup</span><span>Back up now</span>
           </button>
           <button
             className={`save-status save-${status}`}
+            disabled={status !== 'reconnect'}
             onClick={status === 'reconnect' ? onReconnect : undefined}
             aria-live="polite"
           >
-            <span className="material-symbols-rounded">{syncIcon}</span>{statusText}
+            <span className="material-symbols-rounded" aria-hidden="true">{syncIcon}</span>{statusText}
           </button>
         </header>
         {status === 'reconnect' && (
@@ -681,29 +697,31 @@ function AppShell({
         {status === 'offline' && <div className="shell-banner shell-banner-warn">Offline — changes remain in memory and will retry when you’re back online.</div>}
         {status === 'error' && <div className="shell-banner shell-banner-error" role="alert">{message}</div>}
         <main className="page-content">
-          <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/transactions" element={<TransactionsPage search={search} />} />
-            <Route path="/import" element={<ImportPage />} />
-            <Route path="/lending" element={<LendingPage />} />
-            <Route path="/settings" element={<SettingsPage
-              email={email}
-              status={status}
-              savedAt={savedAt}
-              onBackupNow={onBackupNow}
-              onListSnapshots={onListSnapshots}
-              onRestoreSnapshot={onRestoreSnapshot}
-              onBeforeDelete={onBeforeDelete}
-              onSignOut={onSignOut}
-              onExportExcel={onExportExcel}
-            />} />
-            <Route path="*" element={<DashboardPage />} />
-          </Routes>
+          <Suspense fallback={<div className="center-screen" role="status">Loading page…</div>}>
+            <Routes>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/transactions" element={<TransactionsPage search={search} />} />
+              <Route path="/import" element={<ImportPage />} />
+              <Route path="/lending" element={<LendingPage />} />
+              <Route path="/settings" element={<SettingsPage
+                email={email}
+                status={status}
+                savedAt={savedAt}
+                onBackupNow={onBackupNow}
+                onListSnapshots={onListSnapshots}
+                onRestoreSnapshot={onRestoreSnapshot}
+                onBeforeDelete={onBeforeDelete}
+                onSignOut={onSignOut}
+                onExportExcel={onExportExcel}
+              />} />
+              <Route path="*" element={<DashboardPage />} />
+            </Routes>
+          </Suspense>
         </main>
         <nav className="bottom-tabs" aria-label="Mobile navigation">
           {NAV_ITEMS.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `bottom-tab${isActive ? ' active' : ''}`}>
-              <span className="material-symbols-rounded">{item.icon}</span><span>{item.label}</span>
+            <NavLink key={item.to} to={item.to} end={item.end} aria-label={item.label} className={({ isActive }) => `bottom-tab${isActive ? ' active' : ''}`}>
+              <span className="material-symbols-rounded" aria-hidden="true">{item.icon}</span><span>{item.label}</span>
             </NavLink>
           ))}
         </nav>
