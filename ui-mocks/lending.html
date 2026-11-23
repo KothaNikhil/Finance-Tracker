@@ -1,0 +1,2143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lending</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    [hidden] { display: none !important; }
+    /* RN overline has no textTransform; strings are already upper-case where intended. */
+    .keep-case { text-transform: none; }
+
+    /* BottomSheet (bottom-sheet.tsx): padding 8 top / 12 sides, NO gap between children.
+       SafeAreaView edges=['bottom'] adds ~16px gesture-nav inset under the content. */
+    .rn-sheet { gap: 0; padding: var(--sp-2) var(--sp-3) 0; }
+    .rn-safe { display: flex; flex-direction: column; min-height: 0; flex-shrink: 1; padding-bottom: var(--sp-4); }
+    /* Compact sheet header: smallEmphasis title + "Close" link. */
+    .rn-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-2); flex-shrink: 0; }
+    .rn-head--32 { min-height: 32px; margin-bottom: var(--sp-1); }
+    .rn-close { min-height: 32px; display: inline-flex; align-items: center; }
+    /* ScrollView contentContainerStyle. */
+    .rn-body {
+      overflow-y: auto; min-height: 0; flex-shrink: 1; scrollbar-width: none;
+      display: flex; flex-direction: column; gap: var(--sp-2); padding-bottom: var(--sp-4);
+    }
+    .rn-body::-webkit-scrollbar { display: none; }
+    .rn-body > * { flex-shrink: 0; }
+    .rn-body--g1 { gap: var(--sp-1); }
+    .rn-body--pb2 { padding-bottom: var(--sp-2); }
+    .rn-body--pb3 { padding-bottom: var(--sp-3); }
+    /* Static stand-in for "scrolled to the end": the overflow is clipped at the top instead. */
+    .rn-body.at-end { justify-content: flex-end; }
+
+    .mt-half { margin-top: var(--sp-half); } .mt-1 { margin-top: var(--sp-1); }
+    .mt-2 { margin-top: var(--sp-2); } .mt-3 { margin-top: var(--sp-3); } .mt-4 { margin-top: var(--sp-4); }
+    .block { display: block; }
+    .ell { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .nowrap { white-space: nowrap; }
+
+    /* TextField error / caret */
+    .f-err { margin-left: var(--sp-half); color: var(--spend); }
+    .field__box .val { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
+    .caret { display: inline-block; width: 1px; height: 17px; background: var(--focus); vertical-align: text-bottom; margin-left: 1px; }
+
+    .chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+    .add-row { display: flex; align-items: center; gap: var(--sp-2); }
+    .add-row > .field { flex: 1; min-width: 0; }
+    .btn.px-3 { padding-left: var(--sp-3); padding-right: var(--sp-3); }
+    .btn.px-4 { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+    .btn .ms-14 { font-size: 14px; }
+
+    /* Android native Alert.alert (AlertDialog) — approximated with tokens. */
+    .alert { width: 100%; max-width: 300px; border-radius: var(--r-xl); gap: var(--sp-3); padding: var(--sp-5) var(--sp-5) var(--sp-3); }
+    .alert__title { font-size: 18px; line-height: 24px; font-weight: 500; }
+    .alert .dialog__actions { gap: var(--sp-1); }
+    .alert__btn { min-height: 40px; padding: 0 var(--sp-3); display: inline-flex; align-items: center; color: var(--accent); }
+
+    /* Lending ScrollView content: paddingHorizontal 12, paddingTop 8, gap 8 (lending.tsx). */
+    .screen.lending { padding: var(--sp-2) var(--sp-3) var(--sp-4); gap: var(--sp-2); }
+    .sum-card { display: flex; flex-direction: column; gap: var(--sp-half); }
+
+    /* Avatar (30px circle; 32px in loan detail) */
+    .av {
+      width: 30px; height: 30px; border-radius: var(--r-pill); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--accent-muted); color: var(--accent);
+    }
+    .av--neg { background: var(--spend-muted); color: var(--spend); }
+    .av--32 { width: 32px; height: 32px; margin-bottom: var(--sp-1); }
+    /* StatusBadge / LoanKindBadge: pill radius, padding 1 / 4, caption */
+    .sbadge {
+      flex-shrink: 0; border-radius: var(--r-pill); padding: 1px var(--sp-1); white-space: nowrap;
+      background: var(--background-selected); color: var(--text-secondary);
+    }
+    .sbadge--accent { background: var(--accent-muted); color: var(--accent); }
+    .sbadge--danger { background: var(--spend-muted); color: var(--spend); }
+
+    /* PersonGroupRow / LoanRow */
+    .lrow { min-height: 54px; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+    .lrow--loan { min-height: 52px; }
+    .lrow--nested { min-height: var(--touch); padding-left: var(--sp-6); border-top: var(--hairline) solid var(--border); }
+    .lrow--closed { opacity: 0.72; }
+    .lrow__left { flex: 1; min-width: 0; }
+    .lrow__name { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+    .lrow__name > :first-child { min-width: 0; flex-shrink: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lrow__amt { min-width: 96px; flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; }
+    .lrow__amt > * { white-space: nowrap; }
+    .lrow > .ms { font-size: 16px; color: var(--text-secondary); }
+    .c-muted { color: var(--text-secondary); }
+
+    .closed-sec { margin-top: var(--sp-1); }
+    .closed-toggle { min-height: var(--touch); display: flex; align-items: center; justify-content: space-between; padding: var(--sp-1) var(--sp-2); }
+    .closed-meta { display: flex; align-items: center; gap: var(--sp-2); color: var(--text-secondary); }
+    .closed-meta .ms { font-size: 16px; }
+    .empty-row { padding: var(--sp-2); }
+    .empty.lend-empty { margin-top: var(--sp-3); }
+    .empty .ms { font-size: 18px; }
+
+    /* LendingLoading */
+    .load-sec { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .load-card { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .load-row { display: flex; align-items: center; gap: var(--sp-2); }
+    .load-text { flex: 1; display: flex; flex-direction: column; gap: var(--sp-1); }
+    .skeleton.pulse { animation: skel-pulse 1.2s ease-in-out infinite alternate; opacity: 0.72; }
+    @keyframes skel-pulse { from { opacity: 0.5; } to { opacity: 0.9; } }
+    @media (prefers-reduced-motion: reduce) { .skeleton.pulse { animation: none; } }
+
+    /* LoanDetail */
+    .ld-ident { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0 var(--sp-2); }
+    .ld-name { max-width: 100%; display: flex; align-items: center; justify-content: center; gap: var(--sp-2); }
+    .ld-out { margin-top: var(--sp-1); }
+    .ld-metrics { display: flex; align-items: center; margin-top: var(--sp-1); }
+    .ld-metric { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+    .ld-metric .t-stat { white-space: nowrap; }
+    /* adjustsFontSizeToFit (min 0.75) — a long figure shrinks to fit its third of the card. */
+    .ld-metric .t-stat.fit { font-size: 14px; }
+    .ld-mdiv { width: var(--hairline); height: 28px; background: var(--border); flex-shrink: 0; }
+    .ld-actions { display: flex; gap: var(--sp-2); }
+    .ld-actions > .btn { flex: 1; min-width: 0; }
+    .ld-sechead { display: flex; align-items: center; justify-content: space-between; margin-top: var(--sp-1); }
+    .hrow { min-height: var(--touch); display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+    .hic { width: 26px; height: 26px; border-radius: var(--r-pill); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .hic .ms { font-size: 14px; }
+    .hic--out { background: var(--spend-muted); color: var(--spend); }
+    .hic--in { background: var(--income-muted); color: var(--income); }
+    .hrow__left { flex: 1; min-width: 0; }
+    .hrow__title { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+    .hrow__amt { white-space: nowrap; }
+    .ld-delete { margin-top: var(--sp-1); }
+
+    /* InfoDisclosure (info-disclosure.tsx) — same pattern as home.html */
+    .info-row { display: flex; align-items: center; gap: var(--sp-1); margin-right: calc(-1 * var(--sp-1)); }
+    .info-row__content { flex: 1; min-width: 0; }
+    .info-btn {
+      width: 24px; height: 24px; border-radius: var(--r-md); flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: var(--hairline) solid transparent; background: transparent; color: var(--accent);
+    }
+    .info-btn .ms { font-size: 15px; }
+    .info-text { margin: var(--sp-half) 0 0; color: var(--text-secondary); }
+
+    /* DateField (date-field.tsx) */
+    .df-box > .ms { font-size: 15px; color: var(--text-secondary); }
+    .cal { border: var(--hairline) solid var(--border); border-radius: var(--r-md); padding: 0 var(--sp-1) var(--sp-1); }
+    .cal__bar { display: flex; align-items: center; gap: var(--sp-2); }
+    .cal__nav { width: var(--touch); height: var(--touch); display: flex; align-items: center; justify-content: center; color: var(--text); }
+    .cal__nav .ms { font-size: 16px; }
+    .cal__title { flex: 1; min-height: var(--touch); display: flex; align-items: center; justify-content: center; gap: var(--sp-1); }
+    .cal__title .ms { font-size: 14px; color: var(--text-secondary); }
+    .cal__week { display: flex; }
+    .cal__wd { flex: 1; text-align: center; padding: var(--sp-half) 0; color: var(--text-secondary); }
+    .cal__day { flex: 1; height: var(--touch); display: flex; align-items: center; justify-content: center; border-radius: var(--r-sm); }
+    .cal__day.is-sel { background: var(--accent); color: var(--on-accent); }
+    .cal__day.is-today { border: 1px solid var(--accent); color: var(--accent); }
+    .cal__foot { display: flex; justify-content: space-between; border-top: var(--hairline) solid var(--border); margin-top: var(--sp-1); }
+    .cal__foot > span { min-height: var(--touch); display: flex; align-items: center; padding: 0 var(--sp-2); color: var(--accent); }
+
+    /* AttachExistingSheet */
+    .ax-row2 { display: flex; gap: var(--sp-2); }
+    .ax-row2 > .field { flex: 1; min-width: 0; }
+    .ax-as { margin-top: var(--sp-1); display: flex; flex-direction: column; gap: var(--sp-1); }
+    .ax-head { display: flex; align-items: center; justify-content: space-between; margin-top: var(--sp-1); }
+    .ax-results { min-height: 220px; }
+    .ax-row { min-height: var(--touch); display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; background: var(--background-element); }
+    .ax-row + .ax-row { border-top: var(--hairline) solid var(--border); }
+    .ax-row.is-sel { background: var(--background-selected); }
+    .ax-row.is-off { opacity: 0.45; }
+    .ax-cb {
+      width: 18px; height: 18px; border-radius: var(--r-xs); border: 1px solid var(--border-strong); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; color: transparent;
+    }
+    .ax-row.is-sel .ax-cb { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .ax-left { flex: 1; min-width: 0; }
+    .ax-amt { white-space: nowrap; }
+    .ax-attach { margin-top: var(--sp-1); flex-shrink: 0; }
+
+  </style>
+</head>
+<body>
+  <main class="mock-page">
+    <p class="mock-intro">
+      Lending tab, loan details and the sheets it opens. Source: <code>mobile/src/app/lending.tsx</code>,
+      <code>mobile/src/hooks/use-lending.ts</code>, <code>mobile/src/components/loan-detail.tsx</code>,
+      <code>loan-form-modal.tsx</code>, <code>loan-txn-form.tsx</code>, <code>attach-existing-sheet.tsx</code>,
+      <code>date-field.tsx</code>, <code>info-disclosure.tsx</code>. The Money Lent sheet opened from a transaction is on
+      <a href="money-lent-split.html">Add to money lent</a>.
+    </p>
+    <div class="frames">
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending" data-tabs>
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected" data-tab="people">People</span>
+              <span class="seg__item" data-tab="loans">Loans</span>
+            </div>
+            <div data-panel="people">
+              <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            </div>
+            <div data-panel="loans" hidden>
+              <div>
+              <div class="list-section__header"><span class="t-overline muted">ACTIVE LOANS</span></div>
+              <div class="list">
+              <div class="lrow lrow--loan">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta · Wedding</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹1,50,000.00 · Repaid ₹50,000.00 · Interest ₹3,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,00,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta · Bike</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹40,000.00 · Repaid ₹0.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">Principal ₹60,000.00 · Repaid ₹15,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma · Emergency</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹25,000.00 · Repaid ₹0.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer · Rent deposit</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹8,000.00 · Repaid ₹8,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              </div>
+            </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>People view (default) · tabs clickable</b>Active loans grouped per person, sorted by the size of what’s owed. Totals net each person’s loans. Badge = “Lent” / “Borrowed” for one loan, “2 active” for several. Tap People / Loans to switch. Closed loans collapse into one row at the end.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">expand_more</span>
+              </div>
+              <div class="lrow lrow--loan lrow--nested">
+                
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-small muted">Arjun Mehta · Wedding</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹1,50,000.00 · Repaid ₹50,000.00 · Interest ₹3,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-small-em tabular c-income">₹1,00,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan lrow--nested">
+                
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-small muted">Arjun Mehta · Bike</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹40,000.00 · Repaid ₹0.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-small-em tabular c-income">₹40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_less</span></span></div>
+              <div class="lrow lrow--loan lrow--closed">
+                <span class="av t-small-em">K</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Kiran Rao · Laptop</span><span class="sbadge t-caption">Closed · Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹30,000.00 · Repaid ₹30,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan lrow--closed">
+                <span class="av av--neg t-small-em">D</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Deepa Shah</span><span class="sbadge t-caption">Closed · Borrowed</span></div>
+                  <span class="t-caption muted ell">Principal ₹12,000.00 · Repaid ₹12,000.00 · Interest ₹600.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>People · person expanded + closed loans open</b>Tapping a person with 2+ loans expands their loans as nested rows (40px indent, smaller type, no avatar); a one-loan person opens loan details directly. Closed loans dim to 72% with a “Closed · Lent/Borrowed” neutral badge.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item">People</span>
+              <span class="seg__item is-selected">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">ACTIVE LOANS</span></div>
+              <div class="list">
+              <div class="lrow lrow--loan">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta · Wedding</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹1,50,000.00 · Repaid ₹50,000.00 · Interest ₹3,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,00,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta · Bike</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹40,000.00 · Repaid ₹0.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">Principal ₹60,000.00 · Repaid ₹15,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma · Emergency</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹25,000.00 · Repaid ₹0.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer · Rent deposit</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹8,000.00 · Repaid ₹8,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>Loans view</b>“Loans” lists every active loan flat as “Person · Name” rows with avatar (red when borrowed), principal, repaid and any interest.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹0.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹0.00</span></div>
+              </div>
+              <span class="t-caption muted">0 active loans · 0 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div class="load-sec">
+              <div class="skeleton pulse" style="width:92px;height:11px"></div>
+              <div class="card card--sm load-card">
+                <div class="load-row"><div class="skeleton pulse" style="width:30px;height:30px;border-radius:var(--r-pill)"></div><div class="load-text"><div class="skeleton pulse" style="width:52%;height:14px"></div><div class="skeleton pulse" style="width:78%;height:11px"></div></div><div class="skeleton pulse" style="width:72px;height:16px"></div></div>
+                <div class="load-row"><div class="skeleton pulse" style="width:30px;height:30px;border-radius:var(--r-pill)"></div><div class="load-text"><div class="skeleton pulse" style="width:52%;height:14px"></div><div class="skeleton pulse" style="width:78%;height:11px"></div></div><div class="skeleton pulse" style="width:72px;height:16px"></div></div>
+                <div class="load-row"><div class="skeleton pulse" style="width:30px;height:30px;border-radius:var(--r-pill)"></div><div class="load-text"><div class="skeleton pulse" style="width:52%;height:14px"></div><div class="skeleton pulse" style="width:78%;height:11px"></div></div><div class="skeleton pulse" style="width:72px;height:16px"></div></div>
+                <div class="load-row"><div class="skeleton pulse" style="width:30px;height:30px;border-radius:var(--r-pill)"></div><div class="load-text"><div class="skeleton pulse" style="width:52%;height:14px"></div><div class="skeleton pulse" style="width:78%;height:11px"></div></div><div class="skeleton pulse" style="width:72px;height:16px"></div></div>
+                <div class="load-row"><div class="skeleton pulse" style="width:30px;height:30px;border-radius:var(--r-pill)"></div><div class="load-text"><div class="skeleton pulse" style="width:52%;height:14px"></div><div class="skeleton pulse" style="width:78%;height:11px"></div></div><div class="skeleton pulse" style="width:72px;height:16px"></div></div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>Loading</b>While loans load the summary already renders (zeros) and the list is a skeleton: a section-label bar and five avatar + two-line + amount rows.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹0.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹0.00</span></div>
+              </div>
+              <span class="t-caption muted">0 active loans · 0 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div class="empty lend-empty">
+              <div class="empty__icon"><span class="ms">group</span></div>
+              <span class="t-heading">No loans yet</span>
+              <span class="t-small muted">Create a loan here, or open any Activity transaction and choose Money Lent.</span>
+              <button class="btn btn--primary">Create a loan</button>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>Empty — no loans at all</b>No active and no closed loans. “Create a loan” opens the New loan form, same as the header button.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹0.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹0.00</span></div>
+              </div>
+              <span class="t-caption muted">0 active loans · 0 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div class="empty lend-empty">
+              <div class="empty__icon"><span class="ms">error</span></div>
+              <span class="t-heading">Couldn’t load lending</span>
+              <span class="t-small muted">Your lending data is still safe. Close and reopen this screen to try again.</span>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>Load error</b>The lending query failed. No action button.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹0.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹0.00</span></div>
+              </div>
+              <span class="t-caption muted">0 active loans · 0 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <p class="t-small muted empty-row" style="margin:0">No active loans. Reopen one below or create a new loan.</p>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_less</span></span></div>
+              <div class="lrow lrow--loan lrow--closed">
+                <span class="av t-small-em">K</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Kiran Rao · Laptop</span><span class="sbadge t-caption">Closed · Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹30,000.00 · Repaid ₹30,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan lrow--closed">
+                <span class="av av--neg t-small-em">D</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Deepa Shah</span><span class="sbadge t-caption">Closed · Borrowed</span></div>
+                  <span class="t-caption muted ell">Principal ₹12,000.00 · Repaid ₹12,000.00 · Interest ₹600.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>Only closed loans</b>Every loan is closed: the section shows a hint row instead of the empty state, and the closed list (expanded here) is still reachable.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head"><span class="t-small-em">Loan details</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body">
+                  <div class="ld-ident">
+                    <span class="av av--32 t-small-em">A</span>
+                    <div class="ld-name"><span class="t-heading">Arjun Mehta · Wedding</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                    <span class="t-amount-lg ld-out c-income">₹1,00,000.00</span>
+                    <span class="t-caption muted">they owe you · active loan</span>
+                  </div>
+                  <div class="card card--sm ld-metrics">
+                    <div class="ld-metric"><span class="t-caption muted">Principal</span><span class="t-stat fit">₹1,50,000.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Repaid</span><span class="t-stat">₹50,000.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Interest</span><span class="t-stat">₹3,000.00</span></div>
+                  </div>
+                  <div class="ld-actions">
+                    <button class="btn"><span class="ms">add_box</span>Add entry</button>
+                    <button class="btn"><span class="ms">attach_file</span>Attach existing</button>
+                  </div>
+                  <div class="ld-actions">
+                    <button class="btn"><span class="ms">edit</span>Edit loan</button>
+                    <button class="btn btn--danger"><span class="ms">do_not_disturb_on</span>Close loan</button>
+                  </div>
+                  <div class="ld-sechead"><span class="t-overline muted">TRANSACTIONS</span><span class="t-caption muted">Tap a row to edit</span></div>
+                  <div class="list">
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Interest received</span></div>
+                      <span class="t-caption muted ell">2026-10-05 · Cash interest</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹3,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Repayment</span><span class="sbadge sbadge--accent t-caption">Split</span></div>
+                      <span class="t-caption muted ell">2026-09-28 · Part of a split payment · Arjun Mehta</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹20,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Repayment</span></div>
+                      <span class="t-caption muted ell">2026-08-15 · 18:42:10 · Arjun Mehta</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹30,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--out"><span class="ms">arrow_downward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Principal</span></div>
+                      <span class="t-caption muted ell">2026-03-10 · 11:05:33 · Arjun Mehta</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-spend">−₹1,50,000.00</span>
+                  </div>
+                  </div>
+                  <button class="btn btn--danger ld-delete"><span class="ms">delete</span>Delete loan</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Loan details — active (lent)</b>Bottom sheet over the Lending tab. Outstanding = principal − repaid; interest is tracked separately. History is newest first; manual rows have no time; a split slice shows “Split” and “Part of a split payment”. Tapping an imported row opens the global transaction sheet; a manual row opens Edit entry.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_less</span></span></div>
+              <div class="lrow lrow--loan lrow--closed">
+                <span class="av t-small-em">K</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Kiran Rao · Laptop</span><span class="sbadge t-caption">Closed · Lent</span></div>
+                  <span class="t-caption muted ell">Principal ₹30,000.00 · Repaid ₹30,000.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+              <div class="lrow lrow--loan lrow--closed">
+                <span class="av av--neg t-small-em">D</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Deepa Shah</span><span class="sbadge t-caption">Closed · Borrowed</span></div>
+                  <span class="t-caption muted ell">Principal ₹12,000.00 · Repaid ₹12,000.00 · Interest ₹600.00</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head"><span class="t-small-em">Loan details</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body">
+                  <div class="ld-ident">
+                    <span class="av av--32 t-small-em">K</span>
+                    <div class="ld-name"><span class="t-heading">Kiran Rao · Laptop</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                    <span class="t-amount-lg ld-out c-muted">₹0.00</span>
+                    <span class="t-caption muted">settled · closed loan</span>
+                  </div>
+                  <div class="card card--sm ld-metrics">
+                    <div class="ld-metric"><span class="t-caption muted">Principal</span><span class="t-stat">₹30,000.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Repaid</span><span class="t-stat">₹30,000.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Interest</span><span class="t-stat">₹0.00</span></div>
+                  </div>
+                  <p class="t-small muted empty-row" style="margin:0">Reopen this loan before adding or attaching transactions.</p>
+                  <div class="ld-actions">
+                    <button class="btn"><span class="ms">edit</span>Edit loan</button>
+                    <button class="btn"><span class="ms">replay</span>Reopen loan</button>
+                  </div>
+                  <div class="ld-sechead"><span class="t-overline muted">TRANSACTIONS</span><span class="t-caption muted">Tap a row to edit</span></div>
+                  <div class="list">
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Repayment</span></div>
+                      <span class="t-caption muted ell">2026-06-30 · 09:12:40 · Kiran Rao</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹30,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--out"><span class="ms">arrow_downward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Principal</span></div>
+                      <span class="t-caption muted ell">2026-01-15 · 16:20:05 · Kiran Rao</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-spend">−₹30,000.00</span>
+                  </div>
+                  </div>
+                  <button class="btn btn--danger ld-delete"><span class="ms">delete</span>Delete loan</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Loan details — closed</b>A closed loan can’t take new entries: the Add / Attach row becomes a hint and “Close loan” becomes a secondary “Reopen loan”.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head"><span class="t-small-em">Loan details</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body">
+                  <div class="ld-ident">
+                    <span class="av av--32 t-small-em">V</span>
+                    <div class="ld-name"><span class="t-heading">Vikram Joshi · Car repair</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                    <span class="t-amount-lg ld-out c-muted">₹0.00</span>
+                    <span class="t-caption muted">settled · active loan</span>
+                  </div>
+                  <div class="card card--sm ld-metrics">
+                    <div class="ld-metric"><span class="t-caption muted">Principal</span><span class="t-stat">₹0.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Repaid</span><span class="t-stat">₹0.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Interest</span><span class="t-stat">₹0.00</span></div>
+                  </div>
+                  <div class="ld-actions">
+                    <button class="btn"><span class="ms">add_box</span>Add entry</button>
+                    <button class="btn"><span class="ms">attach_file</span>Attach existing</button>
+                  </div>
+                  <div class="ld-actions">
+                    <button class="btn"><span class="ms">edit</span>Edit loan</button>
+                    <button class="btn btn--danger"><span class="ms">do_not_disturb_on</span>Close loan</button>
+                  </div>
+                  <div class="ld-sechead"><span class="t-overline muted">TRANSACTIONS</span></div>
+                  <p class="t-small muted empty-row" style="margin:0">No transactions yet. Add a manual entry or attach an imported transaction.</p>
+                  <button class="btn btn--danger ld-delete"><span class="ms">delete</span>Delete loan</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Loan details — just created</b>Creating a loan jumps straight into its details. With no transactions, the balance reads ₹0.00 “settled” and the history shows a hint.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head"><span class="t-small-em">Loan details</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body">
+                  <div class="ld-ident">
+                    <span class="av av--32 t-small-em">A</span>
+                    <div class="ld-name"><span class="t-heading">Arjun Mehta · Wedding</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                    <span class="t-amount-lg ld-out c-income">₹1,00,000.00</span>
+                    <span class="t-caption muted">they owe you · active loan</span>
+                  </div>
+                  <div class="card card--sm ld-metrics">
+                    <div class="ld-metric"><span class="t-caption muted">Principal</span><span class="t-stat fit">₹1,50,000.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Repaid</span><span class="t-stat">₹50,000.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Interest</span><span class="t-stat">₹3,000.00</span></div>
+                  </div>
+                  <div class="ld-actions">
+                    <button class="btn"><span class="ms">add_box</span>Add entry</button>
+                    <button class="btn"><span class="ms">attach_file</span>Attach existing</button>
+                  </div>
+                  <div class="ld-actions">
+                    <button class="btn"><span class="ms">edit</span>Edit loan</button>
+                    <button class="btn btn--danger"><span class="ms">do_not_disturb_on</span>Close loan</button>
+                  </div>
+                  <div class="ld-sechead"><span class="t-overline muted">TRANSACTIONS</span><span class="t-caption muted">Tap a row to edit</span></div>
+                  <div class="list">
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Interest received</span></div>
+                      <span class="t-caption muted ell">2026-10-05 · Cash interest</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹3,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Repayment</span><span class="sbadge sbadge--accent t-caption">Split</span></div>
+                      <span class="t-caption muted ell">2026-09-28 · Part of a split payment · Arjun Mehta</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹20,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Repayment</span></div>
+                      <span class="t-caption muted ell">2026-08-15 · 18:42:10 · Arjun Mehta</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹30,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--out"><span class="ms">arrow_downward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Principal</span></div>
+                      <span class="t-caption muted ell">2026-03-10 · 11:05:33 · Arjun Mehta</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-spend">−₹1,50,000.00</span>
+                  </div>
+                  </div>
+                  <button class="btn btn--danger ld-delete"><span class="ms">delete</span>Delete loan</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="overlay overlay--center">
+            <div class="dialog alert" role="alertdialog">
+              <span class="alert__title">Delete this loan?</span>
+              <span class="t-small muted">Direct transactions stay in Activity. Split slices assigned to this loan are removed.</span>
+              <div class="dialog__actions"><span class="alert__btn t-small-em">Cancel</span><span class="alert__btn t-small-em">Delete</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Delete loan — confirm</b>“Delete loan” opens a native Alert.alert (not the app’s ConfirmDeleteModal). Drawn as an Android dialog; on Android the destructive style isn’t coloured.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head">
+                  <div class="grow">
+                    <div class="info-row">
+                      <div class="info-row__content"><span class="t-small-em">New loan</span></div>
+                      <button class="info-btn" aria-label="What a loan groups together"><span class="ms">info</span></button>
+                    </div>
+                  </div>
+                  <span class="t-link rn-close">Close</span>
+                </div>
+                <div class="rn-body rn-body--g1">
+                  <span class="t-overline muted">DIRECTION</span>
+                  <div class="seg"><span class="seg__item is-selected">I lent</span><span class="seg__item">I borrowed</span></div>
+                  <span class="t-caption muted">They owe the outstanding principal to you.</span>
+                  <span class="t-overline muted mt-3">WITH WHOM</span>
+                  <div class="chips mt-half"><span class="chip">Arjun Mehta</span><span class="chip">Priya Nair</span><span class="chip">Rahul Verma</span><span class="chip">Sneha Iyer</span><span class="chip">Kiran Rao</span><span class="chip">Deepa Shah</span></div>
+                  <div class="add-row mt-2">
+                    <div class="field"><div class="field__box"><span class="placeholder">Add a new person…</span></div></div>
+                    <button class="btn px-4" disabled>Add</button>
+                  </div>
+                  <span class="t-overline muted mt-3">NAME (OPTIONAL)</span>
+                  <div class="field"><div class="field__box"><span class="placeholder">e.g. Wedding or Emergency</span></div></div>
+                  <button class="btn btn--primary mt-4" disabled>Create loan</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>New loan</b>Opened from “New loan” / “Create a loan”. Defaults to “I lent”; “Create loan” stays disabled until a person is chosen, and “Add” until a name is typed. Adding a person selects them.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head">
+                  <div class="grow">
+                    <div class="info-row">
+                      <div class="info-row__content"><span class="t-small-em">Edit loan</span></div>
+                      <button class="info-btn" aria-label="What a loan groups together"><span class="ms">info</span></button>
+                    </div>
+                    <p class="info-text t-caption">A loan groups principal, repayments and interest with one person.</p>
+                  </div>
+                  <span class="t-link rn-close">Close</span>
+                </div>
+                <div class="rn-body rn-body--g1">
+                  <span class="t-overline muted">DIRECTION</span>
+                  <div class="seg"><span class="seg__item is-selected">I lent</span><span class="seg__item">I borrowed</span></div>
+                  <span class="t-caption muted">They owe the outstanding principal to you.</span>
+                  <span class="t-overline muted mt-3">WITH WHOM</span>
+                  <div class="chips mt-half"><span class="chip is-selected">Arjun Mehta</span><span class="chip">Priya Nair</span><span class="chip">Rahul Verma</span><span class="chip">Sneha Iyer</span><span class="chip">Kiran Rao</span><span class="chip">Deepa Shah</span></div>
+                  <div class="add-row mt-2">
+                    <div class="field"><div class="field__box"><span class="placeholder">Add a new person…</span></div></div>
+                    <button class="btn px-4" disabled>Add</button>
+                  </div>
+                  <span class="t-overline muted mt-3">NAME (OPTIONAL)</span>
+                  <div class="field"><div class="field__box"><span class="val">Wedding</span></div></div>
+                  <button class="btn btn--primary mt-4">Save changes</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Edit loan · info expanded</b>From loan details → Edit loan; the detail sheet hides while the form is up. The ⓘ next to the title reveals what a loan groups together.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head"><span class="t-small-em">Add manual entry</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--g1">
+                  <div class="field">
+                    <span class="field__label">Amount (₹)</span>
+                    <div class="field__box"><span class="val tabular">2500</span></div>
+                  </div>
+                  <span class="t-overline muted mt-3">TYPE</span>
+                  <div class="chips mt-half"><span class="chip">Principal</span><span class="chip is-selected">Repayment</span><span class="chip">Interest</span></div>
+                  <div class="field mt-3">
+                    <span class="field__label">Date</span>
+                    <div class="field__box df-box is-focused"><span class="ms">calendar_month</span><span class="val t-label">10 Nov 2026</span><span class="ms">expand_less</span></div>
+                    <div class="cal">
+                    <div class="cal__bar">
+                      <span class="cal__nav"><span class="ms">chevron_left</span></span>
+                      <span class="cal__title"><span class="t-label">November 2026</span><span class="ms">expand_more</span></span>
+                      <span class="cal__nav"><span class="ms">chevron_right</span></span>
+                    </div>
+                    <div class="cal__week"><span class="cal__wd t-caption">S</span><span class="cal__wd t-caption">M</span><span class="cal__wd t-caption">T</span><span class="cal__wd t-caption">W</span><span class="cal__wd t-caption">T</span><span class="cal__wd t-caption">F</span><span class="cal__wd t-caption">S</span></div>
+                    <div class="cal__week"><span class="cal__day t-small">1</span><span class="cal__day t-small">2</span><span class="cal__day t-small">3</span><span class="cal__day t-small">4</span><span class="cal__day t-small">5</span><span class="cal__day t-small">6</span><span class="cal__day t-small">7</span></div>
+                    <div class="cal__week"><span class="cal__day t-small">8</span><span class="cal__day t-small">9</span><span class="cal__day t-small is-sel">10</span><span class="cal__day t-small">11</span><span class="cal__day t-small is-today">12</span><span class="cal__day t-small">13</span><span class="cal__day t-small">14</span></div>
+                    <div class="cal__week"><span class="cal__day t-small">15</span><span class="cal__day t-small">16</span><span class="cal__day t-small">17</span><span class="cal__day t-small">18</span><span class="cal__day t-small">19</span><span class="cal__day t-small">20</span><span class="cal__day t-small">21</span></div>
+                    <div class="cal__week"><span class="cal__day t-small">22</span><span class="cal__day t-small">23</span><span class="cal__day t-small">24</span><span class="cal__day t-small">25</span><span class="cal__day t-small">26</span><span class="cal__day t-small">27</span><span class="cal__day t-small">28</span></div>
+                    <div class="cal__week"><span class="cal__day t-small">29</span><span class="cal__day t-small">30</span><span class="cal__day"></span><span class="cal__day"></span><span class="cal__day"></span><span class="cal__day"></span><span class="cal__day"></span></div>
+                    <div class="cal__foot"><span class="t-small-em">Today</span></div>
+                  </div>
+                  </div>
+                  <div class="field mt-3">
+                    <span class="field__label">Note (optional)</span>
+                    <div class="field__box"><span class="placeholder">e.g. Cash repayment</span></div>
+                  </div>
+                  <button class="btn btn--primary mt-4">Add entry</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Add manual entry · calendar open</b>From loan details → Add entry. Date defaults to today; the DateField calendar expands inline (selected 10 Nov in accent, today 12 Nov outlined). The month label switches to a year grid. The sheet scrolls.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head"><span class="t-small-em">Add manual entry</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--g1">
+                  <div class="field">
+                    <span class="field__label">Amount (₹)</span>
+                    <div class="field__box"><span class="val tabular">2500</span></div>
+                  </div>
+                  <span class="t-overline muted mt-3">TYPE</span>
+                  <div class="chips mt-half"><span class="chip">Principal</span><span class="chip">Repayment</span><span class="chip">Interest</span></div>
+                  <div class="field mt-3">
+                    <span class="field__label">Date</span>
+                    <div class="field__box df-box"><span class="ms">calendar_month</span><span class="val t-label">12 Nov 2026</span><span class="ms">expand_more</span></div>
+                    
+                  </div>
+                  <div class="field mt-3">
+                    <span class="field__label">Note (optional)</span>
+                    <div class="field__box"><span class="placeholder">e.g. Cash repayment</span></div>
+                  </div>
+                  <button class="btn btn--primary mt-4">Add entry</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="overlay overlay--center">
+            <div class="dialog alert" role="alertdialog">
+              <span class="alert__title">Pick a type</span>
+              <span class="t-small muted">Choose principal, repayment or interest.</span>
+              <div class="dialog__actions"><span class="alert__btn t-small-em">OK</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Add manual entry · validation alert</b>No type chip is pre-selected. Submitting without one (or with a bad amount / missing date) shows a native alert: “Enter an amount” / “Pick a type” / “Check the date”.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head"><span class="t-small-em">Loan details</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body">
+                  <div class="ld-ident">
+                    <span class="av av--32 t-small-em">A</span>
+                    <div class="ld-name"><span class="t-heading">Arjun Mehta · Wedding</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                    <span class="t-amount-lg ld-out c-income">₹1,00,000.00</span>
+                    <span class="t-caption muted">they owe you · active loan</span>
+                  </div>
+                  <div class="card card--sm ld-metrics">
+                    <div class="ld-metric"><span class="t-caption muted">Principal</span><span class="t-stat fit">₹1,50,000.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Repaid</span><span class="t-stat">₹50,000.00</span></div>
+                    <div class="ld-mdiv"></div>
+                    <div class="ld-metric"><span class="t-caption muted">Interest</span><span class="t-stat">₹3,000.00</span></div>
+                  </div>
+                  <div class="ld-actions">
+                    <button class="btn"><span class="ms">add_box</span>Add entry</button>
+                    <button class="btn"><span class="ms">attach_file</span>Attach existing</button>
+                  </div>
+                  <div class="ld-actions">
+                    <button class="btn"><span class="ms">edit</span>Edit loan</button>
+                    <button class="btn btn--danger"><span class="ms">do_not_disturb_on</span>Close loan</button>
+                  </div>
+                  <div class="ld-sechead"><span class="t-overline muted">TRANSACTIONS</span><span class="t-caption muted">Tap a row to edit</span></div>
+                  <div class="list">
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Interest received</span></div>
+                      <span class="t-caption muted ell">2026-10-05 · Cash interest</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹3,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Repayment</span><span class="sbadge sbadge--accent t-caption">Split</span></div>
+                      <span class="t-caption muted ell">2026-09-28 · Part of a split payment · Arjun Mehta</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹20,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--in"><span class="ms">arrow_upward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Repayment</span></div>
+                      <span class="t-caption muted ell">2026-08-15 · 18:42:10 · Arjun Mehta</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-income">+₹30,000.00</span>
+                  </div>
+                  <div class="hrow">
+                    <span class="hic hic--out"><span class="ms">arrow_downward</span></span>
+                    <div class="hrow__left">
+                      <div class="hrow__title"><span class="t-label ell">Principal</span></div>
+                      <span class="t-caption muted ell">2026-03-10 · 11:05:33 · Arjun Mehta</span>
+                    </div>
+                    <span class="t-label tabular hrow__amt c-spend">−₹1,50,000.00</span>
+                  </div>
+                  </div>
+                  <button class="btn btn--danger ld-delete"><span class="ms">delete</span>Delete loan</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head"><span class="t-small-em">Edit entry</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--g1">
+                  <div class="field">
+                    <span class="field__label">Amount (₹)</span>
+                    <div class="field__box"><span class="val tabular">3000.00</span></div>
+                  </div>
+                  <span class="t-overline muted mt-3">TYPE</span>
+                  <div class="chips mt-half"><span class="chip">Principal</span><span class="chip">Repayment</span><span class="chip is-selected">Interest</span></div>
+                  <div class="field mt-3">
+                    <span class="field__label">Date</span>
+                    <div class="field__box df-box"><span class="ms">calendar_month</span><span class="val t-label">5 Oct 2026</span><span class="ms">expand_more</span></div>
+                    
+                  </div>
+                  <div class="field mt-3">
+                    <span class="field__label">Note (optional)</span>
+                    <div class="field__box"><span class="val">Cash interest</span></div>
+                  </div>
+                  <button class="btn btn--primary mt-4">Save changes</button>
+                  <button class="btn btn--danger mt-2"><span class="ms">delete</span>Delete entry</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Edit entry (manual row)</b>Tapping a manual history row. Amount is seeded as 3000.00. “Delete entry” asks “Delete this entry?” in a native alert. Loan details stays mounted underneath (its visibility doesn’t depend on this sheet).</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Attach existing transactions</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--g1 rn-body--pb2">
+                  <div class="field"><span class="field__label">Search</span><div class="field__box"><span class="placeholder">Merchant, note or UPI ID</span></div></div>
+                  <div class="ax-row2">
+                    <div class="field"><span class="field__label">Minimum (₹)</span><div class="field__box"><span class="placeholder">0</span></div></div>
+                    <div class="field"><span class="field__label">Maximum (₹)</span><div class="field__box"><span class="placeholder">Any</span></div></div>
+                  </div>
+                  <div class="chips"><span class="chip is-selected">Any</span><span class="chip">Money out</span><span class="chip">Money in</span></div>
+                  <div class="ax-as">
+                    <span class="t-overline muted">ATTACH AS</span>
+                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                  </div>
+                  <span class="t-small muted">Repayment for this lent loan must be money in.</span>
+                  <div class="ax-head"><span class="t-overline muted">MATCHING TRANSACTIONS</span><span class="t-caption muted">2 selected</span></div>
+                  <div class="ax-results">
+                    <div class="ax-row is-sel">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">2026-11-08</span></div>
+                      <span class="t-label tabular ax-amt c-income">+ ₹10,000.00</span>
+                    </div>
+                    <div class="ax-row is-off">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">Swiggy</span><span class="t-caption muted ell">2026-11-12 · Requires money in</span></div>
+                      <span class="t-label tabular ax-amt c-spend">− ₹450.00</span>
+                    </div>
+                    <div class="ax-row is-sel">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">2026-10-21</span></div>
+                      <span class="t-label tabular ax-amt c-income">+ ₹5,000.00</span>
+                    </div>
+                    <div class="ax-row">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">Amazon Pay</span><span class="t-caption muted ell">2026-10-19</span></div>
+                      <span class="t-label tabular ax-amt c-income">+ ₹1,230.00</span>
+                    </div>
+                    <div class="ax-row is-off">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">BHARAT PETROLEUM</span><span class="t-caption muted ell">2026-10-17 · Requires money in</span></div>
+                      <span class="t-label tabular ax-amt c-spend">− ₹1,200.00</span>
+                    </div>
+                    <div class="ax-row is-off">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">arjun.mehta@okhdfcbank</span><span class="t-caption muted ell">2026-10-02 · Requires money in</span></div>
+                      <span class="t-label tabular ax-amt c-spend">− ₹2,500.00</span>
+                    </div>
+                  </div>
+                </div>
+                <button class="btn btn--primary btn--sm ax-attach">Attach 2 transactions</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Attach existing · Repayment</b>From loan details → Attach existing (Arjun · Wedding, lent). Unattached transactions in the wrong direction for the chosen part are dimmed and disabled with “Requires money in”. Selected rows are tinted.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen lending under">
+            <header class="screen-header">
+              <div class="screen-header__row">
+                <h1 class="t-subtitle" style="margin:0">Lending</h1>
+                <button class="btn btn--primary btn--sm"><span class="ms">add</span>New loan</button>
+              </div>
+            </header>
+            <div class="card card--sm sum-card">
+              <div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Owed to you</span><span class="t-stat c-income">₹1,65,000.00</span></div>
+                <div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">You owe</span><span class="t-stat c-spend">₹45,000.00</span></div>
+              </div>
+              <span class="t-caption muted">5 active loans · 4 people</span>
+            </div>
+            <div class="seg">
+              <span class="seg__item is-selected">People</span>
+              <span class="seg__item">Loans</span>
+            </div>
+            <div>
+              <div class="list-section__header"><span class="t-overline muted">PEOPLE</span></div>
+              <div class="list">
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">A</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Arjun Mehta</span><span class="sbadge sbadge--accent t-caption">2 active</span></div>
+                  <span class="t-caption muted ell">2 active · ₹50,000.00 repaid of ₹1,90,000.00 · 26% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹1,40,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av av--neg t-small-em">P</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Priya Nair</span><span class="sbadge sbadge--danger t-caption">Borrowed</span></div>
+                  <span class="t-caption muted ell">1 active · ₹15,000.00 repaid of ₹60,000.00 · 25% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-spend">₹45,000.00</span><span class="t-caption c-spend">you owe</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">R</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Rahul Verma</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · no repayments yet · 0% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-income">₹25,000.00</span><span class="t-caption c-income">owed to you</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+            <div>
+              <div class="lrow">
+                <span class="av t-small-em">S</span>
+                <div class="lrow__left">
+                  <div class="lrow__name"><span class="t-label">Sneha Iyer</span><span class="sbadge sbadge--accent t-caption">Lent</span></div>
+                  <span class="t-caption muted ell">1 active · ₹8,000.00 repaid of ₹8,000.00 · 100% repaid</span>
+                </div>
+                <div class="lrow__amt"><span class="t-label tabular c-muted">₹0.00</span><span class="t-caption c-muted">settled</span></div>
+                <span class="ms">chevron_right</span>
+              </div>
+            </div>
+              </div>
+            </div>
+            <div class="closed-sec list">
+              <div class="closed-toggle"><span class="t-small muted">Closed loans</span><span class="closed-meta"><span class="t-small tabular">2</span><span class="ms">expand_more</span></span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="lending" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Attach existing transactions</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--g1 rn-body--pb2">
+                  <div class="field"><span class="field__label">Search</span><div class="field__box"><span class="placeholder">Merchant, note or UPI ID</span></div></div>
+                  <div class="ax-row2">
+                    <div class="field"><span class="field__label">Minimum (₹)</span><div class="field__box"><span class="placeholder">0</span></div></div>
+                    <div class="field"><span class="field__label">Maximum (₹)</span><div class="field__box"><span class="placeholder">Any</span></div></div>
+                  </div>
+                  <div class="chips"><span class="chip is-selected">Any</span><span class="chip">Money out</span><span class="chip">Money in</span></div>
+                  <div class="ax-as">
+                    <span class="t-overline muted">ATTACH AS</span>
+                    <div class="seg"><span class="seg__item is-selected">Principal</span><span class="seg__item">Repayment</span><span class="seg__item">Interest</span></div>
+                  </div>
+                  <span class="t-small muted">Principal for this lent loan must be money out.</span>
+                  <span class="t-small c-spend">2 selected transactions move the wrong way for this loan part. Deselect them or choose another part.</span>
+                  <div class="ax-head"><span class="t-overline muted">MATCHING TRANSACTIONS</span><span class="t-caption muted">2 selected</span></div>
+                  <div class="ax-results">
+                    <div class="ax-row is-sel is-off">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">2026-11-08 · Requires money out</span></div>
+                      <span class="t-label tabular ax-amt c-income">+ ₹10,000.00</span>
+                    </div>
+                    <div class="ax-row">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">Swiggy</span><span class="t-caption muted ell">2026-11-12</span></div>
+                      <span class="t-label tabular ax-amt c-spend">− ₹450.00</span>
+                    </div>
+                    <div class="ax-row is-sel is-off">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">Arjun Mehta</span><span class="t-caption muted ell">2026-10-21 · Requires money out</span></div>
+                      <span class="t-label tabular ax-amt c-income">+ ₹5,000.00</span>
+                    </div>
+                    <div class="ax-row is-off">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">Amazon Pay</span><span class="t-caption muted ell">2026-10-19 · Requires money out</span></div>
+                      <span class="t-label tabular ax-amt c-income">+ ₹1,230.00</span>
+                    </div>
+                    <div class="ax-row">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">BHARAT PETROLEUM</span><span class="t-caption muted ell">2026-10-17</span></div>
+                      <span class="t-label tabular ax-amt c-spend">− ₹1,200.00</span>
+                    </div>
+                    <div class="ax-row">
+                      <span class="ax-cb t-caption">✓</span>
+                      <div class="ax-left"><span class="t-label ell">arjun.mehta@okhdfcbank</span><span class="t-caption muted ell">2026-10-02</span></div>
+                      <span class="t-label tabular ax-amt c-spend">− ₹2,500.00</span>
+                    </div>
+                  </div>
+                </div>
+                <button class="btn btn--primary btn--sm ax-attach" disabled>Attach 2 transactions</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Attach existing · wrong-way selection</b>Switching the part to Principal after selecting incoming rows keeps them selected but flags them; Attach is disabled until they’re deselected or the part changes back. Opens with Principal and nothing selected (“Select transactions”, disabled).</p>
+      </section>
+    </div>
+  </main>
+  <script src="assets/mock.js"></script>
+</body>
+</html>

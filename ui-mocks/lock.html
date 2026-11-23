@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>App locked</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    /* AnimatedIcon (animated-icon.tsx): 112px tile, radius 28, hairline border, 88px brand mark. */
+    .brand-tile {
+      width: 112px; height: 112px; border-radius: 28px; flex-shrink: 0;
+      background: var(--background-element); border: var(--hairline) solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .brand-tile img { width: 88px; height: 88px; }
+    .mark-dark { display: none; }
+    :root[data-theme='dark'] .mark-light { display: none; }
+    :root[data-theme='dark'] .mark-dark { display: block; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme='light']) .mark-light { display: none; }
+      :root:not([data-theme='light']) .mark-dark { display: block; }
+    }
+
+    /* lock-screen.tsx: container justifyContent center; column padding 0 16, gap 8 */
+    .lock { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+    .lock__center { display: flex; flex-direction: column; align-items: center; padding: 0 var(--sp-4); gap: var(--sp-2); text-align: center; }
+    .lock__center h1 { margin: var(--sp-2) 0 0; }
+    .lock__center p { margin: 0; }
+    .lock__btn { width: 100%; max-width: 320px; margin-top: var(--sp-2); }
+
+    /* AnimatedSplashOverlay: absolute-fill theme background, 128px brand mark (no tile) */
+    .splash { position: absolute; inset: 0; z-index: 30; background: var(--background); display: flex; align-items: center; justify-content: center; }
+    .splash img { width: 128px; height: 128px; }
+
+    /* OS biometric prompt (expo-local-authentication → Android BiometricPrompt) — approximated */
+    .bio-sheet {
+      margin: 0 var(--sp-3) var(--sp-3); background: var(--background-element); border-radius: 28px;
+      padding: 24px 24px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
+    }
+    .bio-sheet__title { font-size: 20px; line-height: 26px; color: var(--text); }
+    .bio-sheet .ms { font-size: 56px; color: var(--accent); margin: 12px 0; }
+    .bio-sheet__actions { align-self: stretch; display: flex; justify-content: flex-start; }
+    .bio-sheet__actions span { padding: 10px 4px; font-size: 14px; font-weight: 500; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main class="mock-page">
+    <p class="mock-intro">
+      Device-lock gate: shown on launch and whenever the app returns from the background, if the device has
+      biometrics or a PIN (otherwise the app never locks). No tab bar — it replaces the app. Source:
+      <code>mobile/src/components/lock-screen.tsx</code>, <code>hooks/use-app-lock.tsx</code>,
+      <code>components/animated-icon.tsx</code> (<code>AnimatedSplashOverlay</code>), <code>app/_layout.tsx</code>.
+    </p>
+    <div class="frames">
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="lock">
+            <div class="lock__center">
+              <div class="brand-tile">
+                <img class="mark-light" src="assets/img/brand-mark.png" alt="" />
+                <img class="mark-dark" src="assets/img/brand-mark-dark.png" alt="" />
+              </div>
+              <h1 class="t-heading">Finance Tracker is locked</h1>
+              <p class="t-small muted">Unlock with your fingerprint, face, or device PIN.</p>
+              <button class="btn btn--primary lock__btn">Unlock</button>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Locked</b>Brand tile, heading, hint and a primary “Unlock” button (manual retry). Centered vertically.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="lock under">
+            <div class="lock__center">
+              <div class="brand-tile">
+                <img class="mark-light" src="assets/img/brand-mark.png" alt="" />
+                <img class="mark-dark" src="assets/img/brand-mark-dark.png" alt="" />
+              </div>
+              <h1 class="t-heading">Finance Tracker is locked</h1>
+              <p class="t-small muted">Unlock with your fingerprint, face, or device PIN.</p>
+              <button class="btn btn--primary lock__btn">Unlock</button>
+            </div>
+          </div>
+          <div class="overlay">
+            <div class="bio-sheet" role="dialog">
+              <div class="bio-sheet__title">Unlock Finance Tracker</div>
+              <span class="ms">fingerprint</span>
+              <span class="t-small muted">Touch the fingerprint sensor</span>
+              <div class="bio-sheet__actions"><span>Use device PIN</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Biometric prompt (OS)</b>Prompted automatically on mount. This is the system BiometricPrompt, not app UI — approximated; its title/copy come from <code>services/auth/app-lock.ts</code> and the OS.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="splash">
+            <img class="mark-light" src="assets/img/brand-mark.png" alt="" />
+            <img class="mark-dark" src="assets/img/brand-mark-dark.png" alt="" />
+          </div>
+        </div>
+        <p class="frame-caption"><b>Splash overlay</b>Native only (web renders nothing). Full-screen theme background with the 128px brand mark, matching the native splash; fades out (280ms) once layout, auth and lock state are ready.</p>
+      </section>
+
+    </div>
+  </main>
+  <script src="assets/mock.js"></script>
+</body>
+</html>

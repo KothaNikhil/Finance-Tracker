@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    /* AnimatedIcon (animated-icon.tsx): 112px tile, radius 28, hairline border, 88px brand mark. */
+    .brand-tile {
+      width: 112px; height: 112px; border-radius: 28px; flex-shrink: 0;
+      background: var(--background-element); border: var(--hairline) solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .brand-tile img { width: 88px; height: 88px; }
+    /* Light/dark brand-mark swap (useColorScheme). */
+    .mark-dark { display: none; }
+    :root[data-theme='dark'] .mark-light { display: none; }
+    :root[data-theme='dark'] .mark-dark { display: block; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme='light']) .mark-light { display: none; }
+      :root:not([data-theme='light']) .mark-dark { display: block; }
+    }
+
+    /* login-screen.tsx */
+    .login { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .login__content {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 0 var(--sp-4); gap: var(--sp-2); text-align: center;
+    }
+    .login__content h1 { margin: var(--sp-2) 0 0; }
+    .login__content p { margin: 0; max-width: 520px; }
+    .login__btn { width: 100%; max-width: 520px; margin-top: var(--sp-3); }
+    .login__restore { margin-top: var(--sp-1) !important; }
+    .login__footer {
+      display: flex; flex-direction: column; align-items: center; gap: var(--sp-half);
+      padding: 0 var(--sp-4) var(--sp-4); text-align: center;
+    }
+    .login__footer p { margin: 0; }
+
+    .spinner {
+      width: 20px; height: 20px; border-radius: 50%;
+      border: 2.5px solid var(--border); border-top-color: var(--text);
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Native Alert.alert (Android system dialog — approximated) */
+    .os-alert {
+      width: 100%; max-width: 312px; background: var(--background-element);
+      border-radius: var(--r-xl); padding: 24px 24px 12px; display: flex; flex-direction: column; gap: 16px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.24); text-align: left;
+    }
+    .os-alert__title { font-size: 20px; line-height: 26px; font-weight: 400; color: var(--text); }
+    .os-alert__msg { font-size: 14px; line-height: 20px; color: var(--text-secondary); }
+    .os-alert__actions { display: flex; justify-content: flex-end; margin-right: -12px; }
+    .os-alert__actions span { padding: 10px 12px; font-size: 14px; font-weight: 500; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main class="mock-page">
+    <p class="mock-intro">
+      Full-screen auth gate shown by the root layout when Supabase is configured and there is no session
+      (no tab bar — it replaces the app). Source: <code>mobile/src/components/login-screen.tsx</code>,
+      <code>components/animated-icon.tsx</code>, <code>app/_layout.tsx</code>, <code>hooks/use-busy-action.ts</code>.
+    </p>
+    <div class="frames">
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="login">
+            <div class="login__content">
+              <div class="brand-tile">
+                <img class="mark-light" src="assets/img/brand-mark.png" alt="" />
+                <img class="mark-dark" src="assets/img/brand-mark-dark.png" alt="" />
+              </div>
+              <h1 class="t-title">Finance Tracker</h1>
+              <p class="t-label c-accent">Your money, clearly organized.</p>
+              <p class="t-small muted">Import statements, review transactions and keep your data backed up through your Google account.</p>
+              <button class="btn login__btn">Continue with Google</button>
+              <p class="t-caption muted login__restore">A newer Google Drive backup is restored automatically after sign-in.</p>
+            </div>
+            <div class="login__footer">
+              <p class="t-small muted">Your finance data stays private to your account.</p>
+              <p class="t-caption muted">Finance Tracker · Secure local-first storage</p>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Sign in</b>Brand tile, title, tagline, explainer, secondary “Continue with Google” button (no Google logo/icon), restore note, and a two-line footer.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="login">
+            <div class="login__content">
+              <div class="brand-tile">
+                <img class="mark-light" src="assets/img/brand-mark.png" alt="" />
+                <img class="mark-dark" src="assets/img/brand-mark-dark.png" alt="" />
+              </div>
+              <h1 class="t-title">Finance Tracker</h1>
+              <p class="t-label c-accent">Your money, clearly organized.</p>
+              <p class="t-small muted">Import statements, review transactions and keep your data backed up through your Google account.</p>
+              <button class="btn login__btn" disabled aria-busy="true"><span class="spinner"></span></button>
+              <p class="t-caption muted login__restore">A newer Google Drive backup is restored automatically after sign-in.</p>
+            </div>
+            <div class="login__footer">
+              <p class="t-small muted">Your finance data stays private to your account.</p>
+              <p class="t-caption muted">Finance Tracker · Secure local-first storage</p>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Signing in</b>While the Google account picker / Drive sync-down runs, the button shows only a spinner (label hidden) at 45% opacity.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="login under">
+            <div class="login__content">
+              <div class="brand-tile">
+                <img class="mark-light" src="assets/img/brand-mark.png" alt="" />
+                <img class="mark-dark" src="assets/img/brand-mark-dark.png" alt="" />
+              </div>
+              <h1 class="t-title">Finance Tracker</h1>
+              <p class="t-label c-accent">Your money, clearly organized.</p>
+              <p class="t-small muted">Import statements, review transactions and keep your data backed up through your Google account.</p>
+              <button class="btn login__btn">Continue with Google</button>
+              <p class="t-caption muted login__restore">A newer Google Drive backup is restored automatically after sign-in.</p>
+            </div>
+            <div class="login__footer">
+              <p class="t-small muted">Your finance data stays private to your account.</p>
+              <p class="t-caption muted">Finance Tracker · Secure local-first storage</p>
+            </div>
+          </div>
+          <div class="overlay overlay--center">
+            <div class="os-alert" role="alertdialog">
+              <div class="os-alert__title">Google sign-in failed</div>
+              <div class="os-alert__msg">Network request failed</div>
+              <div class="os-alert__actions"><span>OK</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Sign-in error</b>Errors surface as a native alert titled “Google sign-in failed” with the thrown error’s message (example text). Cancelling the picker shows nothing.</p>
+      </section>
+
+    </div>
+  </main>
+  <script src="assets/mock.js"></script>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Finance Tracker UI mocks</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    .index-group { margin-top: 28px; }
+    .index-group > h2 { margin: 0 0 10px; }
+    .index-card .row .ms { color: var(--accent); }
+    .index-card .frames-list { font-size: 12px; line-height: 16px; color: var(--text-secondary); }
+    .rules { margin-top: 32px; }
+    .rules li { margin-bottom: 6px; color: var(--text-secondary); font-size: 13px; line-height: 18px; }
+    .rules code { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="index-wrap">
+    <h1 class="t-title" style="margin:8px 0 4px">Finance Tracker UI mocks</h1>
+    <p class="t-small muted" style="margin:0;max-width:680px">
+      Static HTML/CSS mocks of every screen, sheet and dialog in the mobile app, matched to the code in
+      <code class="t-code">mobile/src</code>. Use these as the design baseline: change a mock and get it approved here first,
+      then implement it in the app. Every page has a Light / Dark / System toggle in the toolbar.
+    </p>
+
+    <section class="index-group">
+      <h2 class="t-overline muted">TABS</h2>
+      <div class="index-grid">
+        <a class="index-card" href="home.html">
+          <span class="row"><span class="ms">home</span><span class="t-heading">Home</span></span>
+          <span class="frames-list">Year / Month / All periods, trend chart, category breakdown, category detail sheet, loading, empty and error states</span>
+          <span class="src">app/index.tsx</span>
+        </a>
+        <a class="index-card" href="activity.html">
+          <span class="row"><span class="ms">history</span><span class="t-heading">Activity</span></span>
+          <span class="frames-list">Row variants, search, needs review, breakdowns, filters sheet with month range, export dialog, empty and error states</span>
+          <span class="src">app/reports.tsx</span>
+        </a>
+        <a class="index-card" href="import.html">
+          <span class="row"><span class="ms">file_download</span><span class="t-heading">Import</span></span>
+          <span class="frames-list">Choose file, supported statements, unlock a protected PDF, preview, row detail, review, accept all, revert</span>
+          <span class="src">app/import.tsx</span>
+        </a>
+        <a class="index-card" href="lending.html">
+          <span class="row"><span class="ms">swap_horiz</span><span class="t-heading">Lending</span></span>
+          <span class="frames-list">People and loans, loan detail, loan form, manual entry, attach existing, delete confirm</span>
+          <span class="src">app/lending.tsx</span>
+        </a>
+        <a class="index-card" href="settings.html">
+          <span class="row"><span class="ms">settings</span><span class="t-heading">Settings</span></span>
+          <span class="frames-list">Landing, categories with inline add/rename, subcategories, reorder, payment modes, people, appearance, backup / Drive, account, delete all data</span>
+          <span class="src">app/explore.tsx</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="index-group">
+      <h2 class="t-overline muted">SHEETS AND FLOWS</h2>
+      <div class="index-grid">
+        <a class="index-card" href="transaction-detail.html">
+          <span class="row"><span class="ms">description</span><span class="t-heading">Transaction detail</span></span>
+          <span class="frames-list">Two-tab detail sheet, refund / self-transfer, card bill, note edit, category picker, last-edited pill</span>
+          <span class="src">components/transaction-detail.tsx</span>
+        </a>
+        <a class="index-card" href="money-lent-split.html">
+          <span class="row"><span class="ms">group</span><span class="t-heading">Add to money lent</span></span>
+          <span class="frames-list">One loan or split across loans with per-slice parts, validation, edit an existing split</span>
+          <span class="src">components/add-to-money-lent-sheet.tsx</span>
+        </a>
+        <a class="index-card" href="card-bill.html">
+          <span class="row"><span class="ms">credit_card</span><span class="t-heading">Card bill linking</span></span>
+          <span class="frames-list">Link a bill payment to its statement (suggested, linked, mismatch, missing), attach existing transactions</span>
+          <span class="src">components/card-bill-sheet.tsx, attach-existing-sheet.tsx</span>
+        </a>
+        <a class="index-card" href="debug-logs.html">
+          <span class="row"><span class="ms">info</span><span class="t-heading">Debug logs</span></span>
+          <span class="frames-list">Import diagnostic log (opened from Import)</span>
+          <span class="src">components/debug-log-screen.tsx</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="index-group">
+      <h2 class="t-overline muted">GATE</h2>
+      <div class="index-grid">
+        <a class="index-card" href="login.html">
+          <span class="row"><span class="ms">account_circle</span><span class="t-heading">Sign in</span></span>
+          <span class="frames-list">Google sign-in screen and its states</span>
+          <span class="src">components/login-screen.tsx</span>
+        </a>
+        <a class="index-card" href="lock.html">
+          <span class="row"><span class="ms">lock</span><span class="t-heading">App locked</span></span>
+          <span class="frames-list">Device-lock screen and splash overlay</span>
+          <span class="src">components/lock-screen.tsx, animated-icon.tsx</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="rules">
+      <h2 class="t-overline muted">WORKING WITH THESE MOCKS</h2>
+      <ul>
+        <li><code>assets/mock.css</code> mirrors <code>mobile/src/constants/theme.ts</code> (colours, spacing, radius) and the
+          <code>ThemedText</code> type scale. When a token changes in one place, change it in the other.</li>
+        <li>Use only the CSS variables for colour and keep font weight at 500 or below, as the app does.</li>
+        <li>Icons are Material Symbols, using the Android/web names the app passes to <code>SymbolView</code>.</li>
+        <li>Start a new screen from <code>_template.html</code>. Show one phone frame per state, sheet or dialog.</li>
+        <li>The mocks need no build step or backend. Open any file in a browser. Fonts and icons load from Google Fonts.</li>
+      </ul>
+    </section>
+  </div>
+  <script src="assets/mock.js"></script>
+</body>
+</html>

@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Activity</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="assets/mock.css" />
+  <style>
+    /* Activity content container: paddingHorizontal Spacing.three (12), paddingTop Spacing.two (8). */
+    .screen.act { padding: var(--sp-2) var(--sp-3) var(--sp-4); gap: 0; }
+    /* headerGroup: gap 8, marginBottom 4 */
+    .hgroup { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+    /* RN overline has NO textTransform — the strings are already upper-case where intended. */
+    .keep-case { text-transform: none; }
+
+    /* ActivityFilterBar */
+    .fbar { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .fbar__actions { display: flex; align-items: stretch; gap: var(--sp-2); }
+    .fbar__actions > .field { flex: 1; min-width: 0; }
+    .fbar__chips { display: flex; align-items: center; gap: var(--sp-2); }
+    .fbar__scroll {
+      flex: 1; min-width: 0; display: flex; gap: var(--sp-1); padding: var(--sp-half) 1px;
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .fbar__scroll::-webkit-scrollbar { display: none; }
+    .search-box { padding-right: 4px; }
+    .search-box .grow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ActivitySummary: Card padding small + InfoDisclosure */
+    .info-row { display: flex; align-items: center; gap: var(--sp-1); margin-right: calc(-1 * var(--sp-1)); }
+    .info-row > .stat-strip { flex: 1; min-width: 0; }
+    .icon-btn.info-btn { width: 24px; height: 24px; border-radius: var(--r-md); }
+    .icon-btn.info-btn .ms { font-size: 15px; }
+    .info-text { margin-top: var(--sp-half); }
+
+    .btn.self-start { align-self: flex-start; }
+    .lhead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); margin-top: var(--sp-1); }
+
+    /* TransactionList PeriodHeader */
+    .ph { padding: var(--sp-2) 0 var(--sp-half); background: var(--background); }
+    .ph--day { padding-top: var(--sp-1); }
+    .lfoot { padding: var(--sp-3) 0; text-align: center; }
+
+    /* TxnRow variant="activity" */
+    .arow {
+      min-height: 54px; display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-2) var(--sp-1); border-bottom: var(--hairline) solid var(--border);
+    }
+    .arow__glyph {
+      width: 28px; height: 28px; border-radius: 14px; flex-shrink: 0; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .g-spend  { background: var(--spend-muted);  color: var(--spend); }
+    .g-income { background: var(--income-muted); color: var(--income); }
+    .g-review { background: var(--review-muted); color: var(--review); }
+    .g-accent { background: var(--accent-muted); color: var(--accent); }
+    .arow__left { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .arow__left > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .arow__right { min-width: 88px; display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+    .arow__right .t-label { white-space: nowrap; }
+    .review-outline {
+      min-height: 16px; display: inline-flex; align-items: center;
+      border: var(--hairline) solid var(--review); border-radius: var(--r-xs); padding: 0 var(--sp-1);
+      color: var(--review);
+    }
+
+    /* CategoryBreakdown */
+    .brk__row { min-height: 38px; display: flex; flex-direction: column; gap: var(--sp-half); padding: var(--sp-1) 0; }
+    .brk__row + .brk__row { border-top: var(--hairline) solid var(--border); }
+    .brk__head { display: flex; align-items: center; gap: var(--sp-1); }
+    .brk__label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brk__amt { width: 92px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .brk__pct { width: 30px; text-align: right; }
+    .brk__track { height: 4px; border-radius: 2px; overflow: hidden; background: var(--background-selected); }
+    .brk__fill { height: 100%; border-radius: 2px; background: var(--accent); }
+    .cashback { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: 0 var(--sp-2); }
+
+    /* Loading skeleton */
+    .sk-wrap { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
+    .sk-row { min-height: 54px; display: flex; align-items: center; gap: var(--sp-2); }
+    .sk-copy { flex: 1; display: flex; flex-direction: column; gap: var(--sp-half); }
+    .empty.mt { margin-top: var(--sp-3); }
+
+    /* ReportsFilters sheet */
+    .sheet.fsheet { padding: var(--sp-2) var(--sp-3) var(--sp-4); gap: 0; }
+    .fsheet .sheet__header { min-height: 34px; }
+    .fbody {
+      flex-shrink: 1; min-height: 0; overflow-y: auto; scrollbar-width: none;
+      padding: var(--sp-2) 0; display: flex; flex-direction: column; gap: var(--sp-3);
+    }
+    .fbody::-webkit-scrollbar { display: none; }
+    .presets { display: flex; flex-wrap: wrap; gap: var(--sp-1); padding: 0 var(--sp-2) var(--sp-2); }
+    .frow__line { display: flex; align-items: center; }
+    .frow__main {
+      flex: 1; min-width: 0; min-height: 40px; display: flex; align-items: center; gap: var(--sp-2);
+      padding: 0 var(--sp-2);
+    }
+    .frow__label { flex-shrink: 0; white-space: nowrap; }
+    .frow__value { flex: 1; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+    .frow__value.is-active { color: var(--accent); }
+    .frow__chev { font-size: 14px; color: var(--text-secondary); }
+    .icon-btn.frow__clear { width: 28px; height: 28px; margin-right: var(--sp-half); }
+    .icon-btn.frow__clear .ms { font-size: 16px; color: var(--accent); }
+    .search-box .icon-btn .ms { font-size: 18px; }
+    .frow__body { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-2) var(--sp-2); }
+    .opts { display: flex; flex-direction: column; gap: var(--sp-half); }
+    .opt { min-height: 36px; display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-2); border-radius: var(--r-sm); color: var(--text-secondary); }
+    .opt.is-selected { background: var(--background-selected); color: var(--text); }
+    .opt > .t-small { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .opt .ms { font-size: 14px; color: var(--accent); }
+    .mgrid { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .mgrid__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+    .icon-btn.mgrid__nav { width: 28px; height: 28px; }
+    .icon-btn.mgrid__nav .ms { font-size: 16px; }
+    .mgrid__row { display: flex; gap: var(--sp-1); }
+    .mcell {
+      flex: 1; min-height: 34px; display: flex; align-items: center; justify-content: center;
+      border-radius: var(--r-sm); border: var(--hairline) solid var(--border);
+      background: var(--background-element); color: var(--text-secondary);
+    }
+    .mcell.has-data { color: var(--text); }
+    .mcell.is-between { background: var(--background-selected); }
+    .mcell.is-end { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .review-row { min-height: 40px; display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-2); }
+    .review-row .ms { font-size: 20px; }
+    .amt-row { display: flex; gap: var(--sp-2); }
+    .amt-row > .field { flex: 1; min-width: 0; }
+    .ffoot { border-top: var(--hairline) solid var(--border); padding: var(--sp-2) 0 var(--sp-1); display: flex; flex-direction: column; gap: var(--sp-2); }
+    .ffoot__actions { display: flex; gap: var(--sp-2); }
+    .ffoot__actions .btn { flex: 1; }
+
+    /* TextInputModal: Card padding 12, gap 8; actions marginTop 4 */
+    .dialog.dlg { max-width: 420px; padding: var(--sp-3); gap: var(--sp-2); }
+    .dlg .dialog__actions { margin-top: var(--sp-1); }
+    .dlg .dialog__actions .btn { flex: 1; }
+    .sel-text { background: var(--accent-muted); }
+  </style>
+</head>
+<body>
+  <main class="mock-page">
+    <p class="mock-intro">
+      Activity tab — search, filter chips, totals, review banner, collapsible breakdowns and the date-grouped
+      transaction list, plus the Filters sheet and export rename dialog. “Today” is Thu 12 Nov 2026.
+      Source: <code>mobile/src/app/reports.tsx</code>, <code>components/activity-filter-bar.tsx</code>,
+      <code>activity-summary.tsx</code>, <code>transaction-list.tsx</code>, <code>txn-row.tsx</code>,
+      <code>reports-filters.tsx</code>, <code>category-breakdown.tsx</code>, <code>text-input-modal.tsx</code>.
+    </p>
+    <div class="frames">
+
+      <!-- ============ 1. Default ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field">
+                    <div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+                <div class="fbar__chips">
+                  <div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span></div>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="info-row">
+                  <div class="stat-strip">
+                    <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                  </div>
+                  <button class="icon-btn icon-btn--plain info-btn" aria-label="How Activity totals are counted"><span class="ms">info</span></button>
+                </div>
+              </div>
+              <div class="banner banner--review">
+                <span class="ms">warning</span>
+                <span class="banner__copy t-small-em truncate">6 transactions need review</span>
+                <span class="banner__action">Review</span>
+              </div>
+              <button class="btn btn--ghost btn--sm self-start"><span class="ms">bar_chart</span>Show breakdowns</button>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">Today · 12 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹450.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">B</span></div>
+              <div class="arow__left"><span class="t-label">BHARAT PETROLEUM</span><span class="t-caption muted">Uncategorized · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹1,200.00</span><span class="review-outline t-caption">Review</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">Yesterday · 11 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-review"><span class="t-caption">💸</span></div>
+              <div class="arow__left"><span class="t-label">Ravi Kumar</span><span class="t-caption muted">💸 Lent · Bike loan · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹10,000.00</span><span class="t-caption muted">8:45 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-accent"><span class="t-caption">↩</span></div>
+              <div class="arow__left"><span class="t-label">Amazon Pay</span><span class="t-caption muted">Refund · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹1,230.00</span><span class="t-caption muted">11:02 AM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-review"><span class="t-caption">⇄</span></div>
+              <div class="arow__left"><span class="t-label">To SBI Savings XX0921</span><span class="t-caption muted">Transfer · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-review">⇄₹25,000.00</span><span class="t-caption muted">9:30 AM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">10 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">✅</span></div>
+              <div class="arow__left"><span class="t-label">Priya</span><span class="t-caption muted">✅ Repaid to me · Laptop loan</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹5,000.00</span><span class="t-caption muted">2026-11-10</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-review"><span class="t-caption">💳</span></div>
+              <div class="arow__left"><span class="t-label">HDFC CREDIT CARD</span><span class="t-caption muted">💳 Card bill payment · State Bank of India</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹18,450.00</span><span class="t-caption muted">7:15 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">💼</span></div>
+              <div class="arow__left"><span class="t-label">Acme Technologies Pvt Ltd</span><span class="t-caption muted">💼 Income · Salary · State Bank of India</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹1,24,500.00</span><span class="t-caption muted">10:00 AM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">A</span></div>
+              <div class="arow__left"><span class="t-label">Arjun Mehta</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹750.00</span><span class="t-caption muted">6:40 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>Default list</b>No filter set yet → the latest data year (2026) is applied, so the “2026 ×” chip and “Filters · 1” show but “Clear all” does not. Rows cover: categorized, needs review (badge replaces time), lent, refund, self-transfer, in-app lending row (no time → ISO date), card bill, income, uncategorized received. Scroll inside the phone.</p>
+      </section>
+
+      <!-- ============ 2. Search active ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field">
+                    <div class="field__box search-box is-focused"><span class="ms ms-20 muted">search</span><span class="grow">swiggy</span>
+                      <button class="icon-btn icon-btn--plain" aria-label="Clear search"><span class="ms fill">cancel</span></button></div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+                <div class="fbar__chips">
+                  <div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span></div>
+                  <button class="btn btn--ghost btn--sm">Clear all</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="info-row">
+                  <div class="stat-strip">
+                    <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹1,842.00</span></div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹0.00</span></div>
+                  </div>
+                  <button class="icon-btn icon-btn--plain info-btn" aria-label="How Activity totals are counted"><span class="ms">info</span></button>
+                </div>
+              </div>
+              <button class="btn btn--ghost btn--sm self-start"><span class="ms">bar_chart</span>Show breakdowns</button>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">3 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">Today · 12 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹450.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">3 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy Instamart</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">7:48 PM</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Oct 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">28 Oct</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹780.00</span><span class="t-caption muted">9:15 PM</span></div>
+            </div>
+            <p class="lfoot t-caption muted" style="margin:0">You’ve reached the end of this Activity view.</p>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>Search active</b>Typed text debounces 250ms into the filter; the trailing clear (cancel) button appears and “Clear all” shows because search is non-empty. No review banner when the matching set has none. End-of-list footer when there are no more pages.</p>
+      </section>
+
+      <!-- ============ 3. Needs review ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field">
+                    <div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 2</button>
+                </div>
+                <div class="fbar__chips">
+                  <div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span><span class="chip is-selected">Needs review&nbsp;&nbsp;×</span></div>
+                  <button class="btn btn--ghost btn--sm">Clear all</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="info-row">
+                  <div class="stat-strip">
+                    <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹4,936.00</span></div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹2,000.00</span></div>
+                  </div>
+                  <button class="icon-btn icon-btn--plain info-btn" aria-label="How Activity totals are counted"><span class="ms">info</span></button>
+                </div>
+              </div>
+              <div class="banner banner--review">
+                <span class="ms">warning</span>
+                <span class="banner__copy t-small-em truncate">6 transactions need review</span>
+              </div>
+              <button class="btn btn--ghost btn--sm self-start"><span class="ms">bar_chart</span>Show breakdowns</button>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">6 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">Today · 12 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">B</span></div>
+              <div class="arow__left"><span class="t-label">BHARAT PETROLEUM</span><span class="t-caption muted">Uncategorized · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹1,200.00</span><span class="review-outline t-caption">Review</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">9 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">M</span></div>
+              <div class="arow__left"><span class="t-label">Meena Stores</span><span class="t-caption muted">Uncategorized · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹340.00</span><span class="review-outline t-caption">Review</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🚕</span></div>
+              <div class="arow__left"><span class="t-label">Rapido</span><span class="t-caption muted">🚕 Transport · Bike taxi · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹96.00</span><span class="review-outline t-caption">Review</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">6 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-income"><span class="t-caption">K</span></div>
+              <div class="arow__left"><span class="t-label">Karthik R</span><span class="t-caption muted">Received · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-income">+₹2,000.00</span><span class="review-outline t-caption">Review</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Oct 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">30 Oct</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🎬</span></div>
+              <div class="arow__left"><span class="t-label">Netflix</span><span class="t-caption muted">🎬 Entertainment · Streaming · Axis Credit Card</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹649.00</span><span class="review-outline t-caption">Review</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛍️</span></div>
+              <div class="arow__left"><span class="t-label">Decathlon</span><span class="t-caption muted">🛍️ Shopping · Sports · Axis Credit Card</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹2,651.00</span><span class="review-outline t-caption">Review</span></div>
+            </div>
+            <p class="lfoot t-caption muted" style="margin:0">You’ve reached the end of this Activity view.</p>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>“Needs review” filter</b>After tapping the banner’s Review (or Home’s deep link): a “Needs review ×” chip, Filters · 2, and the banner drops its action. Every row shows the outlined Review badge in place of the time.</p>
+      </section>
+
+      <!-- ============ 4. Breakdowns + info disclosure ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field">
+                    <div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+                <div class="fbar__chips">
+                  <div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span></div>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="info-row">
+                  <div class="stat-strip">
+                    <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                  </div>
+                  <button class="icon-btn icon-btn--plain info-btn" aria-label="How Activity totals are counted" aria-expanded="true"><span class="ms">info</span></button>
+                </div>
+                <div class="t-caption muted info-text">Self-transfers, lending principal, and linked card payments are excluded. Refunds offset spending.</div>
+              </div>
+              <div class="banner banner--review">
+                <span class="ms">warning</span>
+                <span class="banner__copy t-small-em truncate">6 transactions need review</span>
+                <span class="banner__action">Review</span>
+              </div>
+              <button class="btn btn--ghost btn--sm self-start"><span class="ms">bar_chart</span>Hide breakdowns</button>
+              <div class="col gap-3">
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">TOP MERCHANTS</span></div>
+                  <div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">Swiggy</span><span class="t-label brk__amt">₹38,420.00</span><span class="t-caption muted brk__pct">6%</span></div><div class="brk__track"><div class="brk__fill" style="width:100%"></div></div></div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">Amazon</span><span class="t-label brk__amt">₹31,250.00</span><span class="t-caption muted brk__pct">5%</span></div><div class="brk__track"><div class="brk__fill" style="width:81%"></div></div></div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">Zepto</span><span class="t-label brk__amt">₹24,880.50</span><span class="t-caption muted brk__pct">4%</span></div><div class="brk__track"><div class="brk__fill" style="width:65%"></div></div></div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">BHARAT PETROLEUM</span><span class="t-label brk__amt">₹18,600.00</span><span class="t-caption muted brk__pct">3%</span></div><div class="brk__track"><div class="brk__fill" style="width:48%"></div></div></div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">Rapido</span><span class="t-label brk__amt">₹9,420.00</span><span class="t-caption muted brk__pct">1%</span></div><div class="brk__track"><div class="brk__fill" style="width:25%"></div></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">BY ACCOUNT</span></div>
+                  <div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">HDFC Bank - 42</span><span class="t-label brk__amt">₹4,92,110.00</span><span class="t-caption muted brk__pct">72%</span></div><div class="brk__track"><div class="brk__fill" style="width:100%"></div></div></div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">State Bank of India</span><span class="t-label brk__amt">₹1,48,202.50</span><span class="t-caption muted brk__pct">22%</span></div><div class="brk__track"><div class="brk__fill" style="width:30%"></div></div></div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">Axis Credit Card</span><span class="t-label brk__amt">₹44,000.00</span><span class="t-caption muted brk__pct">6%</span></div><div class="brk__track"><div class="brk__fill" style="width:9%"></div></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">BY PERSON</span></div>
+                  <div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">Not assigned</span><span class="t-label brk__amt">₹6,21,812.50</span><span class="t-caption muted brk__pct">91%</span></div><div class="brk__track"><div class="brk__fill" style="width:100%"></div></div></div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">Ravi Kumar</span><span class="t-label brk__amt">₹40,000.00</span><span class="t-caption muted brk__pct">6%</span></div><div class="brk__track"><div class="brk__fill" style="width:6.4%"></div></div></div>
+                    <div class="brk__row"><div class="brk__head"><span class="t-label brk__label">Priya</span><span class="t-label brk__amt">₹22,500.00</span><span class="t-caption muted brk__pct">3%</span></div><div class="brk__track"><div class="brk__fill" style="width:3.6%"></div></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">CASHBACK AND REFUNDS</span></div>
+                  <div class="cashback"><span class="t-small muted">14 received · subtracted from spending</span><span class="t-stat c-accent">₹3,420.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">Today · 12 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹450.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>Breakdowns + totals note open</b>The “i” reveals ACTIVITY_TOTALS_NOTE under the strip. “Show breakdowns” toggles four ListSections (top 12 merchants, by account, by person, cashback/refunds). Bars are relative to the largest row; % is of the section total.</p>
+      </section>
+
+      <!-- ============ 5. No matches ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field">
+                    <div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 3</button>
+                </div>
+                <div class="fbar__chips">
+                  <div class="fbar__scroll"><span class="chip is-selected">Mar 2026&nbsp;&nbsp;×</span><span class="chip is-selected">🚕 Transport&nbsp;&nbsp;×</span><span class="chip is-selected">≥ ₹5,000.00&nbsp;&nbsp;×</span></div>
+                  <button class="btn btn--ghost btn--sm">Clear all</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="info-row">
+                  <div class="stat-strip">
+                    <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹0.00</span></div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹0.00</span></div>
+                  </div>
+                  <button class="icon-btn icon-btn--plain info-btn" aria-label="How Activity totals are counted"><span class="ms">info</span></button>
+                </div>
+              </div>
+              <button class="btn btn--ghost btn--sm self-start"><span class="ms">bar_chart</span>Show breakdowns</button>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">0 results</span></div>
+            </div>
+            <div class="empty mt">
+              <div class="empty__icon"><span class="ms">search</span></div>
+              <span class="t-heading">No matches</span>
+              <span class="t-small muted">No transactions match these filters. Try clearing or widening them.</span>
+              <button class="btn btn--primary">Clear filters</button>
+            </div>
+            <p class="lfoot t-caption muted" style="margin:0">You’ve reached the end of this Activity view.</p>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+        </div>
+        <p class="frame-caption"><b>No results</b>ListEmptyComponent under the still-visible header. The end-of-view footer still renders (hasMore is false). Chip labels: month period, category, amount (“≥ ₹5,000.00”).</p>
+      </section>
+
+      <!-- ============ 6. No transactions yet ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1></div>
+            </header>
+            <div class="empty mt">
+              <div class="empty__icon"><span class="ms">history</span></div>
+              <span class="t-heading">No transactions yet</span>
+              <span class="t-small muted">Import a bank or UPI statement to search, filter, review, and export your activity.</span>
+              <button class="btn btn--primary">Go to Import</button>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity"></nav>
+        </div>
+        <p class="frame-caption"><b>Empty — no data</b>Unfiltered count is 0: header without the export action, and an EmptyState that routes to Import.</p>
+      </section>
+
+      <!-- ============ 7. Loading ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1></div>
+            </header>
+            <div class="sk-wrap" aria-label="Loading Activity">
+              <div class="skeleton" style="width:100%;height:44px"></div>
+              <div class="skeleton" style="width:100%;height:62px"></div>
+              <div>
+                <div class="sk-row"><div class="skeleton" style="width:28px;height:28px;border-radius:14px"></div><div class="sk-copy"><div class="skeleton" style="width:68%;height:14px"></div><div class="skeleton" style="width:46%;height:11px"></div></div><div class="skeleton" style="width:78px;height:16px"></div></div>
+                <div class="sk-row"><div class="skeleton" style="width:28px;height:28px;border-radius:14px"></div><div class="sk-copy"><div class="skeleton" style="width:68%;height:14px"></div><div class="skeleton" style="width:46%;height:11px"></div></div><div class="skeleton" style="width:78px;height:16px"></div></div>
+                <div class="sk-row"><div class="skeleton" style="width:28px;height:28px;border-radius:14px"></div><div class="sk-copy"><div class="skeleton" style="width:68%;height:14px"></div><div class="skeleton" style="width:46%;height:11px"></div></div><div class="skeleton" style="width:78px;height:16px"></div></div>
+                <div class="sk-row"><div class="skeleton" style="width:28px;height:28px;border-radius:14px"></div><div class="sk-copy"><div class="skeleton" style="width:68%;height:14px"></div><div class="skeleton" style="width:46%;height:11px"></div></div><div class="skeleton" style="width:78px;height:16px"></div></div>
+                <div class="sk-row"><div class="skeleton" style="width:28px;height:28px;border-radius:14px"></div><div class="sk-copy"><div class="skeleton" style="width:68%;height:14px"></div><div class="skeleton" style="width:46%;height:11px"></div></div><div class="skeleton" style="width:78px;height:16px"></div></div>
+                <div class="sk-row"><div class="skeleton" style="width:28px;height:28px;border-radius:14px"></div><div class="sk-copy"><div class="skeleton" style="width:68%;height:14px"></div><div class="skeleton" style="width:46%;height:11px"></div></div><div class="skeleton" style="width:78px;height:16px"></div></div>
+              </div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity"></nav>
+        </div>
+        <p class="frame-caption"><b>Loading</b>ActivityScreenSkeleton while the unfiltered count loads (44px search bar, 62px summary, six 54px row placeholders). Skeletons pulse in the app.</p>
+      </section>
+
+      <!-- ============ 8. Error ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act">
+            <header class="screen-header">
+              <div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1></div>
+            </header>
+            <div class="empty mt">
+              <div class="empty__icon"><span class="ms">error</span></div>
+              <span class="t-heading">Couldn’t load Activity</span>
+              <span class="t-small muted">Your transactions are still safe. Try loading this view again.</span>
+              <button class="btn btn--primary">Try again</button>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity"></nav>
+        </div>
+        <p class="frame-caption"><b>Load error</b>Any of the count / list / summary queries failed; “Try again” retries all three.</p>
+      </section>
+
+      <!-- ============ 9. Filters sheet — top ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><button class="icon-btn"><span class="ms">ios_share</span></button></div></header>
+              <div class="fbar"><div class="fbar__actions"><div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div><button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button></div>
+                <div class="fbar__chips"><div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span></div></div></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet fsheet">
+              <div class="sheet-handle"></div>
+              <div class="sheet__header"><span class="t-heading">Filters</span>
+                <button class="icon-btn icon-btn--plain" aria-label="Close filters"><span class="ms">close</span></button></div>
+              <div class="fbody">
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">PERIOD</span></div>
+                  <div class="list">
+                    <div class="presets">
+                      <span class="chip">All time</span><span class="chip">Last 3 months</span><span class="chip">Last 12 months</span>
+                      <span class="chip is-selected">2026</span><span class="chip">2025</span><span class="chip">2024</span>
+                    </div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">From</span><span class="t-small frow__value is-active">Jan 2026</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the first month"><span class="ms fill">cancel</span></button></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">To</span><span class="t-small frow__value is-active">Dec 2026</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the last month"><span class="ms fill">cancel</span></button></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">WHAT</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Category</span><span class="t-small frow__value is-active">🍽️ Food &amp; Dining</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the category filter"><span class="ms fill">cancel</span></button></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Sub-category</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Direction</span><span class="t-small frow__value is-active">Spent</span><span class="ms frow__chev">expand_less</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the direction filter"><span class="ms fill">cancel</span></button></div>
+                      <div class="frow__body"><div class="seg"><span class="seg__item">Any</span><span class="seg__item is-selected">Spent</span><span class="seg__item">Received</span><span class="seg__item">Transfer</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Refunds</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">WHERE AND WHO</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Account</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">For (person)</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">AMOUNT AND REVIEW</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Amount</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div class="review-row"><span class="t-label grow">Needs review only</span><span class="ms muted">radio_button_unchecked</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="ffoot">
+                <span class="t-small muted truncate">342 transactions match.</span>
+                <div class="ffoot__actions"><button class="btn">Clear all</button><button class="btn btn--primary">Apply filters</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Filters sheet — top</b>Draft seeded from the active filter (2026). Every dimension is one row stating its value (accent when set, with a per-row clear). Picking a category reveals Sub-category. Direction expanded in place as a segmented control. Live match count above the footer.</p>
+      </section>
+
+      <!-- ============ 10. Filters sheet — month range grid ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><button class="icon-btn"><span class="ms">ios_share</span></button></div></header>
+              <div class="fbar"><div class="fbar__actions"><div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div><button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button></div>
+                <div class="fbar__chips"><div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span></div></div></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet fsheet">
+              <div class="sheet-handle"></div>
+              <div class="sheet__header"><span class="t-heading">Filters</span>
+                <button class="icon-btn icon-btn--plain" aria-label="Close filters"><span class="ms">close</span></button></div>
+              <div class="fbody">
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">PERIOD</span></div>
+                  <div class="list">
+                    <div class="presets">
+                      <span class="chip">All time</span><span class="chip">Last 3 months</span><span class="chip">Last 12 months</span>
+                      <span class="chip">2026</span><span class="chip">2025</span><span class="chip">2024</span>
+                    </div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">From</span><span class="t-small frow__value is-active">Mar 2026</span><span class="ms frow__chev">expand_less</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the first month"><span class="ms fill">cancel</span></button></div>
+                      <div class="frow__body">
+                        <div class="mgrid">
+                          <div class="mgrid__head">
+                            <button class="icon-btn icon-btn--plain mgrid__nav" aria-label="Previous year"><span class="ms">chevron_left</span></button>
+                            <span class="t-label">2026</span>
+                            <button class="icon-btn icon-btn--plain mgrid__nav" aria-label="Next year" disabled style="opacity:.45"><span class="ms">chevron_right</span></button>
+                          </div>
+                          <div class="mgrid__row"><span class="mcell has-data t-small">Jan</span><span class="mcell has-data t-small">Feb</span><span class="mcell is-end t-small">Mar</span><span class="mcell has-data is-between t-small">Apr</span></div>
+                          <div class="mgrid__row"><span class="mcell has-data is-between t-small">May</span><span class="mcell has-data is-between t-small">Jun</span><span class="mcell has-data is-between t-small">Jul</span><span class="mcell is-end t-small">Aug</span></div>
+                          <div class="mgrid__row"><span class="mcell has-data t-small">Sep</span><span class="mcell has-data t-small">Oct</span><span class="mcell has-data t-small">Nov</span><span class="mcell t-small">Dec</span></div>
+                          <span class="t-small muted">Choose the first month</span>
+                        </div>
+                      </div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">To</span><span class="t-small frow__value is-active">Aug 2026</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the last month"><span class="ms fill">cancel</span></button></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">WHAT</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Category</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Direction</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Refunds</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                  </div>
+                </div>
+              </div>
+              <div class="ffoot">
+                <span class="t-small muted truncate">Counting matches…</span>
+                <div class="ffoot__actions"><button class="btn">Clear all</button><button class="btn btn--primary">Apply filters</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Custom range — month grid</b>“From” expanded: year stepper (next disabled at the newest data year), 4×3 month cells. Endpoints accent-filled, in-between months selected-tint, months without data in secondary text (Dec). Picking past the other bound drags it along. Count shows “Counting matches…” for ~200ms after a change. (No DateField is used on Activity.)</p>
+      </section>
+
+      <!-- ============ 11. Filters sheet — category list with search ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><button class="icon-btn"><span class="ms">ios_share</span></button></div></header>
+              <div class="fbar"><div class="fbar__actions"><div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div><button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button></div>
+                <div class="fbar__chips"><div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span></div></div></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet fsheet">
+              <div class="sheet-handle"></div>
+              <div class="sheet__header"><span class="t-heading">Filters</span>
+                <button class="icon-btn icon-btn--plain" aria-label="Close filters"><span class="ms">close</span></button></div>
+              <div class="fbody" data-scroll-to="cat">
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">PERIOD</span></div>
+                  <div class="list">
+                    <div class="presets">
+                      <span class="chip">All time</span><span class="chip">Last 3 months</span><span class="chip">Last 12 months</span>
+                      <span class="chip is-selected">2026</span><span class="chip">2025</span><span class="chip">2024</span>
+                    </div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">From</span><span class="t-small frow__value is-active">Jan 2026</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear"><span class="ms fill">cancel</span></button></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">To</span><span class="t-small frow__value is-active">Dec 2026</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear"><span class="ms fill">cancel</span></button></div></div>
+                  </div>
+                </div>
+                <div data-scroll-target>
+                  <div class="list-section__header"><span class="t-overline muted">WHAT</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Category</span><span class="t-small frow__value is-active">🍽️ Food &amp; Dining</span><span class="ms frow__chev">expand_less</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the category filter"><span class="ms fill">cancel</span></button></div>
+                      <div class="frow__body">
+                        <div class="opts">
+                          <div class="field"><div class="field__box"><span class="placeholder">Search category</span></div></div>
+                          <div class="opt"><span class="t-small">Any</span></div>
+                          <div class="opt"><span class="t-small">Uncategorized</span></div>
+                          <div class="opt is-selected"><span class="t-small">🍽️ Food &amp; Dining</span><span class="ms">check</span></div>
+                          <div class="opt"><span class="t-small">🛒 Groceries</span></div>
+                          <div class="opt"><span class="t-small">🚕 Transport</span></div>
+                          <div class="opt"><span class="t-small">🛍️ Shopping</span></div>
+                          <div class="opt"><span class="t-small">🎬 Entertainment</span></div>
+                          <div class="opt"><span class="t-small">🧾 Bills &amp; Utilities</span></div>
+                          <div class="opt"><span class="t-small">🏥 Health</span></div>
+                          <div class="opt"><span class="t-small">💼 Income</span></div>
+                        </div>
+                      </div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Sub-category</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Direction</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Refunds</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                  </div>
+                </div>
+              </div>
+              <div class="ffoot">
+                <span class="t-small muted truncate">342 transactions match.</span>
+                <div class="ffoot__actions"><button class="btn">Clear all</button><button class="btn btn--primary">Apply filters</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Filters sheet — option list</b>Category expanded (sheet scrolled to it). Lists with more than 8 options get a “Search category” box; selected option uses the selected tint + accent check. Selecting closes the row. A search with no hits shows “Nothing matches “zzz”.”. Account and For (person) use the same list.</p>
+      </section>
+
+      <!-- ============ 12. Filters sheet — bottom ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><button class="icon-btn"><span class="ms">ios_share</span></button></div></header>
+              <div class="fbar"><div class="fbar__actions"><div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div><button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button></div>
+                <div class="fbar__chips"><div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span></div></div></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet fsheet">
+              <div class="sheet-handle"></div>
+              <div class="sheet__header"><span class="t-heading">Filters</span>
+                <button class="icon-btn icon-btn--plain" aria-label="Close filters"><span class="ms">close</span></button></div>
+              <div class="fbody" data-scroll-bottom>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">PERIOD</span></div>
+                  <div class="list">
+                    <div class="presets">
+                      <span class="chip">All time</span><span class="chip">Last 3 months</span><span class="chip">Last 12 months</span>
+                      <span class="chip is-selected">2026</span><span class="chip">2025</span><span class="chip">2024</span>
+                    </div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">From</span><span class="t-small frow__value is-active">Jan 2026</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear"><span class="ms fill">cancel</span></button></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">To</span><span class="t-small frow__value is-active">Dec 2026</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear"><span class="ms fill">cancel</span></button></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">WHAT</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Category</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Direction</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Refunds</span><span class="t-small frow__value is-active">Exclude</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear"><span class="ms fill">cancel</span></button></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">WHERE AND WHO</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Account</span><span class="t-small frow__value is-active">HDFC Bank - 42</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the account filter"><span class="ms fill">cancel</span></button></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">For (person)</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">AMOUNT AND REVIEW</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Amount</span><span class="t-small frow__value is-active">₹500.00 – ₹2,000.00</span><span class="ms frow__chev">expand_less</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the amount range"><span class="ms fill">cancel</span></button></div>
+                      <div class="frow__body">
+                        <div class="amt-row">
+                          <div class="field"><span class="field__label">Minimum</span><div class="field__box">500</div></div>
+                          <div class="field"><span class="field__label">Maximum</span><div class="field__box is-focused">2000</div></div>
+                        </div>
+                      </div></div>
+                    <div class="review-row"><span class="t-label grow">Needs review only</span><span class="ms fill c-accent">check_circle</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="ffoot">
+                <span class="t-small muted truncate">12 transactions match.</span>
+                <div class="ffoot__actions"><button class="btn">Clear all</button><button class="btn btn--primary">Apply filters</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Filters sheet — scrolled to bottom</b>Refunds set to Exclude, Account set, Amount expanded (rupee text inputs, decimal pad) with its value summarised as “₹500.00 – ₹2,000.00”, and the Needs review only switch on (accent check_circle).</p>
+      </section>
+
+      <!-- ============ 13. Filters sheet — validation / no matches ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><button class="icon-btn"><span class="ms">ios_share</span></button></div></header>
+              <div class="fbar"><div class="fbar__actions"><div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div><button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button></div>
+                <div class="fbar__chips"><div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span></div></div></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet fsheet">
+              <div class="sheet-handle"></div>
+              <div class="sheet__header"><span class="t-heading">Filters</span>
+                <button class="icon-btn icon-btn--plain" aria-label="Close filters"><span class="ms">close</span></button></div>
+              <div class="fbody" data-scroll-bottom>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">WHERE AND WHO</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Account</span><span class="t-small frow__value">Any</span><span class="ms frow__chev">expand_more</span></div></div></div>
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">For (person)</span><span class="t-small frow__value is-active">Not assigned</span><span class="ms frow__chev">expand_more</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear"><span class="ms fill">cancel</span></button></div></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="list-section__header"><span class="t-overline muted">AMOUNT AND REVIEW</span></div>
+                  <div class="list">
+                    <div><div class="frow__line"><div class="frow__main"><span class="t-label frow__label">Amount</span><span class="t-small frow__value is-active">₹2,000.00 – ₹500.00</span><span class="ms frow__chev">expand_less</span></div>
+                      <button class="icon-btn icon-btn--plain frow__clear" aria-label="Clear the amount range"><span class="ms fill">cancel</span></button></div>
+                      <div class="frow__body">
+                        <div class="amt-row">
+                          <div class="field"><span class="field__label">Minimum</span><div class="field__box">2000</div></div>
+                          <div class="field"><span class="field__label">Maximum</span><div class="field__box is-error">500</div><span class="t-caption c-spend">Minimum must not exceed maximum.</span></div>
+                        </div>
+                      </div></div>
+                    <div class="review-row"><span class="t-label grow">Needs review only</span><span class="ms muted">radio_button_unchecked</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="ffoot">
+                <span class="t-small muted truncate">No transactions match these filters.</span>
+                <div class="ffoot__actions"><button class="btn">Clear all</button><button class="btn btn--primary" disabled>Apply filters</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Filters sheet — validation</b>Min &gt; max: Maximum field turns red with a caption error and Apply filters is disabled. Footer copy variants: “Counting matches…”, “1 transaction matches.”, “N transactions match.”, “No transactions match these filters.”, “Match count unavailable.”. Clear all is disabled only when the draft is empty.</p>
+      </section>
+
+      <!-- ============ 14. Export rename dialog ============ -->
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header"><div class="screen-header__row"><h1 class="t-subtitle" style="margin:0">Activity</h1><button class="icon-btn"><span class="ms">ios_share</span></button></div></header>
+              <div class="fbar"><div class="fbar__actions"><div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div><button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button></div>
+                <div class="fbar__chips"><div class="fbar__scroll"><span class="chip is-selected">2026&nbsp;&nbsp;×</span></div></div></div>
+              <div class="card card--sm"><div class="info-row"><div class="stat-strip">
+                <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div><div class="stat-divider"></div>
+                <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div></div>
+                <button class="icon-btn icon-btn--plain info-btn"><span class="ms">info</span></button></div></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay overlay--center">
+            <div class="dialog dlg">
+              <span class="t-heading">Export to Excel</span>
+              <span class="t-small muted">Name the file, then choose where to save it.</span>
+              <div class="field"><span class="field__label">File name</span><div class="field__box is-focused"><span class="sel-text">Finance-Tracker-2026</span></div></div>
+              <div class="dialog__actions"><button class="btn">Cancel</button><button class="btn btn--primary">Next</button></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>Export — name the file</b>Header export button opens TextInputModal with the default name from the filter (text pre-selected). “Next” then shows a native Alert: “Save to a folder” / “Share…” / “Cancel”.</p>
+      </section>
+
+    </div>
+  </main>
+  <script src="assets/mock.js"></script>
+  <script>
+    // Show "scrolled" sheet states: jump those bodies to the bottom / to a target section.
+    window.addEventListener('load', function () {
+      document.querySelectorAll('[data-scroll-bottom]').forEach(function (el) { el.scrollTop = el.scrollHeight; });
+      document.querySelectorAll('[data-scroll-to]').forEach(function (el) {
+        var t = el.querySelector('[data-scroll-target]');
+        if (t) el.scrollTop = t.offsetTop - el.offsetTop;
+      });
+    });
+  </script>
+</body>
+</html>
