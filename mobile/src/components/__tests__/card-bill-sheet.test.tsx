@@ -63,6 +63,7 @@ jest.mock('@/hooks/use-theme', () => ({
 const statement = (patch: Partial<ImportRow> = {}): ImportRow => ({
   id: 11,
   sourceLabel: 'Axis Credit Card.pdf',
+  batchKey: null,
   importedAt: '2026-08-31T10:00:00.000Z',
   addedCount: 3,
   updatedCount: 0,

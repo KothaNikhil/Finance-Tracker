@@ -68,6 +68,7 @@ export const loans = sqliteTable('loans', {
 export const imports = sqliteTable('imports', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   sourceLabel: text('source_label').notNull().default(''),
+  batchKey: text('batch_key'),
   importedAt: text('imported_at').notNull(),
   addedCount: integer('added_count').notNull().default(0),
   updatedCount: integer('updated_count').notNull().default(0),
@@ -222,6 +223,7 @@ CREATE TABLE IF NOT EXISTS loans (
 CREATE TABLE IF NOT EXISTS imports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_label TEXT NOT NULL DEFAULT '',
+  batch_key TEXT,
   imported_at TEXT NOT NULL,
   added_count INTEGER NOT NULL DEFAULT 0,
   updated_count INTEGER NOT NULL DEFAULT 0,

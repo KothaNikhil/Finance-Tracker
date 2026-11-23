@@ -38,10 +38,12 @@ describe('migrateSchema', () => {
     migrateSchema(database.adapter);
 
     expect(database.getVersion()).toBe(CURRENT_SCHEMA_VERSION);
-    expect(database.executed).toContain('PRAGMA user_version = 1;');
+    expect(database.executed).toContain('PRAGMA user_version = 2;');
     expect(database.executed).toContain(
       'ALTER TABLE transactions ADD COLUMN transfer_role TEXT;',
     );
+    expect(database.executed).toContain('ALTER TABLE imports ADD COLUMN batch_key TEXT;');
+    expect(database.executed).toContain('CREATE INDEX IF NOT EXISTS idx_imports_batch ON imports(batch_key);');
   });
 
   it('rejects a database created by a newer app before changing it', () => {

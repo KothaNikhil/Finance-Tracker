@@ -217,6 +217,27 @@ export class GoogleDriveSyncPort implements DriveSyncPort {
     };
   }
 
+  async uploadFile(name: string, bytes: Uint8Array, mimeType: string): Promise<{ id: string; name: string }> {
+    const folderId = await this.ensureFolder();
+    const boundary = `finance-tracker-${crypto.randomUUID()}`;
+    const body = await concatenate([
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name, mimeType, parents: [folderId] })}\r\n`,
+      `--${boundary}\r\nContent-Type: ${mimeType}\r\nContent-Transfer-Encoding: binary\r\n\r\n`,
+      bytes,
+      `\r\n--${boundary}--`,
+    ]);
+    const result = await this.request<DriveFileResponse>(
+      `${DRIVE_UPLOAD_API}?uploadType=multipart&fields=id,name`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body,
+      },
+    );
+    if (!result.value.id || !result.value.name) throw new Error('Google Drive did not return the exported file.');
+    return { id: result.value.id, name: result.value.name };
+  }
+
   async deleteFile(fileId: string): Promise<void> {
     const response = await fetch(`${DRIVE_API}/${fileId}`, {
       method: 'DELETE',

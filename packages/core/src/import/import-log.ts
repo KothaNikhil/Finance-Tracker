@@ -27,6 +27,11 @@ export function resetImportLog(): void {
   listener?.([]);
 }
 
+/** Read the recent import diagnostic lines for the web settings page. */
+export function getImportLog(): string[] {
+  return [...lines];
+}
+
 /** Subscribe the UI to log updates; returns an unsubscribe. */
 export function subscribeImportLog(fn: Listener): () => void {
   listener = fn;

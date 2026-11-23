@@ -48,6 +48,23 @@ describe('GoogleDriveSyncPort', () => {
     );
   });
 
+  it('uploads an export into the Finance Tracker Drive folder', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'folder', name: 'Finance Tracker' }] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'export', name: 'Finance-Tracker.xlsx' }));
+
+    await expect(
+      new GoogleDriveSyncPort('drive-token').uploadFile(
+        'Finance-Tracker.xlsx',
+        Uint8Array.from([1, 2, 3]),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ),
+    ).resolves.toEqual({ id: 'export', name: 'Finance-Tracker.xlsx' });
+    expect(String(fetchMock.mock.calls[1][0])).toContain('uploadType=multipart');
+    expect(fetchMock.mock.calls[1][1]?.method).toBe('POST');
+  });
+
   it('snapshots duplicate live files before deleting them', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock

@@ -1,6 +1,6 @@
 import { CREATE_TABLES_SQL } from './schema';
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface MigrationDatabase {
   execute(sql: string): void;
@@ -50,6 +50,7 @@ export function migrateSchema(database: MigrationDatabase): void {
   addColumn(database, 'imports', 'card_last4', 'TEXT');
   addColumn(database, 'imports', 'statement_month', 'TEXT');
   addColumn(database, 'imports', 'total_due_paise', 'INTEGER');
+  addColumn(database, 'imports', 'batch_key', 'TEXT');
   addColumn(database, 'loan_allocations', 'part', 'TEXT');
 
   database.execute('CREATE INDEX IF NOT EXISTS idx_transactions_loan ON transactions(loan_id);');
@@ -57,5 +58,6 @@ export function migrateSchema(database: MigrationDatabase): void {
   database.execute(
     'CREATE INDEX IF NOT EXISTS idx_transactions_linked_import ON transactions(linked_import_id);',
   );
+  database.execute('CREATE INDEX IF NOT EXISTS idx_imports_batch ON imports(batch_key);');
   database.execute(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION};`);
 }

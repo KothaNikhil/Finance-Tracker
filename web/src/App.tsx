@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, NavLink, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BrowserRouter, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
-import { totalsForPeriod } from '@finance-tracker/core/analytics/analytics';
-import { formatINR } from '@finance-tracker/core/domain/money';
-import type { AnalyticsTxn } from '@finance-tracker/core/analytics/types';
-import { categories } from '@finance-tracker/core/db/schema';
-import { getAllTransactions, setTransactionNote } from '@finance-tracker/core/db/repository';
-import { getDb } from '@finance-tracker/core/db/runtime';
-import { createDriveSyncEngine, DriveReconnectRequiredError } from './drive';
+import { touchDataUpdatedAt } from '@finance-tracker/core/db/repository';
+import type { SnapshotFile } from '@finance-tracker/core/sync/engine';
+import { createDriveSyncEngine, DriveReconnectRequiredError, GoogleDriveSyncPort } from './drive';
 import { closeDatabase, exportDatabase, openDatabase } from './database';
 import { requestDriveAccessToken, revokeDriveAccessToken, supabase } from './auth';
+import { DashboardPage } from './DashboardPage';
+import { TransactionsPage } from './TransactionsPage';
+import { ImportPage } from './ImportPage';
+import { LendingPage } from './LendingPage';
+import { SettingsPage } from './SettingsPage';
+import { buildExportBytes, downloadExport } from './export-workbook';
 import './styles.css';
 
 type SaveStatus =
@@ -36,6 +38,7 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [status, setStatus] = useState<SaveStatus>('idle');
+  const [databaseReplacementInProgress, setDatabaseReplacementInProgress] = useState(false);
   const [message, setMessage] = useState('');
   const [driveConnected, setDriveConnected] = useState(false);
   const [freshAvailable, setFreshAvailable] = useState(false);
@@ -314,7 +317,7 @@ function App() {
 
   const backupNow = useCallback(async () => {
     const engine = engineRef.current;
-    if (!engine || !dbEpoch || savingRef.current) return;
+    if (!engine || !dbEpoch || savingRef.current) return false;
     savingRef.current = true;
     const savedChangeCount = changeCountRef.current;
     let saveAgain = false;
@@ -329,7 +332,7 @@ function App() {
       if (result.kind === 'conflict') {
         setStatus('conflict');
         setConflictAvailable(true);
-        return;
+        return false;
       }
       liveFileRef.current = result.file;
       setSavedAt(new Date());
@@ -341,14 +344,81 @@ function App() {
         saveAgain = true;
         setStatus('unsaved');
       }
+      return !saveAgain;
     } catch (error) {
       setStatus(error instanceof DriveReconnectRequiredError ? 'reconnect' : 'error');
       setMessage(error instanceof Error ? error.message : 'Could not create a Drive snapshot.');
+      return false;
     } finally {
       savingRef.current = false;
       if (saveAgain) window.setTimeout(() => void saveRef.current(), 250);
     }
   }, [dbEpoch]);
+
+  const listSnapshots = useCallback(async () => {
+    const token = driveTokenRef.current;
+    if (!token) throw new DriveReconnectRequiredError();
+    return new GoogleDriveSyncPort(token).listSnapshots();
+  }, []);
+
+  const snapshotBeforeDelete = useCallback(async () => {
+    if (dirtyRef.current) await saveRef.current();
+    if (dirtyRef.current) throw new Error('Resolve the pending Drive save before deleting data.');
+    const token = driveTokenRef.current;
+    if (!token) throw new DriveReconnectRequiredError();
+    await new GoogleDriveSyncPort(token).createSnapshot(
+      `Finance-Tracker-backup-${Date.now()}-before-delete-all-data.db`,
+      exportDatabase(),
+    );
+  }, []);
+
+  const restoreSnapshot = useCallback(async (snapshotId: string) => {
+    const token = driveTokenRef.current;
+    if (!token || !engineRef.current) throw new DriveReconnectRequiredError();
+    setDatabaseReplacementInProgress(true);
+    try {
+      if (dirtyRef.current) await saveRef.current();
+      if (dirtyRef.current) throw new Error('Resolve the pending Drive save before restoring a snapshot.');
+      const operation = operationGenerationRef.current;
+      const drive = new GoogleDriveSyncPort(token);
+      setStatus('loading');
+      await drive.createSnapshot(`Finance-Tracker-backup-${Date.now()}-before-restore.db`, exportDatabase());
+      const bytes = await drive.download(snapshotId);
+      if (operation !== operationGenerationRef.current) return;
+      await openDatabase(bytes);
+      if (operation !== operationGenerationRef.current) {
+        closeDatabase();
+        return;
+      }
+      dirtyRef.current = true;
+      dirtySinceRef.current = Date.now();
+      setDbEpoch((epoch) => epoch + 1);
+      setStatus('unsaved');
+      setConflictAvailable(false);
+      touchDataUpdatedAt();
+    } catch (error) {
+      setStatus(error instanceof DriveReconnectRequiredError ? 'reconnect' : 'error');
+      setMessage(error instanceof Error ? error.message : 'Could not restore the Drive snapshot.');
+      throw error;
+    } finally {
+      setDatabaseReplacementInProgress(false);
+    }
+  }, []);
+
+  const exportExcel = useCallback(async (toDrive: boolean) => {
+    if (!toDrive) {
+      downloadExport();
+      return;
+    }
+    const token = driveTokenRef.current;
+    if (!token) throw new DriveReconnectRequiredError();
+    const { bytes, fileName } = buildExportBytes();
+    await new GoogleDriveSyncPort(token).uploadFile(
+      fileName,
+      bytes,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+  }, []);
 
   const signIn = useCallback(async () => {
     setMessage('');
@@ -399,7 +469,7 @@ function App() {
         loading={status === 'connecting' || status === 'loading'}
         message={message}
         onConnect={() => void connectDrive()}
-        onSignOut={() => void signOut()}
+        onSignOut={signOut}
       />
     );
   }
@@ -409,7 +479,7 @@ function App() {
         email={session.user.email ?? 'Google account'}
         message={message}
         onStartFresh={() => void startFresh()}
-        onSignOut={() => void signOut()}
+        onSignOut={signOut}
       />
     );
   }
@@ -419,12 +489,17 @@ function App() {
     <BrowserRouter>
       <AppShell
         status={status}
+        databaseReplacementInProgress={databaseReplacementInProgress}
         savedAt={savedAt}
         message={message}
         email={session.user.email ?? 'Google account'}
         onReconnect={() => void connectDrive()}
-        onBackupNow={() => void backupNow()}
-        onSignOut={() => void signOut()}
+        onBackupNow={backupNow}
+        onSignOut={signOut}
+        onListSnapshots={listSnapshots}
+        onRestoreSnapshot={restoreSnapshot}
+        onBeforeDelete={snapshotBeforeDelete}
+        onExportExcel={exportExcel}
       />
       {status === 'conflict' && conflictAvailable && (
         <ConflictDialog
@@ -465,7 +540,7 @@ function ConnectPage({
   loading: boolean;
   message: string;
   onConnect: () => void;
-  onSignOut: () => void;
+  onSignOut: () => Promise<void>;
 }) {
   return (
     <main className="auth-page">
@@ -494,7 +569,7 @@ function FreshDatabasePage({
   email: string;
   message: string;
   onStartFresh: () => void;
-  onSignOut: () => void;
+  onSignOut: () => Promise<void>;
 }) {
   return (
     <main className="auth-page">
@@ -513,20 +588,30 @@ function FreshDatabasePage({
 
 function AppShell({
   status,
+  databaseReplacementInProgress,
   savedAt,
   message,
   email,
   onReconnect,
   onBackupNow,
   onSignOut,
+  onListSnapshots,
+  onRestoreSnapshot,
+  onBeforeDelete,
+  onExportExcel,
 }: {
   status: SaveStatus;
+  databaseReplacementInProgress: boolean;
   savedAt: Date | null;
   message: string;
   email: string;
   onReconnect: () => void;
-  onBackupNow: () => void;
-  onSignOut: () => void;
+  onBackupNow: () => Promise<boolean>;
+  onSignOut: () => Promise<void>;
+  onListSnapshots: () => Promise<SnapshotFile[]>;
+  onRestoreSnapshot: (id: string) => Promise<void>;
+  onBeforeDelete: () => Promise<void>;
+  onExportExcel: (toDrive: boolean) => Promise<void>;
 }) {
   const [search, setSearch] = useState('');
   const statusText = status === 'saved'
@@ -550,7 +635,8 @@ function AppShell({
   } as Partial<Record<SaveStatus, string>>)[status] ?? 'cloud_sync';
 
   return (
-    <div className="app-shell">
+    <>
+    <div className="app-shell" inert={databaseReplacementInProgress} aria-busy={databaseReplacementInProgress}>
       <aside className="sidebar">
         <NavLink className="brand" to="/">
           <span className="brand-mark brand-mark-small"><span className="material-symbols-rounded">account_balance_wallet</span></span>
@@ -566,7 +652,7 @@ function AppShell({
         </nav>
         <div className="sidebar-bottom">
           <div className="account-row"><span className="avatar">{email.slice(0, 1).toUpperCase()}</span><span className="account-email" title={email}>{email}</span></div>
-          <button className="button button-quiet sidebar-signout" onClick={onSignOut}>Sign out</button>
+          <button className="button button-quiet sidebar-signout" onClick={() => void onSignOut()}>Sign out</button>
         </div>
       </aside>
       <div className="app-column">
@@ -578,7 +664,7 @@ function AppShell({
             <kbd>/</kbd>
           </div>
           <div className="topbar-spacer" />
-          <button className="backup-now" disabled={status === 'saving' || status === 'conflict' || status === 'reconnect'} onClick={onBackupNow} title="Create a Drive backup now">
+          <button className="backup-now" disabled={status === 'saving' || status === 'conflict' || status === 'reconnect'} onClick={() => void onBackupNow()} title="Create a Drive backup now">
             <span className="material-symbols-rounded">backup</span><span>Back up now</span>
           </button>
           <button
@@ -596,12 +682,22 @@ function AppShell({
         {status === 'error' && <div className="shell-banner shell-banner-error" role="alert">{message}</div>}
         <main className="page-content">
           <Routes>
-            <Route path="/" element={<HomePage />} />
+            <Route path="/" element={<DashboardPage />} />
             <Route path="/transactions" element={<TransactionsPage search={search} />} />
-            <Route path="/import" element={<PlaceholderPage title="Import statements" icon="file_download" copy="Import workflows and previews are coming in Phase 4." />} />
-            <Route path="/lending" element={<PlaceholderPage title="Money lent" icon="swap_horiz" copy="Loan tracking will be connected in Phase 4." />} />
-            <Route path="/settings" element={<PlaceholderPage title="Settings" icon="settings" copy="Manage categories and Drive preferences in Phase 4." />} />
-            <Route path="*" element={<HomePage />} />
+            <Route path="/import" element={<ImportPage />} />
+            <Route path="/lending" element={<LendingPage />} />
+            <Route path="/settings" element={<SettingsPage
+              email={email}
+              status={status}
+              savedAt={savedAt}
+              onBackupNow={onBackupNow}
+              onListSnapshots={onListSnapshots}
+              onRestoreSnapshot={onRestoreSnapshot}
+              onBeforeDelete={onBeforeDelete}
+              onSignOut={onSignOut}
+              onExportExcel={onExportExcel}
+            />} />
+            <Route path="*" element={<DashboardPage />} />
           </Routes>
         </main>
         <nav className="bottom-tabs" aria-label="Mobile navigation">
@@ -613,124 +709,9 @@ function AppShell({
         </nav>
       </div>
     </div>
+    {databaseReplacementInProgress && <div className="database-operation-overlay" role="status" aria-live="polite">Restoring the database…</div>}
+    </>
   );
-}
-
-function HomePage() {
-  const transactions = getAllTransactions();
-  const analyticsTransactions: AnalyticsTxn[] = [];
-  transactions.forEach((txn) => {
-    if (txn.direction !== 'in' && txn.direction !== 'out' && txn.direction !== 'self') return;
-    analyticsTransactions.push({
-      isoDate: txn.isoDate,
-      paise: txn.paise,
-      direction: txn.direction,
-      isRefund: txn.isRefund,
-      categoryId: txn.categoryId,
-      subcategoryId: txn.subcategoryId,
-      counterpartyName: txn.counterpartyName,
-      counterpartyVpa: txn.counterpartyVpa,
-      accountName: txn.accountName,
-      personId: txn.personId,
-    });
-  });
-  const now = new Date();
-  const totals = totalsForPeriod(analyticsTransactions, { year: now.getFullYear(), month: now.getMonth() + 1 });
-  const currency = (paise: number) => formatINR(paise);
-  return (
-    <section className="page-stack">
-      <div className="page-heading">
-        <div><p className="eyebrow">OVERVIEW</p><h1>Your money at a glance</h1><p className="muted">A clear view of your finances this month.</p></div>
-        <NavLink className="button button-primary" to="/transactions"><span className="material-symbols-rounded">history</span>Activity</NavLink>
-      </div>
-      <div className="metric-grid">
-        <article className="metric-card"><span className="metric-label">Spent this month</span><strong>{currency(totals.netSpentPaise)}</strong><span className="metric-icon spend"><span className="material-symbols-rounded">south_east</span></span></article>
-        <article className="metric-card"><span className="metric-label">Received this month</span><strong>{currency(totals.receivedPaise)}</strong><span className="metric-icon income"><span className="material-symbols-rounded">north_west</span></span></article>
-        <article className="metric-card"><span className="metric-label">Transactions</span><strong>{totals.txnCount.toLocaleString()}</strong><span className="metric-icon neutral"><span className="material-symbols-rounded">receipt_long</span></span></article>
-      </div>
-      <div className="card empty-card">
-        <span className="material-symbols-rounded empty-icon">bar_chart</span>
-        <h2>Dashboard insights</h2>
-        <p className="muted">Category breakdowns and monthly trends will be added with the dashboard flows in Phase 4.</p>
-      </div>
-    </section>
-  );
-}
-
-function TransactionsPage({ search }: { search: string }) {
-  const [query, setQuery] = useSearchParams();
-  const [revision, setRevision] = useState(0);
-  const [needsReview, setNeedsReview] = useState(false);
-  const db = getDb();
-  const categoryRows = db.select({ id: categories.id, name: categories.name, emoji: categories.emoji }).from(categories).all();
-  const categoryMap = useMemo(() => new Map(categoryRows.map((row) => [row.id, row])), [categoryRows, revision]);
-  const transactions = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return getAllTransactions()
-      .filter((txn) => (!needsReview || txn.needsReview) && (!term || `${txn.counterpartyName ?? ''} ${txn.rawDetails} ${txn.note ?? ''}`.toLowerCase().includes(term)))
-      .sort((a, b) => b.isoDate.localeCompare(a.isoDate) || b.id - a.id);
-  }, [search, needsReview, revision]);
-  const selectedId = Number(query.get('txn')) || null;
-  const selected = transactions.find((txn) => txn.id === selectedId) ?? null;
-
-  useEffect(() => {
-    const onChange = () => setRevision((value) => value + 1);
-    window.addEventListener('finance-db-change', onChange);
-    return () => window.removeEventListener('finance-db-change', onChange);
-  }, []);
-
-  const selectTxn = (id: number) => setQuery({ txn: String(id) });
-  const closeDetail = () => setQuery({});
-  const saveNote = (id: number, note: string) => {
-    setTransactionNote(id, note);
-    setRevision((value) => value + 1);
-  };
-
-  return (
-    <section className="page-stack">
-      <div className="page-heading">
-        <div><p className="eyebrow">YOUR MONEY</p><h1>Activity</h1><p className="muted">{transactions.length.toLocaleString()} transactions</p></div>
-        <label className="check-filter"><input type="checkbox" checked={needsReview} onChange={(event) => setNeedsReview(event.target.checked)} /> Needs review</label>
-      </div>
-      <div className="activity-layout">
-        <div className="card table-card">
-          {transactions.length === 0 ? (
-            <div className="empty-card"><span className="material-symbols-rounded empty-icon">receipt_long</span><h2>No transactions found</h2><p className="muted">Try another search or import a statement.</p></div>
-          ) : (
-            <div className="transaction-list">
-              {transactions.map((txn) => {
-                const category = txn.categoryId == null ? null : categoryMap.get(txn.categoryId);
-                const label = txn.counterpartyName || txn.rawDetails || 'Transaction';
-                return (
-                  <button className={`transaction-row${selectedId === txn.id ? ' selected' : ''}`} key={txn.id} onClick={() => selectTxn(txn.id)}>
-                    <span className="category-avatar">{category?.emoji || '•'}</span>
-                    <span className="transaction-copy"><strong>{label}</strong><span>{txn.isoDate} · {category?.name ?? 'Uncategorized'}{txn.needsReview ? ' · Needs review' : ''}</span></span>
-                    <strong className={txn.direction === 'in' ? 'amount-income' : ''}>{txn.direction === 'in' ? '+' : txn.direction === 'self' ? '↔ ' : '−'}{formatINR(txn.paise)}</strong>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        {selected && (
-          <aside className="detail-panel">
-            <div className="detail-header"><div><p className="eyebrow">TRANSACTION #{selected.id}</p><h2>{selected.counterpartyName || selected.rawDetails || 'Transaction'}</h2></div><button aria-label="Close details" className="icon-button" onClick={closeDetail}><span className="material-symbols-rounded">close</span></button></div>
-            <div className="detail-body">
-              <div><span className="detail-label">Amount</span><strong>{formatINR(selected.paise)}</strong></div>
-              <div><span className="detail-label">Date</span><strong>{selected.isoDate}</strong></div>
-              <div><span className="detail-label">Category</span><strong>{selected.categoryId == null ? 'Uncategorized' : categoryMap.get(selected.categoryId)?.name ?? 'Uncategorized'}</strong></div>
-              <label className="field-label">Note<textarea key={`${selected.id}-${selected.note ?? ''}`} defaultValue={selected.note ?? ''} placeholder="Add a note" onBlur={(event) => saveNote(selected.id, event.currentTarget.value)} /></label>
-              <p className="muted detail-hint">Notes autosave to Google Drive after a short delay.</p>
-            </div>
-          </aside>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function PlaceholderPage({ title, icon, copy }: { title: string; icon: string; copy: string }) {
-  return <section className="page-stack"><div className="page-heading"><div><p className="eyebrow">FINANCE TRACKER</p><h1>{title}</h1></div></div><div className="card empty-card"><span className="material-symbols-rounded empty-icon">{icon}</span><p className="muted">{copy}</p></div></section>;
 }
 
 function ConflictDialog({ onReload, onOverwrite }: { onReload: () => void; onOverwrite: () => void }) {

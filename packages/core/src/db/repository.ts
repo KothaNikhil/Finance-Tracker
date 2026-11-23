@@ -8,6 +8,7 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { nextDataUpdatedAt } from './data-updated-at';
 import { deleteMeta, getDb, getMeta, setMeta } from './runtime';
+import { seedDatabase } from './seed-database';
 import {
   categories,
   categoryRules,
@@ -286,6 +287,91 @@ export function saveTransactions(
   return rows.length;
 }
 
+export interface ImportFileBatch {
+  sourceLabel: string;
+  txns: NormalizedTxn[];
+  cardMeta?: CardStatementMeta | null;
+}
+
+/**
+ * Save several statement files as one reversible import batch while retaining a separate statement
+ * record for each file. Separate records preserve credit-card metadata used for bill linking.
+ */
+export function saveImportBatch(files: ImportFileBatch[]): number {
+  const db = getDb();
+  const existing = getExistingDedupeKeys();
+  const seen = new Set<string>();
+  const freshFiles = files
+    .map((file) => ({
+      ...file,
+      txns: file.txns.filter((txn) => {
+        if (existing.has(txn.dedupeKey) || seen.has(txn.dedupeKey)) return false;
+        seen.add(txn.dedupeKey);
+        return true;
+      }),
+    }))
+    .filter((file) => file.txns.length > 0);
+  if (freshFiles.length === 0) return 0;
+
+  const index = getCategoryIndex();
+  const learned = getLearnedRules();
+  const now = new Date().toISOString();
+  const batchKey = `web-${now}-${Math.random().toString(36).slice(2, 10)}`;
+  const added = db.transaction((tx) => {
+    let insertedCount = 0;
+    for (const file of freshFiles) {
+      const importId = tx
+        .insert(imports)
+        .values({
+          sourceLabel: file.sourceLabel.trim(),
+          batchKey,
+          importedAt: now,
+          addedCount: file.txns.length,
+          updatedCount: 0,
+          cardLast4: file.cardMeta?.cardLast4 ?? null,
+          statementMonth: file.cardMeta?.statementMonth ?? null,
+          totalDuePaise: file.cardMeta?.totalDuePaise ?? null,
+        })
+        .returning({ id: imports.id })
+        .all()[0].id;
+
+      const rows: NewTransactionRow[] = file.txns.map((txn) => {
+        const guess = categorizeTxn(txn, index, learned);
+        return {
+          isoDate: txn.isoDate,
+          time: txn.time,
+          paise: txn.paise,
+          direction: txn.direction,
+          kind: txn.kind,
+          categoryId: guess.categoryId,
+          subcategoryId: guess.subcategoryId,
+          counterpartyName: txn.counterpartyName,
+          counterpartyVpa: txn.counterpartyVpa,
+          accountName: txn.accountName,
+          rawDetails: txn.rawDetails,
+          rawTag: txn.rawTag,
+          remarks: txn.remarks,
+          isRefund: txn.kind === 'refund',
+          transferRole: txn.transferRole ?? null,
+          source: txn.source,
+          sourceRef: txn.sourceRef,
+          orderId: txn.orderId,
+          dedupeKey: txn.dedupeKey,
+          importId,
+          autoCategorized: guess.categoryId != null,
+          needsReview: guess.needsReview || txn.kind === 'self' || txn.kind === 'sent',
+          createdAt: now,
+        };
+      });
+      tx.insert(transactions).values(rows).onConflictDoNothing({ target: transactions.dedupeKey }).run();
+      insertedCount += rows.length;
+    }
+    return insertedCount;
+  });
+  touchDataUpdatedAt();
+  return added;
+}
+
 /** The most recent import batch (for the "revert last import" affordance), or null when none. */
 export function getLastImport(): { id: number; sourceLabel: string; importedAt: string; addedCount: number } | null {
   const row = getDb()
@@ -305,7 +391,11 @@ export function getLastImport(): { id: number; sourceLabel: string; importedAt: 
  */
 export function revertImport(importId: number): number {
   const db = getDb();
-  const ids = db.select({ id: transactions.id }).from(transactions).where(eq(transactions.importId, importId)).all().map((r) => r.id);
+  const selected = db.select({ batchKey: imports.batchKey }).from(imports).where(eq(imports.id, importId)).get();
+  const importIds = selected?.batchKey
+    ? db.select({ id: imports.id }).from(imports).where(eq(imports.batchKey, selected.batchKey)).all().map((row) => row.id)
+    : [importId];
+  const ids = db.select({ id: transactions.id }).from(transactions).where(inArray(transactions.importId, importIds)).all().map((r) => r.id);
   if (ids.length > 0) {
     db.delete(loanAllocations).where(inArray(loanAllocations.txnId, ids)).run(); // FK children first
     db.delete(transactions).where(inArray(transactions.id, ids)).run();
@@ -313,9 +403,9 @@ export function revertImport(importId: number): number {
   // Any bank bill-payment linked to this (card) statement loses its link + card-payment role.
   db.update(transactions)
     .set({ linkedImportId: null, transferRole: null })
-    .where(eq(transactions.linkedImportId, importId))
+    .where(inArray(transactions.linkedImportId, importIds))
     .run();
-  db.delete(imports).where(eq(imports.id, importId)).run();
+  db.delete(imports).where(inArray(imports.id, importIds)).run();
   touchDataUpdatedAt();
   return ids.length;
 }
@@ -938,6 +1028,33 @@ export function setTransactionNote(txnId: number, note: string): void {
   touchDataUpdatedAt();
 }
 
+/** Assign a transaction to a person unless its person is controlled by a loan. */
+export function setTransactionPerson(txnId: number, personId: number | null): void {
+  const db = getDb();
+  const row = db
+    .select({ loanId: transactions.loanId, transferRole: transactions.transferRole })
+    .from(transactions)
+    .where(eq(transactions.id, txnId))
+    .get();
+  if (!row) throw new Error(`Transaction ${txnId} was not found.`);
+  const isSplitLoanTransaction = db
+    .select({ id: loanAllocations.id })
+    .from(loanAllocations)
+    .where(eq(loanAllocations.txnId, txnId))
+    .get();
+  if (row.loanId != null || row.transferRole != null || isSplitLoanTransaction) {
+    throw new Error('The person on a loan transaction is managed by its loan.');
+  }
+  db.update(transactions).set({ personId }).where(eq(transactions.id, txnId)).run();
+  touchDataUpdatedAt();
+}
+
+/** Set or clear a transaction's payment mode. */
+export function setTransactionPaymentMode(txnId: number, paymentModeId: number | null): void {
+  getDb().update(transactions).set({ paymentModeId }).where(eq(transactions.id, txnId)).run();
+  touchDataUpdatedAt();
+}
+
 /**
  * Re-run the auto-categorizer over one existing transaction using everything learned so far (the
  * user's note included), and apply the result. Overwrites the current category — this is an explicit
@@ -1248,5 +1365,22 @@ export function clearAllTransactions(): void {
   db.delete(loanAllocations).run(); // FK children of transactions + loans first
   db.delete(transactions).run();
   db.delete(loans).run();
+  touchDataUpdatedAt();
+}
+
+/** Reset all user data to the app's initial reference lists after a final Drive snapshot. */
+export function clearAllData(): void {
+  const db = getDb();
+  db.delete(loanAllocations).run();
+  db.delete(transactions).run();
+  db.delete(imports).run();
+  db.delete(loans).run();
+  db.delete(categoryRules).run();
+  db.delete(subcategories).run();
+  db.delete(categories).run();
+  db.delete(paymentModes).run();
+  db.delete(people).run();
+  seedDatabase(db);
+  deleteMeta(PENDING_IMPORT_KEY);
   touchDataUpdatedAt();
 }
