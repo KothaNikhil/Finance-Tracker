@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Activity</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="../assets/mock.css" />
+  <link rel="stylesheet" href="assets/web.css" />
+  <style>
+    .sumstrip { display: flex; align-items: stretch; gap: 0; padding: var(--sp-3) var(--sp-4); }
+    .sumstrip > .stat-col { padding: 0 var(--sp-3); }
+    .sumstrip > .stat-col:first-child { padding-left: 0; }
+    .sumstrip .stat-divider { width: 1px; background: var(--border); }
+    @media (max-width: 719px) { .sumstrip { padding: var(--sp-2) var(--sp-3); } .sumstrip > .stat-col { padding: 0 var(--sp-2); } .sumstrip .first-only { display: none; } }
+    .tbl-foot { padding: var(--sp-3); text-align: center; }
+    .review-mark { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--review); margin-right: 6px; vertical-align: 1px; }
+    .w-panel__body { position: relative; }
+    .shortcut-hint { display: inline-flex; align-items: center; gap: 4px; }
+    /* Money lent: compact attached-loan item + attach/edit editor inside HOW IT'S COUNTED */
+    .lend-item > .grow { min-width: 0; overflow-wrap: anywhere; }
+    .lend-sel .grow { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  </style>
+</head>
+<body class="w" data-nav="activity" data-title="Activity" data-search
+  data-states="default=Detail panel open|bulk=Bulk select (3 rows)|picker=Category picker|lend-add=Money lent · add (new loan)|lend-attached=Money lent · attached|lend-actions=Money lent · attached actions open|lend-split=Money lent · split across loans|lend-edit=Money lent · edit with credit error|review=Needs review filter|filter=Category filter popover|export=Export dialog|closed=No row selected|loading=Loading|noresults=No results|empty=No data yet">
+  <template id="top-actions">
+    <a class="btn btn--sm btn--primary hide-phone" href="import.html"><span class="ms">file_download</span>Import</a>
+  </template>
+
+  <div class="w-app">
+    <div class="w-col">
+      <div class="w-body">
+        <main class="w-main">
+
+          <!-- Summary for the current filter -->
+          <div class="card card--none" data-except="empty">
+            <div class="sumstrip" data-except="loading">
+              <div class="stat-col first-only"><span class="t-caption muted">Showing</span><span class="t-stat" id="sum-count">1,284 transactions</span></div>
+              <div class="stat-divider first-only"></div>
+              <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend" id="sum-spent">₹4,78,214.40</span></div>
+              <div class="stat-divider"></div>
+              <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income" id="sum-in">₹9,86,500.00</span></div>
+              <div class="stat-divider"></div>
+              <div class="stat-col"><span class="t-caption muted">Net spent</span><span class="t-stat" id="sum-net">₹4,59,590.40</span></div>
+            </div>
+            <div class="sumstrip" data-only="loading"><div class="sk" style="height:36px;flex:1"></div></div>
+          </div>
+
+          <!-- Filters -->
+          <div class="col gap-2" data-except="empty">
+            <label class="field__box field__box--sm only-phone"><span class="ms muted">search</span><span class="placeholder grow">Search payee, note, amount…</span></label>
+            <div class="toolbar toolbar--scroll">
+              <span class="chip chip--btn is-set"><span class="ms">calendar_month</span>2026<span class="ms">expand_more</span></span>
+              <span class="anchor">
+                <span class="chip chip--btn" id="chip-cat">Category<span class="ms">expand_more</span></span>
+                <div class="pop" data-only="filter" style="top:38px;left:0;width:300px">
+                  <div class="pop__search"><label class="field__box field__box--sm is-focused"><span class="ms muted">search</span><span class="grow">fo</span></label></div>
+                  <div class="pop__list">
+                    <div class="pop__item"><span class="cb is-on"><span class="ms">check</span></span><span>🍽️</span><span class="grow">Food &amp; Dining</span><span class="t-caption muted tabular">142</span></div>
+                    <div class="pop__item is-hover"><span class="cb"><span class="ms">check</span></span><span>🛒</span><span class="grow">Groceries</span><span class="t-caption muted tabular">96</span></div>
+                    <div class="pop__item"><span class="cb"><span class="ms">check</span></span><span>✈️</span><span class="grow">Travel · Food on trips</span><span class="t-caption muted tabular">8</span></div>
+                    <div class="pop__item"><span class="cb"><span class="ms">check</span></span><span>❔</span><span class="grow">Uncategorized</span><span class="t-caption muted tabular">12</span></div>
+                  </div>
+                  <div class="pop__foot"><span class="btn btn--sm btn--ghost">Clear</span><span class="btn btn--sm btn--primary">Show 142</span></div>
+                </div>
+              </span>
+              <span class="chip chip--btn">Account<span class="ms">expand_more</span></span>
+              <span class="chip chip--btn">For<span class="ms">expand_more</span></span>
+              <span class="chip chip--btn">Money in &amp; out<span class="ms">expand_more</span></span>
+              <span class="chip chip--btn">Amount<span class="ms">expand_more</span></span>
+              <span class="chip chip--btn chip--review" id="chip-review"><span class="ms">flag</span>Needs review<span class="pill-count">12</span></span>
+              <span class="toolbar__spacer hide-phone"></span>
+              <span class="btn btn--sm hide-tablet"><span class="ms">view_column</span>Columns</span>
+              <span class="btn btn--sm" id="btn-export"><span class="ms">ios_share</span><span class="hide-phone">Export</span></span>
+            </div>
+          </div>
+
+          <div class="banner banner--review" data-only="review">
+            <span class="ms">flag</span>
+            <div class="banner__copy t-small">3 transactions need a category. Pick one in the panel, or select several and use <b>Set category</b>.</div>
+            <span class="banner__action">Accept all</span>
+          </div>
+
+          <!-- Table (tablet + desktop) -->
+          <div class="tbl-wrap hide-phone" data-except="empty noresults">
+            <table class="tbl" aria-label="Transactions">
+              <thead>
+                <tr>
+                  <th class="c-check"><span class="cb" id="cb-all"><span class="ms">check</span></span></th>
+                  <th class="c-date is-sorted">Date <span class="ms">arrow_downward</span></th>
+                  <th>Payee and note</th>
+                  <th class="c-cat">Category</th>
+                  <th class="c-acc hide-tablet hide-with-panel">Account</th>
+                  <th class="c-for hide-tablet hide-with-panel">For</th>
+                  <th class="c-amt num">Amount</th>
+                </tr>
+              </thead>
+              <tbody id="tbody"></tbody>
+            </table>
+            <div class="tbl-foot t-caption muted" id="tbl-foot">Showing 24 of 1,284 · more load as you scroll</div>
+          </div>
+
+          <!-- Card list (phone) -->
+          <div class="mlist only-phone" id="mlist" data-except="empty noresults"></div>
+
+          <!-- Empty: filters match nothing -->
+          <div class="empty" data-only="noresults" style="margin-top:var(--sp-6)">
+            <span class="empty__icon"><span class="ms">search_off</span></span>
+            <span class="t-heading">No transactions match</span>
+            <span class="t-small muted">Nothing in 2026 matches “paytm mall” with Category: Shopping.</span>
+            <span class="btn">Clear filters</span>
+          </div>
+          <!-- Empty: no data at all -->
+          <div class="empty" data-only="empty" style="margin-top:var(--sp-6)">
+            <span class="empty__icon"><span class="ms">receipt_long</span></span>
+            <span class="t-heading">No transactions yet</span>
+            <span class="t-small muted">Import a Paytm, bank or credit-card statement to get started. You can drop several files at once.</span>
+            <a class="btn btn--primary" href="import.html"><span class="ms">file_download</span>Import statements</a>
+          </div>
+        </main>
+
+        <!-- Detail panel: docked (desktop) · drawer (tablet) · full screen (phone) -->
+        <aside class="w-panel" aria-label="Transaction detail" id="panel"></aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk action bar -->
+  <div class="bulk" data-only="bulk" role="toolbar" aria-label="Bulk actions">
+    <span class="t-small-em">3 selected</span><span class="t-small muted tabular hide-phone">−₹2,182.00</span>
+    <span class="bulk__sep hide-phone"></span>
+    <span class="btn btn--sm"><span class="ms">sell</span><span class="btn__label">Set category</span></span>
+    <span class="btn btn--sm"><span class="ms">person</span><span class="btn__label">Set For</span></span>
+    <span class="btn btn--sm"><span class="ms">done_all</span><span class="btn__label">Mark reviewed</span></span>
+    <span class="btn btn--sm btn--danger"><span class="ms">delete</span><span class="btn__label">Delete</span></span>
+    <span class="icon-btn icon-btn--sm icon-btn--plain" aria-label="Clear selection"><span class="ms">close</span></span>
+  </div>
+
+  <!-- Export dialog -->
+  <div class="w-modal" data-only="export">
+    <div class="w-dialog" role="dialog" aria-labelledby="ex-t">
+      <div class="w-dialog__head"><span class="w-dialog__icon"><span class="ms">table_view</span></span>
+        <div class="col gap-1"><span id="ex-t" class="t-heading">Export to Excel</span>
+          <span class="t-small muted">A yearly workbook with one sheet per month, in the same layout as your tracker.</span></div></div>
+      <div class="grid grid-2" style="gap:var(--sp-3)">
+        <div class="field"><span class="field__label">Year</span><span class="field__box">2026<span class="grow"></span><span class="ms muted">expand_more</span></span></div>
+        <div class="field"><span class="field__label">Include</span><span class="field__box">Current filters · 1,284<span class="grow"></span><span class="ms muted">expand_more</span></span></div>
+      </div>
+      <div class="field"><span class="field__label">File name</span><span class="field__box is-focused">Expense_Tracker_2026<span class="grow"></span><span class="muted">.xlsx</span></span></div>
+      <div class="col gap-2">
+        <span class="field__label">Save to</span>
+        <div class="seg"><span class="seg__item is-selected"><span class="ms ms-16">download</span>Download</span><span class="seg__item"><span class="ms ms-16">add_to_drive</span>Drive folder</span><span class="seg__item">Both</span></div>
+      </div>
+      <div class="w-dialog__actions"><span class="btn">Cancel</span><span class="btn btn--primary"><span class="ms">download</span>Export</span></div>
+    </div>
+  </div>
+
+  <script>
+    window.PAGE = {
+      init: function (state) {
+        var M = window.MOCK;
+        var rows = M.TXNS.slice();
+        if (state === 'review') rows = rows.filter(function (t) { return t.flag === 'review'; });
+        var checked = state === 'bulk' ? [1299, 1292, 1279] : [];
+        var activeId = ({ review: 1299, picker: 1292, 'lend-add': 1299, 'lend-attached': 1287, 'lend-actions': 1287, 'lend-split': 1287, 'lend-edit': 1287, closed: null, loading: null, empty: null, noresults: null, export: null })[state];
+        if (activeId === undefined) activeId = 1301;
+        if (state === 'bulk') activeId = null;
+
+        if (state === 'review') {
+          document.getElementById('chip-review').classList.add('is-set');
+          document.getElementById('sum-count').textContent = '12 need review';
+          document.getElementById('sum-spent').textContent = M.inr(5214);
+          document.getElementById('sum-in').textContent = M.inr(0);
+          document.getElementById('sum-net').textContent = M.inr(5214);
+          document.getElementById('tbl-foot').textContent = 'Showing 3 of 12 that need review';
+        }
+        if (state === 'filter') document.getElementById('chip-cat').classList.add('is-set');
+        if (state === 'bulk') document.getElementById('cb-all').classList.add('is-mixed');
+
+        function amtCls(t) { return t.amt > 0 ? 'c-income' : (t.flag === 'self' || t.flag === 'card' ? '' : 'c-spend'); }
+        function catPill(t) {
+          if (t.flag === 'review') return '<span class="cat-pill cat-pill--review"><span class="em">❔</span><span>Needs a category</span></span>';
+          return '<span class="cat-pill"><span class="em">' + t.em + '</span><span>' + t.cat + (t.sub ? ' · ' + t.sub : '') + '</span></span>';
+        }
+        function noteLine(t) {
+          var notes = { 1300: 'Monthly stock-up', 1296: 'Oct–Nov bill', 1287: 'Repayment, part 2 of 5', 1293: 'Moved to savings', 1281: 'Oct statement · linked' };
+          var bits = [];
+          if (notes[t.id]) bits.push(notes[t.id]);
+          if (t.flag === 'refund') bits.push('Refund');
+          if (t.flag === 'self') bits.push('Self-transfer · not counted');
+          if (t.flag === 'lent') bits.push('Money lent');
+          return bits.join(' · ');
+        }
+
+        // ---- Table
+        var tbody = document.getElementById('tbody');
+        var html = '', mhtml = '', lastKey = '';
+        if (state === 'loading') {
+          for (var s = 0; s < 10; s++) {
+            html += '<tr><td class="c-check"><span class="sk" style="display:block;width:18px;height:18px"></span></td><td><span class="sk" style="display:block;height:12px;width:60px"></span></td>' +
+              '<td><span class="sk" style="display:block;height:12px;width:' + (40 + (s * 13) % 40) + '%"></span></td><td><span class="sk" style="display:block;height:20px;width:140px;border-radius:10px"></span></td>' +
+              '<td class="hide-tablet"><span class="sk" style="display:block;height:12px;width:90px"></span></td><td class="hide-tablet"><span class="sk" style="display:block;height:12px;width:50px"></span></td><td><span class="sk" style="display:block;height:12px;width:70px;margin-left:auto"></span></td></tr>';
+            mhtml += '<div class="mrow"><span class="sk" style="width:32px;height:32px;border-radius:16px"></span><div class="mrow__left"><span class="sk" style="height:12px;width:60%"></span><span class="sk" style="height:10px;width:40%;margin-top:6px"></span></div><span class="sk" style="height:12px;width:64px"></span></div>';
+          }
+          document.getElementById('tbl-foot').textContent = 'Loading from your Drive file…';
+        } else {
+          rows.forEach(function (t) {
+            var key = M.monthKey(t.date);
+            if (key !== lastKey) {
+              lastKey = key;
+              var inMonth = rows.filter(function (r) { return M.monthKey(r.date) === key; });
+              var spent = inMonth.reduce(function (a, r) { return a + (r.amt < 0 && r.flag !== 'self' && r.flag !== 'card' ? -r.amt : 0); }, 0);
+              html += '<tr class="t-group"><td colspan="3"><b>' + M.monthLabel(key) + '</b> · ' + (key === '2026-11' && state !== 'review' ? '86' : inMonth.length) + ' transactions</td><td></td>' +
+                '<td class="hide-tablet hide-with-panel"></td><td class="hide-tablet hide-with-panel"></td><td class="num tabular">Spent ' + M.inr(spent) + '</td></tr>';
+              mhtml += '<div class="mlist__group"><span class="t-overline muted">' + M.monthLabel(key).toUpperCase() + '</span><span class="t-caption muted tabular">Spent ' + M.inr(spent) + '</span></div>';
+            }
+            var on = checked.indexOf(t.id) >= 0;
+            var note = noteLine(t);
+            html += '<tr class="t-row' + (t.id === activeId ? ' is-active' : '') + (on ? ' is-checked' : '') + '" data-id="' + t.id + '">' +
+              '<td class="c-check"><span class="cb' + (on ? ' is-on' : '') + '"><span class="ms">check</span></span></td>' +
+              '<td class="tabular"><div class="cellstack"><span>' + M.dshort(t.date) + '</span><span class="t-caption muted">' + t.time + '</span></div></td>' +
+              '<td><div class="cellstack"><span class="t-label">' + (t.flag === 'review' ? '<span class="review-mark" title="Needs review"></span>' : '') + t.payee + '</span>' +
+              '<span class="t-caption muted">' + (note ? note : '<span class="only-compact">' + t.acc + '</span><span class="only-with-panel">' + t.acc + '</span>') + '</span></div></td>' +
+              '<td>' + catPill(t) + '</td>' +
+              '<td class="hide-tablet hide-with-panel muted">' + t.acc + '</td>' +
+              '<td class="hide-tablet hide-with-panel muted">' + (t.who || '—') + '</td>' +
+              '<td class="num t-label ' + amtCls(t) + '">' + M.inr(t.amt, { sign: true }) + '</td></tr>';
+            mhtml += '<div class="mrow' + (on ? ' is-checked' : '') + '" data-id="' + t.id + '">' +
+              (state === 'bulk' ? '<span class="cb' + (on ? ' is-on' : '') + '"><span class="ms">check</span></span>' : '') +
+              '<span class="mrow__glyph">' + (t.flag === 'review' ? '❔' : t.em) + '</span>' +
+              '<div class="mrow__left"><span class="t-label">' + t.payee + '</span><span class="t-caption muted">' +
+              (t.flag === 'review' ? 'Needs a category' : t.cat + (t.sub ? ' · ' + t.sub : '')) + ' · ' + M.dshort(t.date) + '</span></div>' +
+              '<div class="mrow__right"><span class="t-label tabular ' + amtCls(t) + '">' + M.inr(t.amt, { sign: true }) + '</span>' +
+              (t.flag === 'review' ? '<span class="badge badge--review">Review</span>' : '<span class="t-caption muted">' + t.time + '</span>') + '</div></div>';
+          });
+        }
+        tbody.innerHTML = html;
+        document.getElementById('mlist').innerHTML = mhtml;
+
+        // ---- Panel
+        var panel = document.getElementById('panel');
+        function renderPanel(t) {
+          var out = t.amt < 0;
+          var review = t.flag === 'review';
+          var chips = out
+            ? [['swap_horiz', 'Self-transfer', t.flag === 'self'], ['group', 'Money lent', false], ['credit_card', 'Card bill', t.flag === 'card']]
+            : [['undo', 'Refund', t.flag === 'refund'], ['swap_horiz', 'Self-transfer', false], ['group', 'Money lent', t.flag === 'lent']];
+          var hh = String(t.time).split(':'); var h = Number(hh[0]);
+          var time = ((h % 12) || 12) + ':' + hh[1] + ' ' + (h < 12 ? 'AM' : 'PM');
+          panel.innerHTML =
+            '<div class="w-panel__bar"><span class="t-overline muted">TRANSACTION</span><span class="row gap-1">' +
+            '<span class="icon-btn icon-btn--sm icon-btn--plain hide-phone" title="Previous (k)"><span class="ms">keyboard_arrow_up</span></span>' +
+            '<span class="icon-btn icon-btn--sm icon-btn--plain hide-phone" title="Next (j)"><span class="ms">keyboard_arrow_down</span></span>' +
+            '<span class="icon-btn icon-btn--sm icon-btn--plain" data-close-panel aria-label="Close (Esc)"><span class="ms">close</span></span></span></div>' +
+            '<div class="w-panel__body" data-tabs>' +
+            '<div class="dp-head"><div class="dp-title"><span class="dp-badge ' + (out ? 'g-spend' : 'g-income') + '" style="background:var(--' + (out ? 'spend' : 'income') + '-muted);color:var(--' + (out ? 'spend' : 'income') + ')"><span class="ms">' + (out ? 'north_east' : 'south_west') + '</span></span>' +
+            '<span class="t-heading grow truncate">' + t.payee + '</span><span class="dp-amount ' + (out ? 'c-spend' : 'c-income') + '">' + M.inr(t.amt, { sign: true }) + '</span></div>' +
+            '<span class="t-small muted">' + (out ? 'Money out' : 'Money in') + ' · ' + M.dlong(t.date) + ' · ' + time + '</span></div>' +
+            '<div class="dp-tabs" role="tablist"><button class="dp-tab is-selected" data-tab="ov">Overview</button><button class="dp-tab" data-tab="dt">Details</button></div>' +
+            // Overview
+            '<div class="col gap-4" data-panel="ov">' +
+            '<div class="dp-section"><span class="t-overline muted">CATEGORY</span>' +
+            '<div class="dp-cat' + (review ? ' dp-cat--review' : '') + '"><span class="dp-cat__em">' + (review ? '❔' : t.em) + '</span>' +
+            '<div class="grow col gap-0" style="min-width:0"><span class="t-label truncate">' + (review ? 'Needs a category' : t.cat + (t.sub ? ' · ' + t.sub : '')) + '</span>' +
+            '<span class="t-caption ' + (review ? 'c-review' : 'muted') + '">' + (review ? 'Couldn’t match this payee. Pick one and it will be remembered.' : 'Auto-categorized from payee') + '</span></div>' +
+            '<span class="anchor"><span class="btn btn--sm" id="btn-change">' + (review ? 'Pick' : 'Change') + '<span class="kbd" style="margin-left:4px">e</span></span></span>' +
+            '<span class="icon-btn icon-btn--sm" title="Re-categorize"><span class="ms">refresh</span></span></div>' +
+            (review ? '<div class="row wrap gap-1"><span class="t-caption muted">Suggested:</span><span class="chip">🍽️ Food &amp; Dining · Friends</span><span class="chip">🔁 Transfers · Money lent</span></div>' : '') +
+            '</div>' +
+            '<div class="dp-section"><span class="t-overline muted">HOW IT’S COUNTED</span><div class="toggle-chips">' +
+            chips.map(function (c) { return '<span class="tchip' + (c[2] ? ' is-on' : '') + '"><span class="ms">' + (c[2] ? 'check' : c[0]) + '</span>' + c[1] + '</span>'; }).join('') + '</div>' +
+            (t.flag === 'self' ? '<span class="t-caption muted">Self-transfers move money between your own accounts, so they aren’t counted as spending.</span>' : '') +
+            lendHtml(t) + '</div>' +
+            '<div class="dp-section"><div class="row row--between"><span class="t-overline muted">NOTES</span></div>' +
+            (t.id === 1300 ? '<div class="note-box">Monthly stock-up</div>' : '<div class="note-box note-box--empty"><span class="ms ms-16">edit</span><span class="t-small">Add a note…</span></div>') + '</div>' +
+            '<div class="grid grid-2" style="gap:var(--sp-2)">' +
+            '<div class="field"><span class="field__label t-small">For</span><span class="field__box field__box--sm"' + (t.flag === 'lent' ? ' style="opacity:.6" title="Set by the loan"' : '') + '>' + (t.who || 'Not set') + '<span class="grow"></span><span class="ms muted">expand_more</span></span></div>' +
+            '<div class="field"><span class="field__label t-small">Payment mode</span><span class="field__box field__box--sm">' + (t.acc.indexOf('Credit') >= 0 ? 'Credit card' : 'UPI') + '<span class="grow"></span><span class="ms muted">expand_more</span></span></div></div>' +
+            '<div class="lrow lrow--click card card--none" data-tab="dt" style="padding:var(--sp-2) var(--sp-3)"><span class="ms muted">description</span><div class="grow col gap-0" style="min-width:0"><span class="t-label">Statement details</span><span class="t-caption muted truncate">Paytm_UPI_Statement_Nov2026.xlsx, UPI reference, original text</span></div><span class="ms muted">chevron_right</span></div>' +
+            '</div>' +
+            // Details
+            '<div class="col gap-4" data-panel="dt" hidden>' +
+            '<div class="dp-section"><span class="t-overline muted">TRANSACTION</span><div class="dl">' +
+            '<div class="dl__row"><span class="dl__k">Direction</span><span class="dl__v">' + (out ? 'Outgoing' : 'Incoming') + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Amount</span><span class="dl__v tabular">' + M.inr(Math.abs(t.amt)) + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Date and time</span><span class="dl__v">' + M.dlong(t.date) + ', ' + time + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Paid to</span><span class="dl__v">' + t.payee + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Account</span><span class="dl__v">' + t.acc + '</span></div></div></div>' +
+            '<div class="dp-section"><span class="t-overline muted">PROVENANCE</span><div class="dl">' +
+            '<div class="dl__row"><span class="dl__k">Source</span><span class="dl__v">Paytm UPI statement</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Imported from</span><span class="dl__v">Paytm_UPI_Statement_Nov2026.xlsx</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Import batch</span><span class="dl__v">#9 · on the web, 22 Nov 2026</span></div>' +
+            '<div class="dl__row"><span class="dl__k">UPI reference</span><span class="dl__v t-code" style="font-size:12px">632811904417</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Original text</span><span class="dl__v">Paid to ' + t.payee + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Record ID</span><span class="dl__v">#' + t.id + '</span></div></div></div>' +
+            '<span class="btn btn--danger btn--sm" style="align-self:flex-start"><span class="ms">delete</span>Delete transaction</span>' +
+            '</div>' +
+            '</div>' +
+            '<div class="w-panel__foot"><span class="save-note t-caption grow"><span class="ms">cloud_done</span>Changes save to Drive automatically</span>' +
+            '<span class="t-caption muted hide-phone shortcut-hint"><span class="kbd">j</span><span class="kbd">k</span> move</span></div>' +
+            (state === 'picker' ? pickerHtml() : '');
+          M.wireTabs(panel);
+        }
+        // ---- Money lent (HOW IT'S COUNTED): compact attached item, its actions, and the attach / edit editor
+        function sel(text, placeholder) {
+          return '<span class="field__box field__box--sm lend-sel"><span class="grow' + (placeholder ? ' placeholder' : '') + '">' + text + '</span><span class="ms muted">expand_more</span></span>';
+        }
+        function lendHtml(t) {
+          var ARJUN = 'Arjun Mehta · Shop deposit · lent';
+          var html = '';
+          if (state === 'lend-attached' || state === 'lend-actions' || state === 'lend-split' || state === 'lend-edit') {
+            var split = state === 'lend-split';
+            var expanded = state === 'lend-actions' || state === 'lend-edit';
+            html += '<div class="card card--subtle col gap-2">' +
+              '<div class="lrow lrow--click lend-item" role="button" aria-label="Attached loan" aria-expanded="' + expanded + '"><span class="ms">group</span>' +
+              '<span class="grow col gap-1"><span class="t-caption muted">' + (split ? 'Split across loans' : 'Attached to') + '</span>' +
+              (split
+                ? '<span class="t-small">' + ARJUN + ' · Received · ' + M.inr(18800) + '</span><span class="t-small">' + ARJUN + ' · Interest · ' + M.inr(1200) + '</span>'
+                : '<b class="t-small">' + ARJUN + ' · Repaid to me</b>') +
+              '</span><span class="ms">' + (expanded ? 'expand_less' : 'chevron_right') + '</span></div>' +
+              (state === 'lend-actions' ? '<div class="row gap-2 wrap"><span class="btn btn--sm"><span class="ms">edit</span>Edit loan attachment</span><span class="btn btn--sm"><span class="ms">link_off</span>Remove from transaction</span></div>' : '') +
+              '</div>';
+          }
+          if (state === 'lend-add') {
+            html += editorHtml({ title: 'Add to Money Lent', creating: true, flow: 'Paid', primary: 'Create loan and add', splitFlow: 'Paid' });
+          }
+          if (state === 'lend-edit') {
+            html += editorHtml({ title: 'Edit loan attachment', creating: false, loan: ARJUN, flow: 'Paid', primary: 'Save loan attachment', splitFlow: 'Received',
+              error: 'This is a credit (money in). Choose Received or Interest.' });
+          }
+          return html;
+        }
+        function editorHtml(o) {
+          return '<div class="card card--subtle col gap-2">' +
+            '<div class="row row--between gap-2"><span class="t-small-em">' + o.title + '</span><span class="btn btn--sm btn--ghost">Cancel</span></div>' +
+            '<div class="seg" role="radiogroup" aria-label="Loan"><span class="seg__item' + (o.creating ? '' : ' is-selected') + '">Existing loan</span>' +
+            '<span class="seg__item' + (o.creating ? ' is-selected' : '') + '"><span class="ms ms-16">add</span>New loan</span></div>' +
+            (o.creating
+              ? '<div class="col gap-2"><div class="seg" role="radiogroup" aria-label="New loan direction"><span class="seg__item is-selected">I lent</span><span class="seg__item">I borrowed</span></div>' +
+                sel('Rahul Verma') +
+                '<div class="row gap-1"><span class="field__box field__box--sm grow"><span class="placeholder">Add a new person…</span></span><span class="btn btn--sm is-disabled">Add</span></div>' +
+                '<span class="field__box field__box--sm"><span>Goa trip</span></span></div>'
+              : sel(o.loan)) +
+            sel(o.flow) +
+            (o.error ? '<span class="t-small c-spend" role="alert">' + o.error + '</span>' : '') +
+            '<span class="btn btn--sm btn--primary' + (o.error ? ' is-disabled' : '') + '" style="align-self:flex-start">' + o.primary + '</span>' +
+            '<span class="t-small-em">Split across loans</span>' +
+            '<div class="col gap-1"><div class="row gap-1"><div class="grow" style="min-width:0">' + sel('Choose loan…', true) + '</div>' +
+            '<span style="flex:0 0 auto">' + sel(o.splitFlow) + '</span>' +
+            '<span class="field__box field__box--sm" style="width:96px;flex-shrink:0"><span class="placeholder">₹</span></span>' +
+            '<span class="icon-btn icon-btn--sm icon-btn--plain" aria-label="Remove split row"><span class="ms">close</span></span></div></div>' +
+            '<div class="row gap-2"><span class="btn btn--sm btn--ghost"><span class="ms">add</span>Add slice</span><span class="btn btn--sm btn--primary">Save split</span></div>' +
+            '</div>';
+        }
+        function pickerHtml() {
+          var cats = [['🍽️', 'Food & Dining'], ['🛒', 'Groceries', true], ['🚕', 'Commute'], ['🛍️', 'Shopping'], ['💡', 'Bills & Utilities'], ['💊', 'Medicine & Health'], ['🎬', 'Entertainment'], ['✈️', 'Travel']];
+          var subs = ['Monthly groceries', 'Quick commerce', 'Vegetables', 'Fruits', 'Dairy'];
+          return '<div class="pop pop--in-panel" style="top:236px">' +
+            '<div class="pop__search"><label class="field__box field__box--sm is-focused"><span class="ms muted">search</span><span class="grow">Type to search or create…</span><span class="kbd">esc</span></label></div>' +
+            '<div class="picker"><div class="picker__col"><span class="picker__label t-overline muted">CATEGORY</span><div class="pop__list">' +
+            cats.map(function (c) { return '<div class="pop__item' + (c[2] ? ' is-hover is-selected' : '') + '"><span>' + c[0] + '</span><span class="grow">' + c[1] + '</span>' + (c[2] ? '<span class="ms ms-16">chevron_right</span>' : '') + '</div>'; }).join('') +
+            '<div class="pop__item c-accent"><span class="ms ms-16">add</span>New category</div></div></div>' +
+            '<div class="picker__col"><span class="picker__label t-overline muted">GROCERIES ›</span><div class="pop__list">' +
+            subs.map(function (s, i) { return '<div class="pop__item' + (i === 1 ? ' is-selected' : '') + '"><span class="grow">' + s + '</span>' + (i === 1 ? '<span class="t-caption muted">suggested</span>' : '') + '</div>'; }).join('') +
+            '<div class="pop__item muted">No sub-category</div><div class="pop__item c-accent"><span class="ms ms-16">add</span>New sub-category</div></div></div></div>' +
+            '<div class="pop__foot"><label class="row gap-1 t-small"><span class="cb is-on"><span class="ms">check</span></span>Also apply to 4 other “Swiggy Instamart” rows</label><span class="btn btn--sm btn--primary">Save</span></div></div>';
+        }
+        function byId(id) { return M.TXNS.filter(function (t) { return t.id === id; })[0]; }
+        if (activeId) { renderPanel(byId(activeId)); M.openPanel(); }
+
+        function select(id) {
+          var all = document.querySelectorAll('[data-id]');
+          for (var i = 0; i < all.length; i++) all[i].classList.toggle('is-active', Number(all[i].getAttribute('data-id')) === id);
+          renderPanel(byId(id)); M.openPanel();
+        }
+        document.addEventListener('click', function (e) {
+          var r = e.target.closest('[data-id]');
+          if (r && !e.target.closest('.cb')) select(Number(r.getAttribute('data-id')));
+        });
+        document.addEventListener('panelclose', function () {
+          var all = document.querySelectorAll('.is-active[data-id]');
+          for (var i = 0; i < all.length; i++) all[i].classList.remove('is-active');
+        });
+      },
+    };
+  </script>
+  <script src="assets/web.js"></script>
+</body>
+</html>

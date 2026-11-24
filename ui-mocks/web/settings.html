@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Settings</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="../assets/mock.css" />
+  <link rel="stylesheet" href="assets/web.css" />
+  <style>
+    .sec { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+    .sec__head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+    .two-pane { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+    .pane { padding: 0; overflow: clip; }
+    .pane__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-3) var(--sp-3) var(--sp-2); border-bottom: var(--hairline) solid var(--border); }
+    .em-box { width: 32px; height: 32px; border-radius: var(--r-sm); background: var(--background-selected); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .lrow.is-editing { background: var(--background-selected); }
+    .lrow .field__box { flex: 1; }
+    .theme-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
+    .theme-opt { border: 1.5px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); cursor: pointer; background: var(--background-element); }
+    .theme-opt.is-selected { border-color: var(--accent); }
+    .theme-prev { height: 84px; border-radius: var(--r-md); display: grid; grid-template-columns: 26% 1fr; overflow: hidden; border: var(--hairline) solid var(--border); }
+    .theme-prev--light { background: #f4f6f6; } .theme-prev--light > span:first-child { background: #fff; }
+    .theme-prev--dark { background: #0d1312; } .theme-prev--dark > span:first-child { background: #161d1c; }
+    .theme-prev--sys { background: linear-gradient(135deg, #f4f6f6 50%, #0d1312 50%); }
+    .file-card { display: flex; gap: var(--sp-3); align-items: center; }
+    .file-card .em-box { width: 44px; height: 44px; background: var(--accent-muted); color: var(--accent); }
+    .danger-card { border-color: var(--spend); }
+    @media (max-width: 1199px) { .two-pane { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 719px) { .theme-opts { grid-template-columns: minmax(0, 1fr); } .theme-prev { height: 56px; } }
+  </style>
+</head>
+<body class="w" data-nav="settings" data-title="Settings"
+  data-states="categories=Categories|modes=Payment modes|people=People &amp; groups|appearance=Appearance|drive=Drive &amp; backups|account=Google account|danger=Delete all data">
+  <div class="w-app">
+    <div class="w-col">
+      <div class="w-body">
+        <main class="w-main">
+          <div class="subnav-layout">
+            <nav class="subnav" aria-label="Settings">
+              <span class="subnav__group t-overline muted">ORGANIZE</span>
+              <a class="subnav__item" data-sec-link="categories"><span class="ms">category</span>Categories</a>
+              <a class="subnav__item" data-sec-link="modes"><span class="ms">credit_card</span>Payment modes</a>
+              <a class="subnav__item" data-sec-link="people"><span class="ms">group</span>People &amp; groups</a>
+              <span class="subnav__group t-overline muted">PREFERENCES</span>
+              <a class="subnav__item" data-sec-link="appearance"><span class="ms">palette</span>Appearance</a>
+              <span class="subnav__group t-overline muted">DATA</span>
+              <a class="subnav__item" data-sec-link="drive"><span class="ms">cloud</span>Drive &amp; backups</a>
+              <a class="subnav__item" data-sec-link="account"><span class="ms">account_circle</span>Google account</a>
+              <a class="subnav__item subnav__item--danger" data-sec-link="danger"><span class="ms">delete_forever</span>Delete all data</a>
+            </nav>
+
+            <div>
+              <!-- Categories -->
+              <section class="sec" data-sec="categories">
+                <div class="sec__head"><div class="col gap-1"><span class="t-title">Categories</span><span class="t-small muted">Drag to reorder. Order is used in pickers on the web and the phone.</span></div>
+                  <span class="btn btn--sm btn--primary"><span class="ms">add</span>New category</span></div>
+                <div class="two-pane">
+                  <div class="card pane">
+                    <div class="pane__head"><span class="t-heading">Categories</span><span class="t-caption muted">13</span></div>
+                    <div id="cats"></div>
+                  </div>
+                  <div class="card pane">
+                    <div class="pane__head"><div class="row gap-2"><span>🛒</span><span class="t-heading">Groceries · sub-categories</span></div><span class="btn btn--sm btn--ghost"><span class="ms">add</span>Add</span></div>
+                    <div class="lrow"><span class="ms drag">drag_indicator</span><span class="grow t-label">Monthly groceries</span><span class="t-caption muted">61</span><span class="row-actions"><span class="icon-btn icon-btn--sm icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--sm icon-btn--plain"><span class="ms">delete</span></span></span></div>
+                    <div class="lrow is-editing"><span class="ms drag">drag_indicator</span><div class="field__box field__box--sm is-focused"><span>Quick commerce</span></div><span class="btn btn--sm btn--primary">Save</span></div>
+                    <div class="lrow"><span class="ms drag">drag_indicator</span><span class="grow t-label">Vegetables</span><span class="t-caption muted">14</span><span class="row-actions"><span class="icon-btn icon-btn--sm icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--sm icon-btn--plain"><span class="ms">delete</span></span></span></div>
+                    <div class="lrow"><span class="ms drag">drag_indicator</span><span class="grow t-label">Fruits</span><span class="t-caption muted">3</span><span class="row-actions"><span class="icon-btn icon-btn--sm icon-btn--plain"><span class="ms">edit</span></span><span class="icon-btn icon-btn--sm icon-btn--plain"><span class="ms">delete</span></span></span></div>
+                    <div class="lrow"><span class="ms muted" style="font-size:18px">info</span><span class="t-caption muted">Deleting a sub-category moves its transactions to “No sub-category”.</span></div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Payment modes -->
+              <section class="sec" data-sec="modes">
+                <div class="sec__head"><div class="col gap-1"><span class="t-title">Payment modes</span><span class="t-small muted">How you paid. Shown in the transaction detail.</span></div>
+                  <span class="btn btn--sm btn--primary"><span class="ms">add</span>Add mode</span></div>
+                <div class="card pane" style="max-width:640px">
+                  <div class="lrow"><span class="ms drag">drag_indicator</span><span class="em-box"><span class="ms">qr_code_2</span></span><span class="grow t-label">UPI</span><span class="t-caption muted">1,032</span></div>
+                  <div class="lrow"><span class="ms drag">drag_indicator</span><span class="em-box"><span class="ms">credit_card</span></span><span class="grow t-label">Credit card</span><span class="t-caption muted">214</span></div>
+                  <div class="lrow"><span class="ms drag">drag_indicator</span><span class="em-box"><span class="ms">account_balance</span></span><span class="grow t-label">Net banking</span><span class="t-caption muted">38</span></div>
+                  <div class="lrow"><span class="ms drag">drag_indicator</span><span class="em-box"><span class="ms">payments</span></span><span class="grow t-label">Cash</span><span class="t-caption muted">9</span></div>
+                </div>
+              </section>
+
+              <!-- People -->
+              <section class="sec" data-sec="people">
+                <div class="sec__head"><div class="col gap-1"><span class="t-title">People &amp; groups</span><span class="t-small muted">Used for “For” on transactions and for Lending.</span></div>
+                  <span class="btn btn--sm btn--primary"><span class="ms">add</span>Add person</span></div>
+                <div class="two-pane">
+                  <div class="card pane">
+                    <div class="pane__head"><span class="t-heading">People</span><span class="t-caption muted">6</span></div>
+                    <div class="lrow"><span class="avatar">PS</span><span class="grow t-label">Self</span><span class="badge">You</span></div>
+                    <div class="lrow"><span class="avatar">AM</span><span class="grow t-label">Amma</span><span class="t-caption muted">In Family</span></div>
+                    <div class="lrow"><span class="avatar">DS</span><span class="grow t-label">Dad · Suresh</span><span class="t-caption muted">In Family · 1 loan</span></div>
+                    <div class="lrow"><span class="avatar">AM</span><span class="grow t-label">Arjun Mehta</span><span class="t-caption muted">2 loans</span></div>
+                    <div class="lrow"><span class="avatar">RV</span><span class="grow t-label">Rahul Verma</span><span class="t-caption muted">1 loan</span></div>
+                    <div class="lrow"><span class="avatar">NK</span><span class="grow t-label">Neha K</span><span class="t-caption muted">1 loan</span></div>
+                  </div>
+                  <div class="card pane">
+                    <div class="pane__head"><span class="t-heading">Groups</span><span class="btn btn--sm btn--ghost"><span class="ms">add</span>New group</span></div>
+                    <div class="lrow"><span class="em-box"><span class="ms">family_restroom</span></span><div class="grow col gap-0"><span class="t-label">Family</span><span class="t-caption muted">Self, Amma, Dad · Suresh</span></div></div>
+                    <div class="lrow"><span class="em-box"><span class="ms">home</span></span><div class="grow col gap-0"><span class="t-label">Flatmates</span><span class="t-caption muted">Self, Rahul Verma</span></div></div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Appearance -->
+              <section class="sec" data-sec="appearance">
+                <div class="sec__head"><div class="col gap-1"><span class="t-title">Appearance</span><span class="t-small muted">Saved on this browser only. The phone has its own setting.</span></div></div>
+                <div class="card card--lg" style="max-width:720px">
+                  <div class="theme-opts">
+                    <div class="theme-opt is-selected"><div class="theme-prev theme-prev--sys"><span style="background:transparent"></span><span></span></div><span class="t-label">System</span></div>
+                    <div class="theme-opt"><div class="theme-prev theme-prev--light"><span></span><span></span></div><span class="t-label">Light</span></div>
+                    <div class="theme-opt"><div class="theme-prev theme-prev--dark"><span></span><span></span></div><span class="t-label">Dark</span></div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Drive -->
+              <section class="sec" data-sec="drive">
+                <div class="sec__head"><div class="col gap-1"><span class="t-title">Drive &amp; backups</span><span class="t-small muted">Your data lives in one file on your Google Drive. The website keeps nothing in this browser.</span></div></div>
+                <div class="card card--lg col gap-3">
+                  <div class="file-card"><span class="em-box"><span class="ms">database</span></span>
+                    <div class="grow col gap-0" style="min-width:0"><span class="t-heading truncate">Finance Tracker / finance-live.db</span><span class="t-small muted">2.4 MB · 1,342 transactions · schema v7</span></div>
+                    <span class="badge badge--income"><span class="ms">cloud_done</span>Saved</span></div>
+                  <div class="dl">
+                    <div class="dl__row"><span class="dl__k t-small">Last saved</span><span class="dl__v t-small">Today, 9:41 PM · this browser</span></div>
+                    <div class="dl__row"><span class="dl__k t-small">Phone</span><span class="dl__v t-small">Pixel 8 · last synced today, 7:15 PM</span></div>
+                    <div class="dl__row"><span class="dl__k t-small">Autosave</span><span class="dl__v t-small">A few seconds after each change</span></div>
+                  </div>
+                  <div class="row gap-2 wrap">
+                    <span class="btn btn--sm btn--primary"><span class="ms">cloud_upload</span>Save now</span>
+                    <span class="btn btn--sm"><span class="ms">history</span>Take a snapshot</span>
+                    <span class="btn btn--sm"><span class="ms">download</span>Download a copy</span>
+                    <span class="btn btn--sm"><span class="ms">table_view</span>Export to Excel</span>
+                  </div>
+                </div>
+                <div class="card pane">
+                  <div class="pane__head"><div class="col gap-0"><span class="t-heading">Snapshots</span><span class="t-caption muted">Taken daily, before every import and before a conflict is resolved. The last 30 are kept.</span></div></div>
+                  <div class="lrow"><span class="em-box"><span class="ms">history</span></span><div class="grow col gap-0"><span class="t-label">Before import #14</span><span class="t-caption muted">Today, 9:38 PM · this browser · 2.3 MB</span></div><span class="btn btn--sm">Restore</span></div>
+                  <div class="lrow"><span class="em-box"><span class="ms">sync_problem</span></span><div class="grow col gap-0"><span class="t-label">Kept from a conflict</span><span class="t-caption muted">Yesterday, 10:02 PM · Pixel 8 · 2.3 MB</span></div><span class="btn btn--sm">Restore</span></div>
+                  <div class="lrow"><span class="em-box"><span class="ms">today</span></span><div class="grow col gap-0"><span class="t-label">Daily</span><span class="t-caption muted">22 Nov 2026 · Pixel 8 · 2.3 MB</span></div><span class="btn btn--sm">Restore</span></div>
+                  <div class="lrow"><span class="em-box"><span class="ms">today</span></span><div class="grow col gap-0"><span class="t-label">Daily</span><span class="t-caption muted">21 Nov 2026 · Pixel 8 · 2.2 MB</span></div><span class="btn btn--sm">Restore</span></div>
+                  <div class="lrow"><span class="ms muted" style="font-size:18px">info</span><span class="t-caption muted">Restoring replaces finance-live.db for the phone and the website. A snapshot of the current file is taken first.</span></div>
+                </div>
+              </section>
+
+              <!-- Account -->
+              <section class="sec" data-sec="account">
+                <div class="sec__head"><div class="col gap-1"><span class="t-title">Google account</span><span class="t-small muted">Used to sign in and to reach your Drive file.</span></div></div>
+                <div class="card card--lg col gap-3" style="max-width:720px">
+                  <div class="row gap-3"><span class="avatar" style="width:48px;height:48px;font-size:16px">PS</span>
+                    <div class="grow col gap-0"><span class="t-heading">Priya Sharma</span><span class="t-small muted">priya.sharma@gmail.com</span></div></div>
+                  <div class="dl">
+                    <div class="dl__row"><span class="dl__k t-small">Drive access</span><span class="dl__v t-small">Only files this app created (drive.file)</span></div>
+                    <div class="dl__row"><span class="dl__k t-small">Session</span><span class="dl__v t-small">Renews automatically while this tab is open</span></div>
+                  </div>
+                  <div class="row gap-2 wrap"><span class="btn btn--sm"><span class="ms">logout</span>Sign out</span><span class="btn btn--sm btn--ghost">Manage access in Google</span></div>
+                  <span class="t-caption muted">Signing out closes your data in this tab. Unsaved changes are saved first.</span>
+                </div>
+              </section>
+
+              <!-- Danger -->
+              <section class="sec" data-sec="danger">
+                <div class="sec__head"><div class="col gap-1"><span class="t-title">Delete all data</span><span class="t-small muted">Removes every transaction, loan, category and import.</span></div></div>
+                <div class="card card--lg danger-card col gap-3" style="max-width:720px">
+                  <div class="banner banner--danger banner--wrap"><span class="ms">warning</span><div class="banner__copy t-small">This empties finance-live.db on Drive, so it also clears the phone app. A final snapshot is kept for 30 days.</div></div>
+                  <div class="field"><span class="field__label">Type DELETE to confirm</span><div class="field__box"><span class="placeholder">DELETE</span></div></div>
+                  <div class="row gap-2"><span class="btn btn--danger"><span class="ms">delete_forever</span>Delete all data</span></div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.PAGE = {
+      init: function (state) {
+        var M = window.MOCK;
+        var sec = M.params.get('section') || state;
+        function show(k) {
+          var s = document.querySelectorAll('[data-sec]');
+          for (var i = 0; i < s.length; i++) s[i].hidden = s[i].getAttribute('data-sec') !== k;
+          var l = document.querySelectorAll('[data-sec-link]');
+          for (var j = 0; j < l.length; j++) l[j].classList.toggle('is-selected', l[j].getAttribute('data-sec-link') === k);
+        }
+        show(document.querySelector('[data-sec="' + sec + '"]') ? sec : 'categories');
+        document.addEventListener('click', function (e) {
+          var l = e.target.closest('[data-sec-link]'); if (l) show(l.getAttribute('data-sec-link'));
+        });
+        var cats = ['Food & Dining', 'Groceries', 'Commute', 'Shopping', 'Bills & Utilities', 'Rent', 'EMI', 'Investments', 'Medicine & Health', 'Entertainment', 'Travel', 'Education', 'Personal Care'];
+        var counts = [312, 96, 141, 88, 64, 11, 11, 22, 37, 29, 18, 4, 26];
+        document.getElementById('cats').innerHTML = cats.map(function (c, i) {
+          return '<div class="lrow lrow--click' + (c === 'Groceries' ? ' is-selected' : '') + '"><span class="ms drag">drag_indicator</span><span class="em-box">' + M.EM[c] + '</span>' +
+            '<span class="grow t-label truncate">' + c + '</span><span class="t-caption muted">' + counts[i] + '</span>' +
+            '<span class="row-actions"><span class="icon-btn icon-btn--sm icon-btn--plain"><span class="ms">edit</span></span></span><span class="ms muted" style="font-size:18px">chevron_right</span></div>';
+        }).join('');
+      },
+    };
+  </script>
+  <script src="assets/web.js"></script>
+</body>
+</html>

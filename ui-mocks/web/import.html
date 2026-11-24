@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Import</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="../assets/mock.css" />
+  <link rel="stylesheet" href="assets/web.css" />
+  <style>
+    .drop {
+      border: 1.5px dashed var(--border-strong); border-radius: var(--r-lg); background: var(--background-element);
+      display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); cursor: pointer;
+    }
+    .drop--big { flex-direction: column; justify-content: center; text-align: center; padding: var(--sp-7, 48px) var(--sp-4); gap: var(--sp-2); }
+    .drop.is-over { border-color: var(--accent); background: var(--accent-muted); }
+    .drop__icon { width: 44px; height: 44px; border-radius: 50%; background: var(--accent-muted); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .drop--big .drop__icon { width: 64px; height: 64px; }
+    .drop--big .drop__icon .ms { font-size: 30px; }
+    .drop.is-over .drop__icon { background: var(--accent); color: var(--on-accent); }
+
+    .fq { display: flex; flex-direction: column; }
+    .fq__row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: var(--sp-3); align-items: center; padding: var(--sp-3) 0; }
+    .fq__row + .fq__row { border-top: var(--hairline) solid var(--border); }
+    .fq__ico { width: 36px; height: 36px; border-radius: var(--r-sm); background: var(--background-selected); display: flex; align-items: center; justify-content: center; }
+    .fq__ico .ms { font-size: 20px; color: var(--text-secondary); }
+    .fq__ico--ok .ms { color: var(--income); } .fq__ico--warn .ms { color: var(--review); } .fq__ico--bad .ms { color: var(--spend); }
+    .fq__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .fq__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fq__extra { grid-column: 2 / -1; display: flex; gap: var(--sp-2); align-items: flex-start; flex-wrap: wrap; }
+    .fq__extra .field { flex: 1; min-width: 200px; max-width: 320px; }
+
+    .sumcard { position: sticky; top: 80px; display: flex; flex-direction: column; gap: var(--sp-3); }
+    .sum__row { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); }
+    .sum__row .ms { font-size: 16px; vertical-align: -3px; margin-right: 4px; }
+    .src-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-2); }
+    .src { display: flex; gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-3); border: var(--hairline) solid var(--border); border-radius: var(--r-md); background: var(--background-element); }
+    .src .ms { color: var(--text-secondary); font-size: 20px; }
+    .dup td { opacity: 0.55; }
+    .dup td.c-check { opacity: 1; }
+    .tbl .c-src { width: 150px; }
+    .tbl .c-st { width: 104px; }
+    @media (max-width: 1199px) { .imp-side { order: -1; } .sumcard { position: static; } }
+    @media (max-width: 719px) { .sumcard { position: static; } .drop--big { padding: var(--sp-6) var(--sp-3); } }
+    .imp-preview .t-row, .imp-preview .mrow { cursor: pointer; }
+    .w-panel__body { position: relative; }
+    .w-panel__body > * { flex-shrink: 0; }
+    /* With the detail panel docked, stack the summary under the table so Payee and Amount keep their room. */
+    @media (min-width: 1200px) and (max-width: 1679px) { body.has-panel .imp-grid { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+</head>
+<body class="w" data-nav="import" data-title="Import"
+  data-states="processing=Files being read|ready=Ready to save|preview-detail=Row details · not saved yet|duplicates=Some already imported|dup-detail=Duplicate row details|saved=Saved|saved-detail=Saved row details|empty=Nothing dropped yet|dragging=Dragging files over">
+  <div class="w-app">
+    <div class="w-col">
+      <div class="w-body">
+        <main class="w-main">
+          <div class="w-head">
+            <div class="w-head__copy">
+              <span class="t-title">Import statements</span>
+              <span class="t-small muted">Drop several files at once. They’re read in this browser; only the transactions are saved to your Drive file.</span>
+            </div>
+          </div>
+
+          <!-- Saved banner -->
+          <div class="banner banner--success banner--wrap" data-only="saved saved-detail"><span class="ms">check_circle</span>
+            <div class="banner__copy"><div class="t-small-em">Saved 186 transactions · import #14</div>
+              <div class="t-small muted">From 3 files, written to finance-live.db on Drive. 9 need a category.</div></div>
+            <a class="banner__action" href="activity.html?state=review">Review 9</a><span class="banner__action" style="color:var(--text-secondary)">Revert</span></div>
+
+          <!-- Empty: big drop zone -->
+          <div class="drop drop--big" data-only="empty dragging" id="bigdrop">
+            <span class="drop__icon"><span class="ms">upload_file</span></span>
+            <span class="t-heading" id="drop-title">Drop statements here</span>
+            <span class="t-small muted">or <span class="t-link">choose files</span> · .xlsx, .xls and password-protected PDF</span>
+          </div>
+
+          <div class="card card--lg" data-only="empty dragging">
+            <div class="card__head"><span class="t-heading">Supported statements</span><span class="t-caption muted">The format is detected automatically</span></div>
+            <div class="src-list">
+              <div class="src"><span class="ms">table_view</span><div class="col gap-0"><span class="t-label">Paytm UPI</span><span class="t-caption muted">.xlsx · may be locked</span></div></div>
+              <div class="src"><span class="ms">table_view</span><div class="col gap-0"><span class="t-label">Axis Bank</span><span class="t-caption muted">.xls / .xlsx</span></div></div>
+              <div class="src"><span class="ms">table_view</span><div class="col gap-0"><span class="t-label">Karur Vysya Bank</span><span class="t-caption muted">.xlsx</span></div></div>
+              <div class="src"><span class="ms">table_view</span><div class="col gap-0"><span class="t-label">SBI</span><span class="t-caption muted">.xlsx</span></div></div>
+              <div class="src"><span class="ms">picture_as_pdf</span><div class="col gap-0"><span class="t-label">Axis Credit Card</span><span class="t-caption muted">Locked PDF statement</span></div></div>
+            </div>
+          </div>
+
+          <div class="grid grid-main-side imp-grid" data-except="empty dragging">
+            <div class="col gap-4" style="min-width:0">
+              <div class="drop" data-except="saved saved-detail">
+                <span class="drop__icon"><span class="ms">add</span></span>
+                <div class="grow col gap-0"><span class="t-label">Add more files</span><span class="t-caption muted">Drop here or click to choose</span></div>
+              </div>
+
+              <div class="card card--lg">
+                <div class="card__head" style="margin-bottom:0"><span class="t-heading">Files</span><span class="t-caption muted" id="fq-count"></span></div>
+                <div class="fq" id="fq"></div>
+              </div>
+
+              <div class="card card--lg card--none imp-preview" data-except="processing" style="padding:0">
+                <div class="row row--between wrap" style="padding:var(--sp-3) var(--sp-4) 0;gap:var(--sp-2)">
+                  <div class="dp-tabs" style="margin:0">
+                    <span class="dp-tab is-selected" id="tab-new">All new <span class="muted" id="n-new">195</span></span>
+                    <span class="dp-tab" id="tab-rev">Needs review <span class="muted">9</span></span>
+                    <span class="dp-tab" id="tab-dup">Duplicates <span class="muted" id="n-dup">0</span></span>
+                  </div>
+                  <span class="t-caption muted hide-phone">Click a row for details, or a category to change it</span>
+                </div>
+                <div class="tbl-wrap hide-phone" style="border:0;border-radius:0">
+                  <table class="tbl">
+                    <thead><tr><th class="c-check"><span class="cb is-on"><span class="ms">check</span></span></th><th class="c-date">Date</th><th>Payee</th><th class="c-cat">Category</th><th class="c-src hide-tablet hide-with-panel">From file</th><th class="c-amt num">Amount</th></tr></thead>
+                    <tbody id="prev"></tbody>
+                  </table>
+                  <div class="t-small muted" id="prev-foot" style="text-align:center;padding:var(--sp-3)"></div>
+                </div>
+                <div class="mlist only-phone" id="mprev" style="padding:0 var(--sp-3) var(--sp-2)"></div>
+              </div>
+            </div>
+
+            <div class="imp-side">
+              <div class="card card--lg sumcard">
+                <span class="t-overline muted">SUMMARY</span>
+                <div class="sum__row"><span class="t-small">Files</span><span class="t-small-em" id="s-files">3 of 5 ready</span></div>
+                <div class="sum__row"><span class="t-small"><span class="ms c-income">add_circle</span>New transactions</span><span class="t-small-em tabular" id="s-new">195</span></div>
+                <div class="sum__row"><span class="t-small"><span class="ms c-review">flag</span>Need a category</span><span class="t-small-em tabular">9</span></div>
+                <div class="sum__row"><span class="t-small"><span class="ms muted">content_copy</span>Already imported</span><span class="t-small-em tabular" id="s-dup">0 · skipped</span></div>
+                <div class="sum__row"><span class="t-small"><span class="ms muted">link</span>Card bills matched</span><span class="t-small-em tabular">2</span></div>
+                <div style="border-top:var(--hairline) solid var(--border)"></div>
+                <div class="sum__row"><span class="t-small muted">Money out</span><span class="t-small-em tabular c-spend">₹1,46,820.40</span></div>
+                <div class="sum__row"><span class="t-small muted">Money in</span><span class="t-small-em tabular c-income">₹1,96,400.00</span></div>
+                <div class="sum__row"><span class="t-small muted">Date range</span><span class="t-small-em">1 Sep – 22 Nov 2026</span></div>
+                <span class="btn btn--primary btn--block" id="save-btn"><span class="ms">cloud_upload</span>Save 195 transactions</span>
+                <span class="t-caption muted" id="save-note">Waiting for 2 files. You can save now; locked files stay in the list.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card card--lg" data-except="processing ready preview-detail duplicates dup-detail">
+            <div class="card__head"><span class="t-heading">Recent imports</span><a class="t-link" href="settings.html?state=drive">History</a></div>
+            <div class="list">
+              <div class="lrow"><span class="badge badge--accent">#14</span><div class="grow col gap-0"><span class="t-label">3 files · 186 transactions</span><span class="t-caption muted">Today, 9:41 PM · this browser</span></div><span class="btn btn--sm" data-only="saved saved-detail">Revert</span></div>
+              <div class="lrow"><span class="badge">#13</span><div class="grow col gap-0"><span class="t-label">Axis Credit Card · Oct statement · 41 transactions</span><span class="t-caption muted">2 Nov 2026 · Pixel 8</span></div></div>
+              <div class="lrow"><span class="badge">#12</span><div class="grow col gap-0"><span class="t-label">Paytm UPI · 312 transactions</span><span class="t-caption muted">1 Oct 2026 · Pixel 8</span></div></div>
+            </div>
+            <span class="t-caption muted" style="margin-top:var(--sp-2);display:block">Revert removes the most recent import, including any edits made to those transactions since.</span>
+          </div>
+        </main>
+
+        <!-- Row detail panel: docked (desktop) · drawer (tablet) · full screen (phone) -->
+        <aside class="w-panel" aria-label="Transaction detail" id="panel"></aside>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.PAGE = {
+      init: function (state) {
+        var M = window.MOCK;
+        // Row-detail states reuse the screen they open from.
+        var view = state;
+        state = ({ 'preview-detail': 'ready', 'saved-detail': 'saved', 'dup-detail': 'duplicates' })[view] || view;
+        if (state === 'dragging') {
+          document.getElementById('bigdrop').classList.add('is-over');
+          document.getElementById('drop-title').textContent = 'Drop 3 files to import';
+        }
+        var FILES = {
+          ok1: { ico: 'table_view', k: 'ok', name: 'Paytm_UPI_Statement_Sep-Nov_2026.xlsx', sub: 'Paytm UPI · HDFC Bank - 09 · 142 transactions · 1 Sep – 22 Nov', right: '<span class="badge badge--income"><span class="ms">check</span>Ready</span>' },
+          ok2: { ico: 'table_view', k: 'ok', name: 'SBI_Savings_Q3.xlsx', sub: 'SBI · SBI Savings · 12 transactions', right: '<span class="badge badge--income"><span class="ms">check</span>Ready</span>' },
+          ok3: { ico: 'picture_as_pdf', k: 'ok', name: 'Axis_CC_Statement_Nov2026.pdf', sub: 'Axis Credit Card · 41 transactions · 2 card bills matched', right: '<span class="badge badge--income"><span class="ms">check</span>Ready</span>' },
+          reading: { ico: 'progress_activity', k: '', name: 'AXIS_Account_Statement.xls', sub: 'Reading… 60%', right: '<span class="icon-btn icon-btn--sm icon-btn--plain"><span class="ms">close</span></span>', extra: '<div class="progress grow" style="max-width:320px"><span style="width:60%"></span></div>' },
+          locked: { ico: 'lock', k: 'warn', name: 'Axis_CC_Statement_Oct2026.pdf', sub: 'Password protected · Axis Credit Card', right: '<span class="badge badge--review">Locked</span>',
+            extra: '<div class="field"><div class="field__box field__box--sm is-focused"><span class="placeholder">Statement password</span></div><span class="field__help">Usually your name + date of birth. Not saved.</span></div><span class="btn btn--sm btn--primary">Unlock</span>' },
+          wrong: { ico: 'lock', k: 'bad', name: 'Paytm_UPI_Statement_Aug_2026.xlsx', sub: 'Password protected · Paytm UPI', right: '<span class="badge badge--spend">Wrong password</span>',
+            extra: '<div class="field"><div class="field__box field__box--sm is-error"><span>••••••••</span></div><span class="field__error">That password didn’t open the file.</span></div><span class="btn btn--sm btn--primary">Try again</span>' },
+          unknown: { ico: 'help', k: 'bad', name: 'statement (3).csv', sub: 'Not a supported statement. Export it from your bank as .xlsx and drop it again.', right: '<span class="icon-btn icon-btn--sm icon-btn--plain" title="Remove"><span class="ms">delete</span></span>' },
+          dupfile: { ico: 'content_copy', k: 'warn', name: 'Paytm_UPI_Statement_Sep-Oct_2026.xlsx', sub: 'Paytm UPI · all 96 transactions are already in your data', right: '<span class="badge badge--review">All duplicates</span>' },
+        };
+        var list = {
+          processing: ['ok1', 'reading', 'locked', 'wrong', 'unknown'],
+          ready: ['ok1', 'ok2', 'ok3'],
+          duplicates: ['ok1', 'ok2', 'dupfile'],
+          saved: ['ok1', 'ok2', 'ok3'],
+        }[state] || [];
+        document.getElementById('fq').innerHTML = list.map(function (k) {
+          var f = FILES[k];
+          var right = state === 'saved' ? '<span class="badge badge--accent"><span class="ms">cloud_done</span>Saved</span>' : f.right;
+          return '<div class="fq__row"><span class="fq__ico' + (f.k ? ' fq__ico--' + f.k : '') + '"><span class="ms">' + f.ico + '</span></span>' +
+            '<div class="fq__main"><span class="t-label fq__name">' + f.name + '</span><span class="t-caption muted">' + f.sub + '</span></div>' + right +
+            (f.extra ? '<div class="fq__extra">' + f.extra + '</div>' : '') + '</div>';
+        }).join('');
+        document.getElementById('fq-count').textContent = list.length + ' files';
+
+        if (state === 'ready' || state === 'saved') {
+          document.getElementById('s-files').textContent = '3 of 3 ready';
+          document.getElementById('save-note').textContent = 'Saves to Drive as one import, so you can revert it in one step.';
+        }
+        if (state === 'duplicates') {
+          document.getElementById('s-files').textContent = '3 of 3 read';
+          document.getElementById('s-dup').textContent = '96 · skipped';
+          document.getElementById('n-dup').textContent = '96';
+          document.getElementById('tab-new').classList.remove('is-selected');
+          document.getElementById('tab-dup').classList.add('is-selected');
+          document.getElementById('save-note').textContent = 'Duplicates are matched by date, amount and reference number and won’t be saved again.';
+        }
+        if (state === 'processing') {
+          document.getElementById('s-files').textContent = '1 of 5 ready';
+          document.getElementById('s-new').textContent = '142';
+          document.getElementById('save-btn').innerHTML = '<span class="ms">cloud_upload</span>Save 142 transactions';
+          document.getElementById('save-note').textContent = 'Waiting for 3 files. Unlock or remove them, or save what’s ready now.';
+        }
+        if (state === 'saved') {
+          var b = document.getElementById('save-btn');
+          b.className = 'btn btn--block'; b.innerHTML = '<span class="ms">add</span>Import more files';
+        }
+
+        var dup = state === 'duplicates';
+        var rows = M.TXNS.slice(0, 14).map(function (t, i) {
+          var src = t.acc === 'Axis Credit Card' ? 'Axis CC · Nov' : (i % 5 === 4 ? 'SBI · Q3' : 'Paytm UPI');
+          return { t: t, src: src };
+        });
+        var openRow = ({ 'preview-detail': 0, 'saved-detail': 0, 'dup-detail': 0 })[view];
+        document.getElementById('prev').innerHTML = rows.map(function (r, i) {
+          var t = r.t; var rev = t.flag === 'review';
+          var pill = rev ? '<span class="cat-pill cat-pill--review"><span class="ms" style="font-size:14px">flag</span><span>Pick a category</span></span>'
+            : '<span class="cat-pill"><span class="em">' + t.em + '</span><span>' + t.cat + (t.sub ? ' · ' + t.sub : '') + '</span></span>';
+          return '<tr class="t-row' + (dup ? ' dup' : '') + (i === openRow ? ' is-active' : '') + '" data-row="' + i + '"><td class="c-check"><span class="cb' + (dup ? '' : ' is-on') + '"><span class="ms">check</span></span></td>' +
+            '<td class="t-small muted">' + M.dshort(t.date) + '</td>' +
+            '<td><div class="col gap-0" style="min-width:0"><span class="t-label truncate">' + t.payee + '</span>' + (dup ? '<span class="t-caption muted">Already imported · #12</span>' : '') + '</div></td>' +
+            '<td>' + pill + '</td><td class="t-small muted hide-tablet hide-with-panel">' + r.src + '</td>' +
+            '<td class="num t-small-em ' + (t.amt > 0 ? 'c-income' : '') + '">' + M.inr(t.amt, { sign: t.amt > 0 }) + '</td></tr>';
+        }).join('');
+        document.getElementById('prev-foot').textContent = 'Showing 14 of ' + (dup ? '96' : '195') + ' · scroll for more';
+        document.getElementById('mprev').innerHTML = rows.slice(0, 8).map(function (r, i) {
+          var t = r.t;
+          return '<div class="mrow" role="button" data-row="' + i + '"' + (dup ? ' style="opacity:.55"' : '') + '><span class="mrow__glyph">' + (t.flag === 'review' ? '❔' : t.em) + '</span><div class="mrow__left"><span class="t-label">' + t.payee + '</span>' +
+            '<span class="t-caption ' + (t.flag === 'review' ? 'c-review' : 'muted') + '">' + (t.flag === 'review' ? 'Pick a category' : t.cat) + ' · ' + M.dshort(t.date) + '</span></div>' +
+            '<div class="mrow__right"><span class="t-small-em ' + (t.amt > 0 ? 'c-income' : '') + '">' + M.inr(t.amt, { sign: t.amt > 0 }) + '</span><span class="t-caption muted">' + r.src + '</span></div></div>';
+        }).join('');
+
+        // ---- Row detail panel: an unsaved preview row, or (saved / duplicate) the Activity transaction panel
+        var panel = document.getElementById('panel');
+        function time12(hm) { var p = hm.split(':'); var h = Number(p[0]); return ((h % 12) || 12) + ':' + p[1] + ' ' + (h < 12 ? 'AM' : 'PM'); }
+        function statement(r) {
+          var t = r.t;
+          var file = r.src === 'Axis CC · Nov' ? ['Axis_CC_Statement_Nov2026.pdf', 'Axis Credit Card'] : r.src === 'SBI · Q3' ? ['SBI_Savings_Q3.xlsx', 'SBI'] : ['Paytm_UPI_Statement_Sep-Nov_2026.xlsx', 'Paytm UPI'];
+          var upi = r.src === 'Paytm UPI';
+          var slug = t.payee.toLowerCase().replace(/[^a-z]/g, '').slice(0, 12);
+          return {
+            file: file[0], format: file[1],
+            vpa: upi ? (t.id === 1301 ? 'zomato.order@hdfcbank' : slug + '@ybl') : '',
+            ref: upi || r.src === 'SBI · Q3' ? String(633014228519 - (1301 - t.id) * 7313) : '',
+            order: t.id === 1301 ? 'T2611222014385521' : '',
+            tag: upi ? (t.id === 1301 ? '#Food' : '') : '',
+            raw: (t.amt < 0 ? 'Paid to ' : 'Received from ') + t.payee,
+            remarks: t.id === 1301 ? 'Dinner order' : '',
+          };
+        }
+        function catCard(t, review, sub, extra) {
+          return '<div class="dp-section"><span class="t-overline muted">CATEGORY</span>' +
+            '<div class="dp-cat' + (review ? ' dp-cat--review' : '') + '"><span class="dp-cat__em">' + (review ? '❔' : t.em) + '</span>' +
+            '<div class="grow col gap-0" style="min-width:0"><span class="t-label truncate">' + (review ? 'Needs a category' : t.cat + (t.sub ? ' · ' + t.sub : '')) + '</span>' +
+            '<span class="t-caption ' + (review ? 'c-review' : 'muted') + '">' + (review ? 'Couldn’t match this payee. Pick one and it will be remembered.' : sub) + '</span></div>' +
+            extra + '</div></div>';
+        }
+        function txnSection(t, s) {
+          var out = t.amt < 0;
+          return '<div class="dp-section"><span class="t-overline muted">TRANSACTION</span><div class="dl">' +
+            '<div class="dl__row"><span class="dl__k">Direction</span><span class="dl__v">' + (out ? 'Outgoing' : 'Incoming') + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Amount</span><span class="dl__v tabular">' + M.inr(Math.abs(t.amt)) + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Date and time</span><span class="dl__v">' + M.dlong(t.date) + ', ' + time12(t.time) + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">' + (out ? 'Paid to' : 'Received from') + '</span><span class="dl__v">' + t.payee + (s.vpa ? ' · ' + s.vpa : '') + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Account</span><span class="dl__v">' + t.acc + '</span></div></div></div>';
+        }
+        function head(t, amtCls) {
+          var out = t.amt < 0;
+          return '<div class="dp-head"><div class="dp-title"><span class="dp-badge" style="background:var(--' + (out ? 'spend' : 'income') + '-muted);color:var(--' + (out ? 'spend' : 'income') + ')"><span class="ms">' + (out ? 'north_east' : 'south_west') + '</span></span>' +
+            '<span class="t-heading grow truncate">' + t.payee + '</span><span class="dp-amount' + amtCls + '">' + M.inr(t.amt, { sign: true }) + '</span></div>' +
+            '<span class="t-small muted">' + (out ? 'Money out' : 'Money in') + ' · ' + M.dlong(t.date) + ' · ' + time12(t.time) + '</span></div>';
+        }
+        function previewPanel(r) {
+          var t = r.t; var s = statement(r); var review = t.flag === 'review';
+          var code = function (v) { return '<span class="dl__v t-code" style="font-size:12px">' + v + '</span>'; };
+          panel.innerHTML =
+            '<div class="w-panel__bar"><span class="t-overline muted">NOT SAVED YET</span>' +
+            '<span class="icon-btn icon-btn--sm icon-btn--plain" data-close-panel aria-label="Close"><span class="ms">close</span></span></div>' +
+            '<div class="w-panel__body">' + head(t, t.amt > 0 ? ' c-income' : '') +
+            '<div class="banner banner--wrap"><span class="ms">info</span><div class="banner__copy t-small">This row isn’t saved yet. After you save the import, it opens like any transaction in Activity, with notes, people, loans and card bills.</div></div>' +
+            catCard(t, review, 'Auto-categorized from payee', '<span class="btn btn--sm">' + (review ? 'Pick' : 'Change') + '</span>') +
+            '<div class="dp-section"><span class="t-overline muted">THIS IMPORT</span><div class="toggle-chips"><span class="tchip is-on"><span class="ms">check</span>Will be saved</span></div></div>' +
+            txnSection(t, s) +
+            '<div class="dp-section"><span class="t-overline muted">FROM THE STATEMENT</span><div class="dl">' +
+            '<div class="dl__row"><span class="dl__k">File</span><span class="dl__v">' + s.file + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Format</span><span class="dl__v">' + s.format + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">UPI reference</span>' + code(s.ref || '—') + '</div>' +
+            (s.order ? '<div class="dl__row"><span class="dl__k">Order ID</span>' + code(s.order) + '</div>' : '') +
+            (s.tag ? '<div class="dl__row"><span class="dl__k">Tag</span><span class="dl__v">' + s.tag + '</span></div>' : '') +
+            '<div class="dl__row"><span class="dl__k">Original text</span><span class="dl__v">' + s.raw + '</span></div>' +
+            (s.remarks ? '<div class="dl__row"><span class="dl__k">Remarks</span><span class="dl__v">' + s.remarks + '</span></div>' : '') +
+            '</div></div></div>' +
+            '<div class="w-panel__foot"><span class="save-note t-caption grow"><span class="ms">info</span>Saved with the rest of this import</span></div>';
+        }
+        function savedPanel(r, dupRow) {
+          var t = r.t; var s = statement(r); var out = t.amt < 0; var review = t.flag === 'review';
+          var batch = dupRow ? '#12 · 1 Oct 2026' : '#14 · 22 Nov 2026';
+          var chips = out
+            ? [['swap_horiz', 'Self-transfer', t.flag === 'self'], ['group', 'Money lent', false], ['credit_card', 'Card bill', t.flag === 'card']]
+            : [['undo', 'Refund', t.flag === 'refund'], ['swap_horiz', 'Self-transfer', false], ['group', 'Money lent', t.flag === 'lent']];
+          panel.innerHTML =
+            '<div class="w-panel__bar"><span class="t-overline muted">TRANSACTION</span><span class="row gap-1">' +
+            '<a class="btn btn--sm btn--ghost hide-phone" href="' + M.withParams('activity.html') + '">Open in Activity<span class="ms">arrow_forward</span></a>' +
+            '<span class="icon-btn icon-btn--sm icon-btn--plain" data-close-panel aria-label="Close"><span class="ms">close</span></span></span></div>' +
+            '<div class="w-panel__body" data-tabs>' + head(t, out ? ' c-spend' : ' c-income') +
+            '<div class="dp-tabs" role="tablist"><button class="dp-tab is-selected" data-tab="ov">Overview</button><button class="dp-tab" data-tab="dt">Details</button></div>' +
+            '<div class="col gap-4" data-panel="ov">' +
+            catCard(t, review, 'Auto-categorized from payee', '<span class="anchor"><span class="btn btn--sm">' + (review ? 'Pick' : 'Change') + '<span class="kbd" style="margin-left:4px">e</span></span></span>' +
+              '<span class="icon-btn icon-btn--sm" title="Re-categorize"><span class="ms">refresh</span></span>') +
+            '<div class="dp-section"><span class="t-overline muted">HOW IT’S COUNTED</span><div class="toggle-chips">' +
+            chips.map(function (c) { return '<span class="tchip' + (c[2] ? ' is-on' : '') + '"><span class="ms">' + (c[2] ? 'check' : c[0]) + '</span>' + c[1] + '</span>'; }).join('') + '</div></div>' +
+            '<div class="dp-section"><div class="row row--between"><span class="t-overline muted">NOTES</span></div>' +
+            '<div class="note-box note-box--empty"><span class="ms ms-16">edit</span><span class="t-small">Add a note…</span></div></div>' +
+            '<div class="grid grid-2" style="gap:var(--sp-2)">' +
+            '<div class="field"><span class="field__label t-small">For</span><span class="field__box field__box--sm">' + (t.who || 'Not set') + '<span class="grow"></span><span class="ms muted">expand_more</span></span></div>' +
+            '<div class="field"><span class="field__label t-small">Payment mode</span><span class="field__box field__box--sm">' + (t.acc.indexOf('Credit') >= 0 ? 'Credit card' : 'UPI') + '<span class="grow"></span><span class="ms muted">expand_more</span></span></div></div>' +
+            '<div class="lrow lrow--click card card--none" data-tab="dt" style="padding:var(--sp-2) var(--sp-3)"><span class="ms muted">description</span><div class="grow col gap-0" style="min-width:0"><span class="t-label">Statement details</span><span class="t-caption muted truncate">' + s.format + (s.ref ? ', UPI reference' : '') + ', original text</span></div><span class="ms muted">chevron_right</span></div>' +
+            '</div>' +
+            '<div class="col gap-4" data-panel="dt" hidden>' + txnSection(t, s) +
+            '<div class="dp-section"><span class="t-overline muted">PROVENANCE</span><div class="dl">' +
+            '<div class="dl__row"><span class="dl__k">Source</span><span class="dl__v">' + s.format + ' statement</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Imported from</span><span class="dl__v">' + s.file + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">Import batch</span><span class="dl__v">' + batch + '</span></div>' +
+            '<div class="dl__row"><span class="dl__k">UPI reference</span><span class="dl__v t-code" style="font-size:12px">' + (s.ref || '—') + '</span></div>' +
+            (s.order ? '<div class="dl__row"><span class="dl__k">Order ID</span><span class="dl__v t-code" style="font-size:12px">' + s.order + '</span></div>' : '') +
+            '<div class="dl__row"><span class="dl__k">Original text</span><span class="dl__v">' + s.raw + '</span></div>' +
+            (s.remarks ? '<div class="dl__row"><span class="dl__k">Imported remarks</span><span class="dl__v">' + s.remarks + '</span></div>' : '') +
+            '<div class="dl__row"><span class="dl__k">Record ID</span><span class="dl__v">#' + t.id + '</span></div></div></div>' +
+            '<span class="btn btn--danger btn--sm" style="align-self:flex-start"><span class="ms">delete</span>Delete transaction</span>' +
+            '</div></div>' +
+            '<div class="w-panel__foot"><span class="save-note t-caption grow"><span class="ms">cloud_done</span>Changes save to Drive automatically</span></div>';
+          M.wireTabs(panel);
+        }
+        function open(i) {
+          if (state === 'processing' || !rows[i]) return;
+          var all = document.querySelectorAll('[data-row]');
+          for (var k = 0; k < all.length; k++) all[k].classList.toggle('is-active', Number(all[k].getAttribute('data-row')) === i);
+          if (state === 'saved') savedPanel(rows[i], false);
+          else if (dup) savedPanel(rows[i], true);
+          else previewPanel(rows[i]);
+          M.openPanel();
+        }
+        if (openRow !== undefined) open(openRow);
+        document.addEventListener('click', function (e) {
+          var r = e.target.closest('[data-row]');
+          if (r && !e.target.closest('.cb, .cat-pill')) open(Number(r.getAttribute('data-row')));
+        });
+        document.addEventListener('panelclose', function () {
+          var all = document.querySelectorAll('[data-row].is-active');
+          for (var k = 0; k < all.length; k++) all[k].classList.remove('is-active');
+        });
+      },
+    };
+  </script>
+  <script src="assets/web.js"></script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="../assets/mock.css" />
+  <link rel="stylesheet" href="assets/web.css" />
+  <style>
+    body { background: var(--page-bg, var(--background)); }
+    .si { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .si__hero { background: var(--accent-muted); border-right: var(--hairline) solid var(--border); padding: 56px; display: flex; flex-direction: column; gap: var(--sp-5); justify-content: center; }
+    .si__main { display: flex; align-items: center; justify-content: center; padding: var(--sp-5); }
+    .si__card { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: var(--sp-4); }
+    .si__pts { display: flex; flex-direction: column; gap: var(--sp-3); max-width: 460px; }
+    .si__pt { display: flex; gap: var(--sp-3); align-items: flex-start; }
+    .si__pt .ms { color: var(--accent); font-size: 22px; }
+    .gbtn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 44px; border-radius: var(--r-md); border: var(--hairline) solid var(--border-strong); background: var(--background-element); font-weight: 500; cursor: pointer; }
+    .gbtn__g { width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(#ea4335 0 25%, #fbbc05 0 50%, #34a853 0 75%, #4285f4 0); position: relative; }
+    .gbtn__g::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--background-element); }
+    .steps { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .step { display: flex; align-items: center; gap: var(--sp-2); }
+    .step .ms { font-size: 18px; }
+    .step--done .ms { color: var(--income); }
+    .step--now .ms { color: var(--accent); animation: spin 1s linear infinite; }
+    .step--todo { color: var(--text-secondary); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .step--now .ms { animation: none; } }
+    .choice { display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-3); border: var(--hairline) solid var(--border); border-radius: var(--r-lg); background: var(--background-element); cursor: pointer; }
+    .choice:hover { border-color: var(--accent); }
+    .choice .em-box { width: 36px; height: 36px; border-radius: var(--r-sm); background: var(--accent-muted); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .si__brand { display: none !important; }
+    @media (max-width: 1023px) { .si__brand { display: flex !important; } .si { grid-template-columns: minmax(0, 1fr); } .si__hero { display: none; } .si__main { align-items: flex-start; padding-top: 64px; } }
+    @media (max-width: 719px) { .si__main { padding: 40px var(--sp-4) var(--sp-5); } }
+  </style>
+</head>
+<body class="w" data-states="signin=Sign in|loading=Loading from Drive|firstrun=No data file yet|schema=Phone app is newer|permission=Drive access missing">
+  <div class="si">
+    <section class="si__hero">
+      <div class="w-brand" style="padding:0"><span class="w-brand__mark"><span class="ms">account_balance_wallet</span></span><span class="t-heading">Finance Tracker</span></div>
+      <span class="t-display" style="max-width:460px">Your spending, on the big screen.</span>
+      <div class="si__pts">
+        <div class="si__pt"><span class="ms">file_download</span><div class="col gap-0"><span class="t-label">Import many statements at once</span><span class="t-small muted">Drop a quarter’s worth of bank, UPI and card files and review them in one table.</span></div></div>
+        <div class="si__pt"><span class="ms">sync</span><div class="col gap-0"><span class="t-label">Same data as your phone</span><span class="t-small muted">Both read and write one file on your Google Drive. Use one at a time.</span></div></div>
+        <div class="si__pt"><span class="ms">shield</span><div class="col gap-0"><span class="t-label">Nothing kept in this browser</span><span class="t-small muted">Data loads into this tab from Drive and is gone when you close it.</span></div></div>
+      </div>
+    </section>
+
+    <main class="si__main">
+      <!-- Sign in -->
+      <div class="si__card" data-only="signin">
+        <div class="w-brand si__brand" style="padding:0"><span class="w-brand__mark"><span class="ms">account_balance_wallet</span></span><span class="t-heading">Finance Tracker</span></div>
+        <div class="col gap-1"><span class="t-title">Sign in</span><span class="t-small muted">Use the Google account you use in the phone app.</span></div>
+        <div class="gbtn"><span class="gbtn__g"></span>Continue with Google</div>
+        <div class="card card--subtle col gap-2">
+          <div class="row gap-2"><span class="ms ms-14 c-accent">lock</span><span class="t-small-em">What the app can see</span></div>
+          <span class="t-small muted">Only the files it created in your Drive. Not your other files, email or contacts.</span>
+        </div>
+        <span class="t-caption muted">Needs an internet connection. Your data is never sent anywhere except your own Google Drive.</span>
+      </div>
+
+      <!-- Loading -->
+      <div class="si__card" data-only="loading">
+        <div class="row gap-3"><span class="avatar" style="width:40px;height:40px">PS</span><div class="col gap-0"><span class="t-label">Priya Sharma</span><span class="t-caption muted">priya.sharma@gmail.com</span></div></div>
+        <div class="col gap-1"><span class="t-title">Opening your data</span><span class="t-small muted">Downloading finance-live.db from Drive (2.4 MB).</span></div>
+        <div class="progress"><span style="width:68%"></span></div>
+        <div class="steps">
+          <div class="step step--done"><span class="ms">check_circle</span><span class="t-small">Signed in</span></div>
+          <div class="step step--done"><span class="ms">check_circle</span><span class="t-small">Found finance-live.db · saved by Pixel 8 today, 7:15 PM</span></div>
+          <div class="step step--now"><span class="ms">progress_activity</span><span class="t-small">Downloading… 1.6 of 2.4 MB</span></div>
+          <div class="step step--todo"><span class="ms">radio_button_unchecked</span><span class="t-small">Checking the data</span></div>
+        </div>
+        <div class="banner banner--review banner--wrap"><span class="ms">phone_android</span><div class="banner__copy t-small">Close the phone app while you use the website, so only one of them saves changes.</div></div>
+      </div>
+
+      <!-- First run -->
+      <div class="si__card" data-only="firstrun">
+        <div class="col gap-1"><span class="t-title">No data file yet</span><span class="t-small muted">There’s no finance-live.db in priya.sharma@gmail.com’s Drive.</span></div>
+        <div class="choice"><span class="em-box"><span class="ms">phone_android</span></span><div class="grow col gap-1"><span class="t-label">I use the phone app</span><span class="t-small muted">Open it, go to Settings › Drive &amp; backups and tap <b>Back up now</b>. Then reload this page.</span></div></div>
+        <div class="choice"><span class="em-box"><span class="ms">add</span></span><div class="grow col gap-1"><span class="t-label">Start fresh on the web</span><span class="t-small muted">Creates an empty file with the default categories. The phone app can use it too.</span></div></div>
+        <div class="row gap-2"><span class="btn btn--primary"><span class="ms">refresh</span>Check again</span><span class="btn btn--ghost">Use a different account</span></div>
+      </div>
+
+      <!-- Newer schema -->
+      <div class="si__card" data-only="schema">
+        <span class="w-dialog__icon w-dialog__icon--review"><span class="ms">update</span></span>
+        <div class="col gap-1"><span class="t-title">The website needs an update</span><span class="t-small muted">Your data file was saved by a newer phone app (data version 8). This website understands up to version 7, so it won’t open the file and risk damaging it.</span></div>
+        <div class="card card--subtle col gap-2">
+          <div class="row row--between"><span class="t-small muted">File version</span><span class="t-small-em">8 · Pixel 8, today</span></div>
+          <div class="row row--between"><span class="t-small muted">Website supports</span><span class="t-small-em">up to 7</span></div>
+        </div>
+        <div class="row gap-2"><span class="btn btn--primary"><span class="ms">refresh</span>Reload website</span><span class="btn btn--ghost">Sign out</span></div>
+        <span class="t-caption muted">Nothing was changed on Drive.</span>
+      </div>
+
+      <!-- Permission -->
+      <div class="si__card" data-only="permission">
+        <span class="w-dialog__icon w-dialog__icon--danger"><span class="ms">folder_off</span></span>
+        <div class="col gap-1"><span class="t-title">Drive access wasn’t given</span><span class="t-small muted">You signed in, but the box that lets the app use its own Drive files was left unticked. Without it the website can’t open your data.</span></div>
+        <div class="gbtn"><span class="gbtn__g"></span>Grant Drive access</div>
+        <span class="t-caption muted">On Google’s screen, tick “See, edit, create and delete only the specific Google Drive files you use with this app”.</span>
+        <span class="btn btn--ghost" style="align-self:flex-start">Sign out</span>
+      </div>
+    </main>
+  </div>
+  <script src="assets/web.js"></script>
+</body>
+</html>

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lending</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
+  <link rel="stylesheet" href="../assets/mock.css" />
+  <link rel="stylesheet" href="assets/web.css" />
+  <style>
+    .ln-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 140px 140px 120px; gap: var(--sp-3); align-items: center; padding: var(--sp-3) var(--sp-4); cursor: pointer; }
+    .ln-row + .ln-row { border-top: var(--hairline) solid var(--border); }
+    .ln-row:hover { background: var(--background-selected); }
+    .ln-row.is-active { background: var(--accent-muted); box-shadow: inset 3px 0 0 var(--accent); }
+    .ln-head { padding-top: var(--sp-2); padding-bottom: var(--sp-2); cursor: default; }
+    .ln-head:hover { background: none; }
+    .ln-num { text-align: right; font-variant-numeric: tabular-nums; }
+    .hist { display: flex; flex-direction: column; }
+    .hist__row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: var(--sp-2); align-items: center; padding: var(--sp-2) 0; }
+    .hist__row + .hist__row { border-top: var(--hairline) solid var(--border); }
+    .hist__dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--background-selected); }
+    .hist__dot .ms { font-size: 16px; }
+    .split { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--background-selected); }
+    .split > span { display: block; height: 100%; }
+    @media (max-width: 1199px) { .ln-row { grid-template-columns: 40px minmax(0, 1fr) 130px 110px; } .ln-row > .c5 { display: none; } }
+    body.has-panel .ln-row { grid-template-columns: 40px minmax(0, 1fr) 130px; }
+    body.has-panel .ln-row > .c4, body.has-panel .ln-row > .c5 { display: none; }
+    @media (min-width: 1680px) { body.has-panel .ln-row { grid-template-columns: 40px minmax(0, 1fr) 140px 140px; } body.has-panel .ln-row > .c4 { display: block; } }
+    .ln-slice { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 32px; gap: var(--sp-2); align-items: center; }
+    .ln-slice .field__box > span:first-child { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    @media (max-width: 719px) { .ln-slice { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .ln-slice > :first-child { grid-column: 1 / -1; } }
+    @media (max-width: 719px) { .ln-row, body.has-panel .ln-row { grid-template-columns: 40px minmax(0, 1fr) auto; padding: var(--sp-3); } .ln-row > .c4, .ln-row > .c5 { display: none; } .ln-head { display: none; } }
+  </style>
+</head>
+<body class="w" data-nav="lending" data-title="Lending"
+  data-states="default=People · loan open|loans=Loans list|new-loan=New loan dialog|entry=Add entry dialog|attach-error=Attach existing · credit error|attach-split=Attach existing · split across loans|empty=No loans yet">
+  <template id="top-actions">
+    <span class="btn btn--sm btn--primary"><span class="ms">add</span><span class="hide-phone">New loan</span></span>
+  </template>
+
+  <div class="w-app">
+    <div class="w-col">
+      <div class="w-body">
+        <main class="w-main">
+          <div class="w-head" data-except="empty">
+            <div class="w-head__copy">
+              <span class="t-title">Lending</span>
+              <span class="t-small muted">Money you lent or borrowed, with repayments and interest. Transfers stay out of your spending.</span>
+            </div>
+            <div class="seg" style="width:220px"><span class="seg__item" id="seg-people">People</span><span class="seg__item" id="seg-loans">Loans</span></div>
+          </div>
+
+          <div class="grid grid-4" data-except="empty">
+            <div class="card card--lg kpi"><span class="t-overline muted">OTHERS OWE YOU</span><span class="kpi__value c-income">₹1,45,000.00</span><span class="t-caption muted">4 open loans · 3 people</span></div>
+            <div class="card card--lg kpi"><span class="t-overline muted">YOU OWE</span><span class="kpi__value c-spend">₹30,000.00</span><span class="t-caption muted">1 open loan</span></div>
+            <div class="card card--lg kpi"><span class="t-overline muted">INTEREST RECEIVED</span><span class="kpi__value c-accent">₹8,400.00</span><span class="t-caption muted">In 2026</span></div>
+            <div class="card card--lg kpi"><span class="t-overline muted">REPAID THIS YEAR</span><span class="kpi__value">₹62,000.00</span><span class="t-caption muted">Across 6 loans</span></div>
+          </div>
+
+          <div class="toolbar" data-except="empty">
+            <span class="chip chip--btn is-set">Open<span class="ms">expand_more</span></span>
+            <span class="chip chip--btn">Lent &amp; borrowed<span class="ms">expand_more</span></span>
+            <span class="chip chip--btn">Sort: Outstanding<span class="ms">expand_more</span></span>
+          </div>
+
+          <div class="card card--none" data-except="empty" style="padding:0;overflow:clip">
+            <div class="ln-row ln-head t-caption muted" id="ln-head"></div>
+            <div id="ln-list"></div>
+          </div>
+
+          <div class="empty" data-only="empty" style="margin-top:var(--sp-6)">
+            <span class="empty__icon"><span class="ms">handshake</span></span>
+            <span class="t-heading">No loans yet</span>
+            <span class="t-small muted">Mark a transfer as “Money lent” in Activity, or add a loan here. Repayments and interest can then be attached to it.</span>
+            <span class="btn btn--primary"><span class="ms">add</span>New loan</span>
+          </div>
+        </main>
+
+        <aside class="w-panel" id="panel" aria-label="Loan detail">
+          <div class="w-panel__bar"><span class="t-overline muted">LOAN</span>
+            <div class="row gap-1">
+              <span class="icon-btn icon-btn--sm icon-btn--plain" title="Edit loan"><span class="ms">edit</span></span>
+              <span class="icon-btn icon-btn--sm icon-btn--plain" data-close-panel aria-label="Close"><span class="ms">close</span></span></div></div>
+          <div class="w-panel__body">
+            <div class="row gap-3"><span class="avatar" style="width:44px;height:44px">AM</span>
+              <div class="grow col gap-0"><span class="t-subtitle">Arjun Mehta</span><span class="t-small muted">Lent · since 10 Jun 2026 · 1.5% / month</span></div>
+              <span class="badge badge--income">Open</span></div>
+            <div class="card card--subtle col gap-2">
+              <div class="row row--between"><span class="t-small muted">Outstanding</span><span class="t-amount c-income">₹60,000.00</span></div>
+              <div class="split"><span style="width:25%;background:var(--accent)"></span></div>
+              <div class="row row--between t-caption muted"><span>₹20,000 repaid of ₹80,000</span><span>25%</span></div>
+            </div>
+            <div class="grid grid-3" style="gap:var(--sp-2)">
+              <div class="card stat-col" style="padding:var(--sp-2) var(--sp-3)"><span class="t-caption muted">Principal</span><span class="t-stat">₹80,000</span></div>
+              <div class="card stat-col" style="padding:var(--sp-2) var(--sp-3)"><span class="t-caption muted">Repaid</span><span class="t-stat">₹20,000</span></div>
+              <div class="card stat-col" style="padding:var(--sp-2) var(--sp-3)"><span class="t-caption muted">Interest</span><span class="t-stat c-accent">₹4,800</span></div>
+            </div>
+            <div class="row gap-2 wrap">
+              <span class="btn btn--sm btn--primary"><span class="ms">add</span>Add entry</span>
+              <span class="btn btn--sm"><span class="ms">link</span>Attach existing</span>
+              <span class="btn btn--sm"><span class="ms">task_alt</span>Close loan</span>
+            </div>
+            <div class="dp-section"><span class="t-overline muted">HISTORY</span>
+              <div class="hist">
+                <div class="hist__row"><span class="hist__dot"><span class="ms c-accent">percent</span></span><div class="col gap-0"><span class="t-label">Interest received</span><span class="t-caption muted">10 Nov 2026 · HDFC Bank - 09</span></div><span class="t-small-em c-income tabular">+₹1,200.00</span></div>
+                <div class="hist__row"><span class="hist__dot"><span class="ms c-income">call_received</span></span><div class="col gap-0"><span class="t-label">Received <span class="badge">Split</span></span><span class="t-caption muted">10 Nov 2026 · ₹18,800 repayment + ₹1,200 interest</span></div><span class="t-small-em c-income tabular">+₹18,800.00</span></div>
+                <div class="hist__row"><span class="hist__dot"><span class="ms c-accent">percent</span></span><div class="col gap-0"><span class="t-label">Interest received</span><span class="t-caption muted">10 Sep 2026 · HDFC Bank - 09</span></div><span class="t-small-em c-income tabular">+₹2,400.00</span></div>
+                <div class="hist__row"><span class="hist__dot"><span class="ms c-income">call_received</span></span><div class="col gap-0"><span class="t-label">Received</span><span class="t-caption muted">10 Aug 2026 · Cash</span></div><span class="t-small-em c-income tabular">+₹1,200.00</span></div>
+                <div class="hist__row"><span class="hist__dot"><span class="ms c-spend">call_made</span></span><div class="col gap-0"><span class="t-label">Paid</span><span class="t-caption muted">10 Jun 2026 · HDFC Bank - 09</span></div><span class="t-small-em tabular">−₹80,000.00</span></div>
+              </div></div>
+            <div class="dp-section"><span class="t-overline muted">NOTE</span><div class="note-box t-small">For the shop deposit. Pays interest on the 10th.</div></div>
+          </div>
+          <div class="w-panel__foot"><span class="btn btn--ghost btn--sm" style="color:var(--spend)"><span class="ms">delete</span>Delete loan</span><span class="grow"></span><span class="t-caption muted">Saves to Drive automatically</span></div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- New loan dialog -->
+  <div class="w-modal" data-only="new-loan">
+    <div class="w-dialog w-dialog--wide" role="dialog" aria-labelledby="nl-t">
+      <div class="w-dialog__head"><span class="w-dialog__icon"><span class="ms">handshake</span></span>
+        <div class="col gap-1"><span id="nl-t" class="t-heading">New loan</span><span class="t-small muted">Link the transfer that started it, or enter it by hand.</span></div></div>
+      <div class="seg"><span class="seg__item is-selected">I lent money</span><span class="seg__item">I borrowed money</span></div>
+      <div class="grid grid-2" style="gap:var(--sp-3)">
+        <div class="field"><span class="field__label">Person</span><div class="field__box is-focused"><span>Neha K</span><span class="grow"></span><span class="ms muted">expand_more</span></div><span class="field__help">From People &amp; groups, or type a new name</span></div>
+        <div class="field"><span class="field__label">Amount</span><div class="field__box"><span class="muted">₹</span><span>25,000</span></div></div>
+        <div class="field"><span class="field__label">Date</span><div class="field__box"><span>23 Nov 2026</span><span class="grow"></span><span class="ms muted">calendar_today</span></div></div>
+        <div class="field"><span class="field__label">Interest (optional)</span><div class="field__box"><span>1</span><span class="grow"></span><span class="muted t-small">% / month</span></div></div>
+      </div>
+      <div class="card card--subtle row gap-3">
+        <span class="ms c-accent">link</span>
+        <div class="grow col gap-0"><span class="t-small-em">Link to a transaction</span><span class="t-caption muted">Suggested: −₹25,000 to Neha K · 21 Nov · HDFC Bank - 09</span></div>
+        <span class="btn btn--sm">Choose</span>
+      </div>
+      <div class="field"><span class="field__label">Note</span><div class="field__box field__box--multi"><span class="placeholder">What it’s for</span></div></div>
+      <div class="w-dialog__actions"><span class="btn">Cancel</span><span class="btn btn--primary">Add loan</span></div>
+    </div>
+  </div>
+
+  <!-- Add entry dialog (from the open loan) -->
+  <div class="w-modal" data-only="entry">
+    <div class="w-dialog" role="dialog" aria-labelledby="le-t">
+      <div class="w-dialog__head"><span class="w-dialog__icon"><span class="ms">add</span></span>
+        <div class="col gap-1"><span id="le-t" class="t-heading">Add entry</span><span class="t-small muted">Money you paid, received or interest on money you lent to Arjun Mehta.</span></div></div>
+      <div class="seg" role="radiogroup" aria-label="Type"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
+      <div class="grid grid-2" style="gap:var(--sp-3)">
+        <div class="field"><span class="field__label">Amount</span><div class="field__box is-focused"><span class="muted">₹</span><span>5,000</span></div></div>
+        <div class="field"><span class="field__label">Date</span><div class="field__box"><span>22 Nov 2026</span><span class="grow"></span><span class="ms muted">calendar_today</span></div></div>
+      </div>
+      <div class="field"><span class="field__label">Note</span><div class="field__box field__box--multi"><span class="placeholder">e.g. Cash, or what it was for</span></div></div>
+      <div class="w-dialog__actions"><span class="btn">Cancel</span><span class="btn btn--primary">Add entry</span></div>
+    </div>
+  </div>
+
+  <!-- Attach existing dialog: the chosen part doesn't match the transaction's direction -->
+  <div class="w-modal" data-only="attach-error attach-split">
+    <div class="w-dialog w-dialog--wide" role="dialog" aria-labelledby="la-t">
+      <div class="w-dialog__head"><span class="w-dialog__icon"><span class="ms">link</span></span>
+        <div class="col gap-1"><span id="la-t" class="t-heading">Attach existing</span><span class="t-small muted">Pick a transaction from Activity and say what it is for this loan.</span></div></div>
+      <div class="card card--subtle row gap-3">
+        <span class="ms c-accent">receipt_long</span>
+        <div class="grow col gap-0" style="min-width:0"><span class="t-small-em truncate">Arjun Mehta</span><span class="t-caption muted truncate">21 Nov 2026 · HDFC Bank - 09</span></div>
+        <span class="t-small-em tabular c-income">+₹5,000.00</span>
+        <span class="btn btn--sm">Change</span>
+      </div>
+      <div class="seg" role="radiogroup" aria-label="Attach as"><span class="seg__item" id="la-single">Part of this loan</span><span class="seg__item" id="la-split">Split across loans</span></div>
+      <div class="field" data-only="attach-error">
+        <span class="field__label">What it is for Arjun Mehta</span>
+        <div class="seg" role="radiogroup" aria-label="Part"><span class="seg__item is-selected">Paid</span><span class="seg__item">Received</span><span class="seg__item">Interest</span></div>
+        <span class="t-small c-spend" role="alert">This is a credit (money in). Choose Received or Interest.</span>
+      </div>
+      <div class="col gap-2" data-only="attach-split">
+        <div class="ln-slice">
+          <div class="field__box field__box--sm"><span>Arjun Mehta · Shop deposit (lent)</span><span class="ms muted">expand_more</span></div>
+          <div class="field__box field__box--sm"><span>Received</span><span class="ms muted">expand_more</span></div>
+          <div class="field__box field__box--sm"><span class="muted">₹</span><span>3,800</span></div>
+          <span class="icon-btn icon-btn--sm icon-btn--plain" aria-label="Remove slice 1"><span class="ms">close</span></span>
+        </div>
+        <div class="ln-slice">
+          <div class="field__box field__box--sm"><span>Dad · Suresh (borrowed)</span><span class="ms muted">expand_more</span></div>
+          <div class="field__box field__box--sm"><span>Interest</span><span class="ms muted">expand_more</span></div>
+          <div class="field__box field__box--sm"><span class="muted">₹</span><span>1,200</span></div>
+          <span class="icon-btn icon-btn--sm icon-btn--plain" aria-label="Remove slice 2"><span class="ms">close</span></span>
+          <span class="t-small c-spend" role="alert" style="grid-column:1 / -1">This is a credit (money in). Interest on money you borrowed is always paid. Choose Received.</span>
+        </div>
+        <div class="row row--between"><span class="btn btn--sm"><span class="ms">add</span>Add slice</span><span class="t-caption muted">₹5,000.00 of ₹5,000.00 allocated</span></div>
+      </div>
+      <div class="w-dialog__actions"><span class="btn">Cancel</span><span class="btn btn--primary">Attach</span></div>
+    </div>
+  </div>
+
+  <script>
+    window.PAGE = {
+      init: function (state) {
+        var M = window.MOCK;
+        var loans = state === 'loans';
+        document.getElementById(loans ? 'seg-loans' : 'seg-people').classList.add('is-selected');
+        var head = document.getElementById('ln-head');
+        var list = document.getElementById('ln-list');
+        var PEOPLE = [
+          ['AM', 'Arjun Mehta', '2 loans · 1.5% / month', 60000, 4800, 'Last: repayment 10 Nov'],
+          ['RV', 'Rahul Verma', '1 loan · no interest', 45000, 0, 'Last: lent 4 Oct'],
+          ['NK', 'Neha K', '1 loan · 1% / month', 40000, 3600, 'Last: interest 1 Nov'],
+          ['DS', 'Dad · Suresh', 'Borrowed · 1 loan', -30000, 0, 'Last: borrowed 12 Aug'],
+          ['VP', 'Vikram P', 'Closed · 1 loan', 0, 0, 'Closed 30 Sep'],
+        ];
+        var LOANS = [
+          ['AM', 'Arjun Mehta · Shop deposit', 'Lent 10 Jun 2026 · 1.5% / month', 60000, 4800, '₹80,000 principal'],
+          ['RV', 'Rahul Verma', 'Lent 4 Oct 2026', 45000, 0, '₹45,000 principal'],
+          ['NK', 'Neha K · Bike', 'Lent 1 Mar 2026 · 1% / month', 40000, 3600, '₹50,000 principal'],
+          ['DS', 'Dad · Suresh', 'Borrowed 12 Aug 2026', -30000, 0, '₹30,000 principal'],
+          ['AM', 'Arjun Mehta · Trip', 'Lent 2 Jan 2026 · closed 15 Apr', 0, 0, '₹12,000 principal'],
+        ];
+        var rows = loans ? LOANS : PEOPLE;
+        head.innerHTML = '<span></span><span>' + (loans ? 'Loan' : 'Person') + '</span><span class="ln-num">Outstanding</span><span class="ln-num c4">Interest</span><span class="c5">' + (loans ? 'Principal' : 'Activity') + '</span>';
+        list.innerHTML = rows.map(function (r, i) {
+          var out = r[3];
+          var amt = out === 0 ? '<span class="badge">Settled</span>' : '<span class="t-label ' + (out > 0 ? 'c-income' : 'c-spend') + '">' + M.inr(Math.abs(out)) + '</span>';
+          return '<div class="ln-row' + (i === 0 && ['default', 'entry', 'attach-error', 'attach-split'].indexOf(state) >= 0 ? ' is-active' : '') + '" data-ln><span class="avatar">' + r[0] + '</span>' +
+            '<div class="col gap-0" style="min-width:0"><span class="t-label truncate">' + r[1] + '</span><span class="t-caption muted truncate">' + (out < 0 ? 'You owe · ' : '') + r[2] + '</span></div>' +
+            '<span class="ln-num">' + amt + '</span><span class="ln-num c4 t-small tabular">' + (r[4] ? M.inr(r[4]) : '<span class="muted">—</span>') + '</span>' +
+            '<span class="c5 t-caption muted">' + r[5] + '</span></div>';
+        }).join('');
+        var withLoan = ['default', 'entry', 'attach-error', 'attach-split'].indexOf(state) >= 0;
+        if (withLoan) M.openPanel();
+        if (state === 'attach-error' || state === 'attach-split') document.getElementById(state === 'attach-split' ? 'la-split' : 'la-single').classList.add('is-selected');
+        document.addEventListener('click', function (e) {
+          var r = e.target.closest('[data-ln]'); if (!r) return;
+          var all = document.querySelectorAll('[data-ln]');
+          for (var i = 0; i < all.length; i++) all[i].classList.toggle('is-active', all[i] === r);
+          M.openPanel();
+        });
+        document.addEventListener('panelclose', function () {
+          var a = document.querySelectorAll('[data-ln].is-active'); for (var i = 0; i < a.length; i++) a[i].classList.remove('is-active');
+        });
+      },
+    };
+  </script>
+  <script src="assets/web.js"></script>
+</body>
+</html>
