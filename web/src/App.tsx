@@ -1,11 +1,21 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { BrowserRouter, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
-import type { SnapshotFile } from '@finance-tracker/core/sync/engine';
-import { createDriveSyncEngine, DriveReconnectRequiredError, GoogleDriveSyncPort } from './drive';
+import type { LiveDatabaseFile, SnapshotFile } from '@finance-tracker/core/sync/engine';
+import { UnsupportedSchemaVersionError } from '@finance-tracker/core/db/migrations';
+import {
+  createDriveSyncEngine,
+  DriveAccessMissingError,
+  DriveReconnectRequiredError,
+  GoogleDriveSyncPort,
+} from './drive';
 import { closeDatabase, exportDatabase, openDatabase } from './database';
 import { requestDriveAccessToken, revokeDriveAccessToken, supabase } from './auth';
+import { DRIVE_FILE_SCOPE } from './config';
+import { useDatabaseRevision } from './feature-utils';
+import { friendlyDateTime, Icon, initials, TopActionsContext } from './shell';
 import './styles.css';
+import './app-shell.css';
 
 const DashboardPage = lazy(() => import('./DashboardPage').then((module) => ({ default: module.DashboardPage })));
 const TransactionsPage = lazy(() => import('./TransactionsPage').then((module) => ({ default: module.TransactionsPage })));
@@ -13,17 +23,22 @@ const ImportPage = lazy(() => import('./ImportPage').then((module) => ({ default
 const LendingPage = lazy(() => import('./LendingPage').then((module) => ({ default: module.LendingPage })));
 const SettingsPage = lazy(() => import('./SettingsPage').then((module) => ({ default: module.SettingsPage })));
 
-type SaveStatus =
-  | 'idle'
-  | 'loading'
-  | 'connecting'
-  | 'saved'
-  | 'saving'
-  | 'unsaved'
-  | 'offline'
-  | 'reconnect'
-  | 'conflict'
-  | 'error';
+export type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'offline' | 'reconnect' | 'conflict' | 'error';
+
+type Gate = 'boot' | 'signin' | 'loading' | 'firstrun' | 'schema' | 'permission' | 'reconnect' | 'readError' | 'ready';
+
+interface LoadInfo {
+  step: 'finding' | 'downloading' | 'checking';
+  file: (LiveDatabaseFile & { size: number | null }) | null;
+  loaded: number;
+  total: number | null;
+  error: string;
+}
+
+interface Profile {
+  name: string;
+  email: string;
+}
 
 const NAV_ITEMS = [
   { to: '/', label: 'Home', icon: 'home', end: true },
@@ -33,20 +48,36 @@ const NAV_ITEMS = [
   { to: '/settings', label: 'Settings', icon: 'settings', end: false },
 ];
 
+const LIVE_FILE_LABEL = 'finance-live.db';
+
+function megabytes(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
+
+function profileOf(session: Session): Profile {
+  const metadata = session.user.user_metadata ?? {};
+  const email = session.user.email ?? String(metadata.email ?? 'Google account');
+  const name = String(metadata.full_name ?? metadata.name ?? email.replace(/@.*/, ''));
+  return { name, email };
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [status, setStatus] = useState<SaveStatus>('idle');
-  const [databaseReplacementInProgress, setDatabaseReplacementInProgress] = useState(false);
+  const [gate, setGate] = useState<Gate>('boot');
+  const [loadInfo, setLoadInfo] = useState<LoadInfo>({ step: 'finding', file: null, loaded: 0, total: null, error: '' });
+  const [schemaInfo, setSchemaInfo] = useState<{ fileVersion: number; supported: number; savedAt: string | null }>({ fileVersion: 0, supported: 0, savedAt: null });
+  const [status, setStatus] = useState<SaveStatus>('saved');
   const [message, setMessage] = useState('');
-  const [driveConnected, setDriveConnected] = useState(false);
-  const [freshAvailable, setFreshAvailable] = useState(false);
+  const [databaseReplacementInProgress, setDatabaseReplacementInProgress] = useState(false);
   const [dbEpoch, setDbEpoch] = useState(0);
   const [changeCount, setChangeCount] = useState(0);
+  const [savedBaseline, setSavedBaseline] = useState(0);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
-  const [conflictAvailable, setConflictAvailable] = useState(false);
+  const [savedByTab, setSavedByTab] = useState(false);
+  const [loadedAt, setLoadedAt] = useState<Date | null>(null);
+  const [conflictDriveTime, setConflictDriveTime] = useState<string | null>(null);
   const engineRef = useRef<ReturnType<typeof createDriveSyncEngine> | null>(null);
-  const liveFileRef = useRef<{ id: string; revisionId: string } | null>(null);
+  const liveFileRef = useRef<LiveDatabaseFile | null>(null);
   const driveTokenRef = useRef<string | null>(null);
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
@@ -55,43 +86,151 @@ function App() {
   const saveRef = useRef<() => Promise<void>>(async () => {});
   const operationGenerationRef = useRef(0);
   const sessionUserIdRef = useRef<string | null>(null);
-  const authEventSeenRef = useRef(false);
+  const startedForUserRef = useRef<string | null>(null);
+  const [signedOutElsewhere, setSignedOutElsewhere] = useState(false);
+  const signedOutElsewhereRef = useRef(false);
+  const finishSignOutElsewhereRef = useRef<() => void>(() => {});
+
+  const setLive = useCallback((file: LiveDatabaseFile | null) => {
+    liveFileRef.current = file;
+  }, []);
+
+  const markSaved = useCallback((savedChangeCount: number) => {
+    setSavedBaseline(savedChangeCount);
+    setSavedAt(new Date());
+    setSavedByTab(true);
+  }, []);
+
+  const resetDriveState = useCallback(() => {
+    operationGenerationRef.current += 1;
+    closeDatabase();
+    engineRef.current = null;
+    driveTokenRef.current = null;
+    dirtyRef.current = false;
+    dirtySinceRef.current = null;
+    startedForUserRef.current = null;
+    signedOutElsewhereRef.current = false;
+    setSignedOutElsewhere(false);
+    setLive(null);
+    setDbEpoch(0);
+    setStatus('saved');
+  }, [setLive]);
 
   useEffect(() => {
     let active = true;
     supabase.auth.getSession().then(({ data, error }) => {
-      if (!active || authEventSeenRef.current) return;
+      if (!active) return;
       if (error) setMessage(error.message);
       sessionUserIdRef.current = data.session?.user.id ?? null;
       setSession(data.session);
-      setAuthLoading(false);
+      if (!data.session) setGate('signin');
     });
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      authEventSeenRef.current = true;
       const nextUserId = nextSession?.user.id ?? null;
+      if (nextUserId === null && sessionUserIdRef.current !== null && dirtyRef.current) {
+        // Signed out in another tab (or the session expired) while this tab has unsaved edits. The Drive
+        // token is separate from the Supabase session, so save first instead of discarding them.
+        // The sign-out completes after the next clean save (see save()), even if one is already running.
+        signedOutElsewhereRef.current = true;
+        setSignedOutElsewhere(true);
+        void saveRef.current().then(() => {
+          if (!dirtyRef.current && signedOutElsewhereRef.current) finishSignOutElsewhereRef.current();
+        });
+        return;
+      }
       if (sessionUserIdRef.current !== nextUserId) {
-        operationGenerationRef.current += 1;
         void revokeDriveAccessToken(driveTokenRef.current);
-        closeDatabase();
-        engineRef.current = null;
-        liveFileRef.current = null;
-        driveTokenRef.current = null;
-        dirtyRef.current = false;
-        dirtySinceRef.current = null;
-        setDriveConnected(false);
-        setFreshAvailable(false);
-        setDbEpoch(0);
-        setStatus('idle');
+        resetDriveState();
       }
       sessionUserIdRef.current = nextUserId;
       setSession(nextSession);
-      setAuthLoading(false);
+      if (!nextSession) setGate('signin');
     });
     return () => {
       active = false;
       data.subscription.unsubscribe();
     };
-  }, []);
+  }, [resetDriveState]);
+
+  useEffect(() => {
+    finishSignOutElsewhereRef.current = () => {
+      void revokeDriveAccessToken(driveTokenRef.current);
+      resetDriveState();
+      sessionUserIdRef.current = null;
+      setSession(null);
+      setGate('signin');
+    };
+  }, [resetDriveState]);
+
+  const loadFromDrive = useCallback(async (token: string) => {
+    const operation = ++operationGenerationRef.current;
+    const isCurrent = () => operation === operationGenerationRef.current;
+    driveTokenRef.current = token;
+    engineRef.current = createDriveSyncEngine(token);
+    setGate('loading');
+    setMessage('');
+    setLoadInfo({ step: 'finding', file: null, loaded: 0, total: null, error: '' });
+    const loader = createDriveSyncEngine(token, {
+      onLiveFileFound: (file) => {
+        if (isCurrent()) setLoadInfo((info) => ({ ...info, step: 'downloading', file, total: file.size }));
+      },
+      onDownloadProgress: (loaded, total) => {
+        if (isCurrent()) setLoadInfo((info) => ({ ...info, step: 'downloading', loaded, total: total ?? info.total }));
+      },
+    });
+    try {
+      const loaded = await loader.load();
+      if (!isCurrent()) return;
+      if (loaded.kind === 'fresh') {
+        setLive(null);
+        setGate('firstrun');
+        return;
+      }
+      setLoadInfo((info) => ({ ...info, step: 'checking', loaded: loaded.bytes.byteLength, total: loaded.bytes.byteLength }));
+      try {
+        await openDatabase(loaded.bytes);
+      } catch (error) {
+        if (!isCurrent()) return;
+        closeDatabase();
+        if (error instanceof UnsupportedSchemaVersionError) {
+          setSchemaInfo({ fileVersion: error.databaseVersion, supported: error.supportedVersion, savedAt: loaded.file.modifiedTime });
+          setGate('schema');
+        } else {
+          setLive(loaded.file);
+          setGate('readError');
+        }
+        return;
+      }
+      if (!isCurrent()) {
+        closeDatabase();
+        return;
+      }
+      setLive(loaded.file);
+      dirtyRef.current = false;
+      dirtySinceRef.current = null;
+      setSavedBaseline(changeCountRef.current);
+      setSavedAt(new Date(loaded.file.modifiedTime));
+      setSavedByTab(false);
+      setLoadedAt(new Date());
+      setStatus('saved');
+      setDbEpoch((epoch) => epoch + 1);
+      setGate('ready');
+    } catch (error) {
+      if (!isCurrent()) return;
+      if (error instanceof DriveAccessMissingError) setGate('permission');
+      else if (error instanceof DriveReconnectRequiredError) setGate('reconnect');
+      else setLoadInfo((info) => ({ ...info, error: error instanceof Error ? error.message : 'Could not open your data from Drive.' }));
+    }
+  }, [setLive]);
+
+  // Sign-in asks Google for drive.file directly, so a fresh session carries a Drive token and loads at once.
+  useEffect(() => {
+    if (!session || dbEpoch) return;
+    if (startedForUserRef.current === session.user.id) return;
+    startedForUserRef.current = session.user.id;
+    if (session.provider_token) void loadFromDrive(session.provider_token);
+    else setGate('reconnect');
+  }, [session, dbEpoch, loadFromDrive]);
 
   useEffect(() => {
     const markDirty = () => {
@@ -99,7 +238,7 @@ function App() {
       dirtySinceRef.current ??= Date.now();
       changeCountRef.current += 1;
       setChangeCount(changeCountRef.current);
-      setStatus((current) => (current === 'conflict' ? current : 'unsaved'));
+      setStatus((current) => (current === 'conflict' || current === 'reconnect' ? current : 'unsaved'));
     };
     window.addEventListener('finance-db-change', markDirty);
     return () => window.removeEventListener('finance-db-change', markDirty);
@@ -138,18 +277,18 @@ function App() {
     };
   }, []);
 
-  const saveNow = useCallback(async () => {
-    if (!dirtyRef.current || !dbEpoch || savingRef.current) return;
+  const save = useCallback(async (options: { manualSnapshot?: boolean } = {}) => {
+    if (!dbEpoch || savingRef.current) return false;
+    if (!dirtyRef.current && !options.manualSnapshot) return true;
     const engine = engineRef.current;
     if (!engine) {
       setStatus('reconnect');
-      return;
+      return false;
     }
     if (!navigator.onLine) {
       setStatus('offline');
-      return;
+      return false;
     }
-
     savingRef.current = true;
     const savedChangeCount = changeCountRef.current;
     let saveAgain = false;
@@ -159,85 +298,60 @@ function App() {
       const result = await engine.save(exportDatabase(), {
         expectedFileId: liveFileRef.current?.id ?? null,
         expectedRevisionId: liveFileRef.current?.revisionId ?? null,
+        manualSnapshot: options.manualSnapshot,
       });
       if (result.kind === 'conflict') {
+        setConflictDriveTime(result.current?.modifiedTime ?? null);
         setStatus('conflict');
-        setConflictAvailable(true);
-        return;
+        return false;
       }
-      liveFileRef.current = result.file;
-      setSavedAt(new Date());
+      setLive(result.file);
+      markSaved(savedChangeCount);
       if (changeCountRef.current === savedChangeCount) {
         dirtyRef.current = false;
         dirtySinceRef.current = null;
         setStatus('saved');
-      } else {
-        setStatus('unsaved');
-        saveAgain = true;
+        if (signedOutElsewhereRef.current) window.setTimeout(() => finishSignOutElsewhereRef.current(), 0);
+        return true;
       }
+      saveAgain = true;
+      setStatus('unsaved');
+      return false;
     } catch (error) {
-      if (error instanceof DriveReconnectRequiredError) setStatus('reconnect');
+      if (error instanceof DriveReconnectRequiredError || error instanceof DriveAccessMissingError) setStatus('reconnect');
       else {
         setStatus('error');
         setMessage(error instanceof Error ? error.message : 'Could not save to Google Drive.');
       }
+      return false;
     } finally {
       savingRef.current = false;
       if (saveAgain) window.setTimeout(() => void saveRef.current(), 250);
     }
-  }, [dbEpoch]);
+  }, [dbEpoch, markSaved, setLive]);
 
   useEffect(() => {
-    saveRef.current = saveNow;
-  }, [saveNow]);
+    saveRef.current = async () => {
+      await save();
+    };
+  }, [save]);
 
-  const connectDrive = useCallback(async () => {
-    const operation = ++operationGenerationRef.current;
-    setStatus('connecting');
-    setMessage('');
+  const reconnectDrive = useCallback(async () => {
     try {
       const token = await requestDriveAccessToken();
-      if (operation !== operationGenerationRef.current) {
-        await revokeDriveAccessToken(token);
-        return;
-      }
       driveTokenRef.current = token;
-      const engine = createDriveSyncEngine(token);
-      engineRef.current = engine;
-
-      if (dbEpoch && dirtyRef.current) {
-        setDriveConnected(true);
-        await saveRef.current();
+      engineRef.current = createDriveSyncEngine(token);
+      if (dbEpoch) {
+        if (dirtyRef.current) await saveRef.current();
+        else setStatus('saved');
         return;
       }
-
-      setStatus('loading');
-      const loaded = await engine.load();
-      if (operation !== operationGenerationRef.current) {
-        await revokeDriveAccessToken(token);
-        return;
-      }
-      if (loaded.kind === 'fresh') {
-        liveFileRef.current = null;
-        setFreshAvailable(true);
-        setDriveConnected(true);
-        setStatus('idle');
-        return;
-      }
-      await openDatabase(loaded.bytes);
-      liveFileRef.current = loaded.file;
-      setDbEpoch((epoch) => epoch + 1);
-      setFreshAvailable(false);
-      setDriveConnected(true);
-      dirtyRef.current = false;
-      dirtySinceRef.current = null;
-      setStatus('saved');
-      setSavedAt(new Date(loaded.file.modifiedTime));
+      await loadFromDrive(token);
     } catch (error) {
-      setStatus(error instanceof DriveReconnectRequiredError ? 'reconnect' : 'error');
-      setMessage(error instanceof Error ? error.message : 'Could not connect to Google Drive.');
+      setMessage(error instanceof Error ? error.message : 'Could not reconnect Google Drive.');
+      if (!dbEpoch) setGate((current) => (current === 'permission' ? 'permission' : 'reconnect'));
     }
-  }, [dbEpoch]);
+  }, [dbEpoch, loadFromDrive]);
 
   const startFresh = useCallback(async () => {
     const operation = ++operationGenerationRef.current;
@@ -247,49 +361,40 @@ function App() {
         closeDatabase();
         return;
       }
-      setDbEpoch((epoch) => epoch + 1);
-      setFreshAvailable(false);
+      setLive(null);
+      setLoadedAt(new Date());
       dirtyRef.current = true;
       dirtySinceRef.current = Date.now();
       changeCountRef.current += 1;
       setChangeCount(changeCountRef.current);
       setStatus('unsaved');
+      setDbEpoch((epoch) => epoch + 1);
+      setGate('ready');
     } catch (error) {
-      setStatus('error');
       setMessage(error instanceof Error ? error.message : 'Could not create a database.');
     }
-  }, []);
+  }, [setLive]);
 
-  const reloadDriveVersion = useCallback(async () => {
-    const operation = ++operationGenerationRef.current;
-    const engine = engineRef.current;
-    if (!engine) return;
-    setStatus('loading');
+  const loadDriveVersion = useCallback(async () => {
+    const token = driveTokenRef.current;
+    if (!token) return;
+    // Keep the tab's version recoverable before it is replaced.
     try {
-      const loaded = await engine.load();
-      if (operation !== operationGenerationRef.current) return;
-      if (loaded.kind === 'fresh') throw new Error('The live database is no longer available.');
-      await openDatabase(loaded.bytes);
-      if (operation !== operationGenerationRef.current) {
-        closeDatabase();
-        return;
-      }
-      liveFileRef.current = loaded.file;
-      dirtyRef.current = false;
-      dirtySinceRef.current = null;
-      setDbEpoch((epoch) => epoch + 1);
-      setConflictAvailable(false);
-      setStatus('saved');
+      await new GoogleDriveSyncPort(token).createSnapshot(`Finance-Tracker-backup-${Date.now()}-this-tab.db`, exportDatabase());
     } catch (error) {
-      setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'Could not reload the Drive database.');
+      setMessage(error instanceof Error ? error.message : 'Could not save a snapshot of this tab.');
+      return;
     }
-  }, []);
+    resetDriveState();
+    // Stop the session effect from starting a second load with the sign-in token.
+    startedForUserRef.current = sessionUserIdRef.current;
+    await loadFromDrive(token);
+  }, [loadFromDrive, resetDriveState]);
 
-  const overwriteDriveVersion = useCallback(async () => {
-    const operation = ++operationGenerationRef.current;
+  const keepTabVersion = useCallback(async () => {
     const engine = engineRef.current;
     if (!engine || !dbEpoch) return;
+    const savedChangeCount = changeCountRef.current;
     setStatus('saving');
     try {
       const result = await engine.save(exportDatabase(), {
@@ -297,62 +402,22 @@ function App() {
         expectedRevisionId: liveFileRef.current?.revisionId ?? null,
         force: true,
       });
-      if (operation !== operationGenerationRef.current) return;
       if (result.kind === 'conflict') {
+        setConflictDriveTime(result.current?.modifiedTime ?? null);
         setStatus('conflict');
         return;
       }
-      liveFileRef.current = result.file;
-      dirtyRef.current = false;
-      dirtySinceRef.current = null;
-      setSavedAt(new Date());
-      setConflictAvailable(false);
-      setStatus('saved');
+      setLive(result.file);
+      markSaved(savedChangeCount);
+      dirtyRef.current = changeCountRef.current !== savedChangeCount;
+      if (!dirtyRef.current) dirtySinceRef.current = null;
+      setStatus(dirtyRef.current ? 'unsaved' : 'saved');
+      if (!dirtyRef.current && signedOutElsewhereRef.current) window.setTimeout(() => finishSignOutElsewhereRef.current(), 0);
     } catch (error) {
       setStatus(error instanceof DriveReconnectRequiredError ? 'reconnect' : 'error');
       setMessage(error instanceof Error ? error.message : 'Could not overwrite the Drive database.');
     }
-  }, [dbEpoch]);
-
-  const backupNow = useCallback(async () => {
-    const engine = engineRef.current;
-    if (!engine || !dbEpoch || savingRef.current) return false;
-    savingRef.current = true;
-    const savedChangeCount = changeCountRef.current;
-    let saveAgain = false;
-    setStatus('saving');
-    setMessage('');
-    try {
-      const result = await engine.save(exportDatabase(), {
-        expectedFileId: liveFileRef.current?.id ?? null,
-        expectedRevisionId: liveFileRef.current?.revisionId ?? null,
-        manualSnapshot: true,
-      });
-      if (result.kind === 'conflict') {
-        setStatus('conflict');
-        setConflictAvailable(true);
-        return false;
-      }
-      liveFileRef.current = result.file;
-      setSavedAt(new Date());
-      if (changeCountRef.current === savedChangeCount) {
-        dirtyRef.current = false;
-        dirtySinceRef.current = null;
-        setStatus('saved');
-      } else {
-        saveAgain = true;
-        setStatus('unsaved');
-      }
-      return !saveAgain;
-    } catch (error) {
-      setStatus(error instanceof DriveReconnectRequiredError ? 'reconnect' : 'error');
-      setMessage(error instanceof Error ? error.message : 'Could not create a Drive snapshot.');
-      return false;
-    } finally {
-      savingRef.current = false;
-      if (saveAgain) window.setTimeout(() => void saveRef.current(), 250);
-    }
-  }, [dbEpoch]);
+  }, [dbEpoch, markSaved, setLive]);
 
   const listSnapshots = useCallback(async () => {
     const token = driveTokenRef.current;
@@ -376,12 +441,14 @@ function App() {
     if (!token || !engineRef.current) throw new DriveReconnectRequiredError();
     setDatabaseReplacementInProgress(true);
     try {
-      if (dirtyRef.current) await saveRef.current();
-      if (dirtyRef.current) throw new Error('Resolve the pending Drive save before restoring a snapshot.');
+      const hasOpenDatabase = dbEpoch > 0;
+      if (hasOpenDatabase && dirtyRef.current) await saveRef.current();
+      if (hasOpenDatabase && dirtyRef.current) throw new Error('Resolve the pending Drive save before restoring a snapshot.');
       const operation = operationGenerationRef.current;
       const drive = new GoogleDriveSyncPort(token);
-      setStatus('loading');
-      await drive.createSnapshot(`Finance-Tracker-backup-${Date.now()}-before-restore.db`, exportDatabase());
+      if (hasOpenDatabase) {
+        await drive.createSnapshot(`Finance-Tracker-backup-${Date.now()}-before-restore.db`, exportDatabase());
+      }
       const bytes = await drive.download(snapshotId);
       if (operation !== operationGenerationRef.current) return;
       await openDatabase(bytes);
@@ -389,21 +456,19 @@ function App() {
         closeDatabase();
         return;
       }
-      dirtyRef.current = true;
-      dirtySinceRef.current = Date.now();
+      setLoadedAt(new Date());
       setDbEpoch((epoch) => epoch + 1);
-      setStatus('unsaved');
-      setConflictAvailable(false);
+      setGate('ready');
       const { touchDataUpdatedAt } = await import('@finance-tracker/core/db/repository');
       touchDataUpdatedAt();
     } catch (error) {
-      setStatus(error instanceof DriveReconnectRequiredError ? 'reconnect' : 'error');
-      setMessage(error instanceof Error ? error.message : 'Could not restore the Drive snapshot.');
+      // openDatabase leaves the current data untouched on failure; the caller shows the error.
+      if (error instanceof DriveReconnectRequiredError) setStatus('reconnect');
       throw error;
     } finally {
       setDatabaseReplacementInProgress(false);
     }
-  }, []);
+  }, [dbEpoch]);
 
   const exportExcel = useCallback(async (toDrive: boolean) => {
     if (!toDrive) {
@@ -426,332 +491,663 @@ function App() {
     setMessage('');
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin, scopes: 'email profile' },
+      options: {
+        redirectTo: window.location.origin,
+        scopes: `email profile ${DRIVE_FILE_SCOPE}`,
+        queryParams: { include_granted_scopes: 'true' },
+      },
     });
     if (error) setMessage(error.message);
   }, []);
 
   const signOut = useCallback(async () => {
-    operationGenerationRef.current += 1;
     if (dirtyRef.current) {
       await saveRef.current();
-      if (dirtyRef.current || status === 'conflict' || status === 'reconnect') return;
+      if (dirtyRef.current) throw new Error('Your changes aren’t saved to Drive yet. Fix the save status at the top, then sign out.');
     }
     try {
       await revokeDriveAccessToken(driveTokenRef.current);
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-      closeDatabase();
-      engineRef.current = null;
-      liveFileRef.current = null;
-      driveTokenRef.current = null;
-      dirtyRef.current = false;
-      setDriveConnected(false);
-      setFreshAvailable(false);
-      setDbEpoch(0);
-      setStatus('idle');
+      resetDriveState();
+      setGate('signin');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not sign out safely.');
+      throw error;
     }
-  }, [status]);
+  }, [resetDriveState]);
 
-  if (authLoading) return <div className="center-screen">Loading your session…</div>;
-  if (!session) {
+  const profile = session ? profileOf(session) : null;
+
+  if (gate === 'boot') return <main className="si" aria-busy="true" />;
+  if (!session || !profile || gate === 'signin') {
+    return <SignInScreen view="signin" message={message} onSignIn={() => void signIn()} />;
+  }
+  if (gate !== 'ready' && gate !== 'readError') {
     return (
-      <SignInPage
+      <SignInScreen
+        view={gate}
+        profile={profile}
+        loadInfo={loadInfo}
+        schemaInfo={schemaInfo}
         message={message}
         onSignIn={() => void signIn()}
-      />
-    );
-  }
-  if (!driveConnected) {
-    return (
-      <ConnectPage
-        email={session.user.email ?? 'Google account'}
-        loading={status === 'connecting' || status === 'loading'}
-        message={message}
-        onConnect={() => void connectDrive()}
-        onSignOut={signOut}
-      />
-    );
-  }
-  if (freshAvailable) {
-    return (
-      <FreshDatabasePage
-        email={session.user.email ?? 'Google account'}
-        message={message}
+        onGrant={() => void reconnectDrive()}
+        onRetry={() => (driveTokenRef.current ? void loadFromDrive(driveTokenRef.current) : void reconnectDrive())}
         onStartFresh={() => void startFresh()}
-        onSignOut={signOut}
+        onSignOut={() => void signOut().catch(() => undefined)}
       />
     );
   }
-  if (!dbEpoch) return <div className="center-screen">Opening your in-memory database…</div>;
 
   return (
     <BrowserRouter>
       <AppShell
+        profile={profile}
         status={status}
-        databaseReplacementInProgress={databaseReplacementInProgress}
+        pendingChanges={Math.max(0, changeCount - savedBaseline)}
         savedAt={savedAt}
+        savedByTab={savedByTab}
+        loadedAt={loadedAt}
         message={message}
-        email={session.user.email ?? 'Google account'}
-        onReconnect={() => void connectDrive()}
-        onBackupNow={backupNow}
+        readError={gate === 'readError'}
+        signedOutElsewhere={signedOutElsewhere}
+        databaseReplacementInProgress={databaseReplacementInProgress}
+        dbEpoch={dbEpoch}
+        onReconnect={() => void reconnectDrive()}
+        onSaveNow={() => void save()}
+        onRetryLoad={() => (driveTokenRef.current ? void loadFromDrive(driveTokenRef.current) : void reconnectDrive())}
+        onBackupNow={() => save({ manualSnapshot: true })}
+        onSaveNowAsync={() => save()}
         onSignOut={signOut}
         onListSnapshots={listSnapshots}
         onRestoreSnapshot={restoreSnapshot}
         onBeforeDelete={snapshotBeforeDelete}
         onExportExcel={exportExcel}
       />
-      {status === 'conflict' && conflictAvailable && (
+      {status === 'conflict' && (
         <ConflictDialog
-          onReload={() => void reloadDriveVersion()}
-          onOverwrite={() => void overwriteDriveVersion()}
+          driveTime={conflictDriveTime}
+          loadedAt={loadedAt}
+          pendingChanges={Math.max(0, changeCount - savedBaseline)}
+          onLoadDrive={() => void loadDriveVersion()}
+          onKeepTab={() => void keepTabVersion()}
         />
       )}
     </BrowserRouter>
   );
 }
 
-function SignInPage({ message, onSignIn }: { message: string; onSignIn: () => void }) {
+/* ================= Sign in & loading (signin.html) ================= */
+
+function Brand({ className = '' }: { className?: string }) {
   return (
-    <main className="auth-page">
-      <section className="auth-card">
-        <div className="brand-mark"><span className="material-symbols-rounded">account_balance_wallet</span></div>
-        <p className="eyebrow">PERSONAL FINANCE</p>
-        <h1>Your money, clearly.</h1>
-        <p className="muted">Sign in with Google to open your Finance Tracker database from Drive.</p>
-        <button className="button button-primary button-wide" onClick={onSignIn}>
-          <span className="material-symbols-rounded">login</span> Continue with Google
-        </button>
-        {message && <p className="error-text" role="alert">{message}</p>}
-        <p className="privacy-note">Your financial database stays in memory in this tab and is saved to your Google Drive.</p>
-      </section>
-    </main>
+    <div className={`w-brand ${className}`.trim()} style={{ padding: 0 }}>
+      <span className="w-brand__mark"><Icon name="account_balance_wallet" /></span>
+      <span className="t-heading">Finance Tracker</span>
+    </div>
   );
 }
 
-function ConnectPage({
-  email,
-  loading,
+function SignInScreen({
+  view,
+  profile,
+  loadInfo,
+  schemaInfo,
   message,
-  onConnect,
-  onSignOut,
-}: {
-  email: string;
-  loading: boolean;
-  message: string;
-  onConnect: () => void;
-  onSignOut: () => Promise<void>;
-}) {
-  return (
-    <main className="auth-page">
-      <section className="auth-card">
-        <div className="brand-mark"><span className="material-symbols-rounded">cloud_sync</span></div>
-        <p className="eyebrow">GOOGLE DRIVE</p>
-        <h1>Connect your finance file</h1>
-        <p className="muted">Signed in as <strong>{email}</strong>. Grant Drive file access to load and autosave your database.</p>
-        <button className="button button-primary button-wide" disabled={loading} onClick={onConnect}>
-          <span className="material-symbols-rounded">add_to_drive</span>
-          {loading ? 'Connecting…' : 'Connect Google Drive'}
-        </button>
-        {message && <p className="error-text" role="alert">{message}</p>}
-        <button className="button button-quiet" onClick={onSignOut}>Sign out</button>
-      </section>
-    </main>
-  );
-}
-
-function FreshDatabasePage({
-  email,
-  message,
+  onSignIn,
+  onGrant,
+  onRetry,
   onStartFresh,
   onSignOut,
 }: {
-  email: string;
+  view: 'signin' | 'loading' | 'firstrun' | 'schema' | 'permission' | 'reconnect';
+  profile?: Profile;
+  loadInfo?: LoadInfo;
+  schemaInfo?: { fileVersion: number; supported: number; savedAt: string | null };
   message: string;
-  onStartFresh: () => void;
-  onSignOut: () => Promise<void>;
+  onSignIn: () => void;
+  onGrant?: () => void;
+  onRetry?: () => void;
+  onStartFresh?: () => void;
+  onSignOut?: () => void;
 }) {
   return (
-    <main className="auth-page">
-      <section className="auth-card">
-        <div className="brand-mark"><span className="material-symbols-rounded">database</span></div>
-        <p className="eyebrow">NO DATABASE FOUND</p>
-        <h1>Start with a clean file?</h1>
-        <p className="muted">No live database or phone backup is visible in this Drive folder. If your phone backup was created by another app version, connect again after updating the phone app.</p>
-        <button className="button button-primary button-wide" onClick={onStartFresh}>Start fresh</button>
-        {message && <p className="error-text" role="alert">{message}</p>}
-        <button className="button button-quiet" onClick={onSignOut}>Sign out · {email}</button>
+    <div className="si">
+      <section className="si__hero">
+        <Brand />
+        <span className="t-display" style={{ maxWidth: 460 }}>Your spending, on the big screen.</span>
+        <div className="si__pts">
+          <div className="si__pt"><Icon name="file_download" /><div className="col gap-0"><span className="t-label">Import many statements at once</span><span className="t-small muted">Drop a quarter’s worth of bank, UPI and card files and review them in one table.</span></div></div>
+          <div className="si__pt"><Icon name="sync" /><div className="col gap-0"><span className="t-label">Same data as your phone</span><span className="t-small muted">Both read and write one file on your Google Drive. Use one at a time.</span></div></div>
+          <div className="si__pt"><Icon name="shield" /><div className="col gap-0"><span className="t-label">Nothing kept in this browser</span><span className="t-small muted">Data loads into this tab from Drive and is gone when you close it.</span></div></div>
+        </div>
       </section>
-    </main>
+
+      <main className="si__main">
+        {view === 'signin' && (
+          <div className="si__card">
+            <Brand className="si__brand" />
+            <div className="col gap-1"><h1 className="t-title" style={{ margin: 0 }}>Sign in</h1><span className="t-small muted">Use the Google account you use in the phone app.</span></div>
+            <button type="button" className="gbtn" onClick={onSignIn}><span className="gbtn__g" />Continue with Google</button>
+            {message && <div className="banner banner--danger" role="alert"><Icon name="error" /><div className="banner__copy t-small">{message}</div></div>}
+            <div className="card card--subtle col gap-2">
+              <div className="row gap-2"><Icon name="lock" className="ms-14 c-accent" /><span className="t-small-em">What the app can see</span></div>
+              <span className="t-small muted">Only the files it created in your Drive. Not your other files, email or contacts.</span>
+            </div>
+            <span className="t-caption muted">Needs an internet connection. Your data is never sent anywhere except your own Google Drive.</span>
+          </div>
+        )}
+
+        {view === 'loading' && profile && loadInfo && <LoadingCard profile={profile} info={loadInfo} onRetry={onRetry} onSignOut={onSignOut} />}
+
+        {view === 'firstrun' && profile && (
+          <div className="si__card">
+            <div className="col gap-1"><h1 className="t-title" style={{ margin: 0 }}>No data file yet</h1><span className="t-small muted">There’s no {LIVE_FILE_LABEL} in {profile.email}’s Drive.</span></div>
+            <div className="choice"><span className="em-box"><Icon name="phone_android" /></span><div className="grow col gap-1"><span className="t-label">I use the phone app</span><span className="t-small muted">Open it, go to Settings › Drive &amp; backups and tap <b>Back up now</b>. Then reload this page.</span></div></div>
+            <button type="button" className="choice" onClick={onStartFresh}><span className="em-box"><Icon name="add" /></span><div className="grow col gap-1"><span className="t-label">Start fresh on the web</span><span className="t-small muted">Creates an empty file with the default categories. The phone app can use it too.</span></div></button>
+            {message && <div className="banner banner--danger" role="alert"><Icon name="error" /><div className="banner__copy t-small">{message}</div></div>}
+            <div className="row gap-2"><button type="button" className="btn btn--primary" onClick={onRetry}><Icon name="refresh" />Check again</button><button type="button" className="btn btn--ghost" onClick={onSignOut}>Use a different account</button></div>
+          </div>
+        )}
+
+        {view === 'schema' && schemaInfo && (
+          <div className="si__card">
+            <span className="w-dialog__icon w-dialog__icon--review"><Icon name="update" /></span>
+            <div className="col gap-1"><h1 className="t-title" style={{ margin: 0 }}>The website needs an update</h1><span className="t-small muted">Your data file was saved by a newer phone app (data version {schemaInfo.fileVersion}). This website understands up to version {schemaInfo.supported}, so it won’t open the file and risk damaging it.</span></div>
+            <div className="card card--subtle col gap-2">
+              <div className="row row--between"><span className="t-small muted">File version</span><span className="t-small-em">{schemaInfo.fileVersion}{schemaInfo.savedAt ? ` · saved ${friendlyDateTime(new Date(schemaInfo.savedAt)).replace(/,.*$/, '').toLowerCase()}` : ''}</span></div>
+              <div className="row row--between"><span className="t-small muted">Website supports</span><span className="t-small-em">up to {schemaInfo.supported}</span></div>
+            </div>
+            <div className="row gap-2"><button type="button" className="btn btn--primary" onClick={() => window.location.reload()}><Icon name="refresh" />Reload website</button><button type="button" className="btn btn--ghost" onClick={onSignOut}>Sign out</button></div>
+            <span className="t-caption muted">Nothing was changed on Drive.</span>
+          </div>
+        )}
+
+        {view === 'permission' && (
+          <div className="si__card">
+            <span className="w-dialog__icon w-dialog__icon--danger"><Icon name="folder_off" /></span>
+            <div className="col gap-1"><h1 className="t-title" style={{ margin: 0 }}>Drive access wasn’t given</h1><span className="t-small muted">You signed in, but the box that lets the app use its own Drive files was left unticked. Without it the website can’t open your data.</span></div>
+            <button type="button" className="gbtn" onClick={onGrant}><span className="gbtn__g" />Grant Drive access</button>
+            {message && <div className="banner banner--danger" role="alert"><Icon name="error" /><div className="banner__copy t-small">{message}</div></div>}
+            <span className="t-caption muted">On Google’s screen, tick “See, edit, create and delete only the specific Google Drive files you use with this app”.</span>
+            <button type="button" className="btn btn--ghost" style={{ alignSelf: 'flex-start' }} onClick={onSignOut}>Sign out</button>
+          </div>
+        )}
+
+        {/* A restored session has no Drive token (Google only hands it out at sign-in), so ask for it again. */}
+        {view === 'reconnect' && profile && (
+          <div className="si__card">
+            <div className="row gap-3"><span className="avatar" style={{ width: 40, height: 40 }}>{initials(profile.name)}</span><div className="col gap-0"><span className="t-label">{profile.name}</span><span className="t-caption muted">{profile.email}</span></div></div>
+            <div className="col gap-1"><h1 className="t-title" style={{ margin: 0 }}>Open your data</h1><span className="t-small muted">You’re still signed in. Allow Drive access again to load {LIVE_FILE_LABEL} into this tab.</span></div>
+            <button type="button" className="gbtn" onClick={onGrant}><span className="gbtn__g" />Continue with Google Drive</button>
+            {message && <div className="banner banner--danger" role="alert"><Icon name="error" /><div className="banner__copy t-small">{message}</div></div>}
+            <button type="button" className="btn btn--ghost" style={{ alignSelf: 'flex-start' }} onClick={onSignOut}>Sign out</button>
+          </div>
+        )}
+      </main>
+    </div>
   );
 }
 
+function LoadingCard({ profile, info, onRetry, onSignOut }: { profile: Profile; info: LoadInfo; onRetry?: () => void; onSignOut?: () => void }) {
+  const total = info.total ?? info.file?.size ?? null;
+  const percent = info.step === 'checking' ? 100 : info.step === 'downloading' && total ? Math.min(100, (info.loaded / total) * 100) : 6;
+  const stepClass = (step: LoadInfo['step']) => {
+    const order: LoadInfo['step'][] = ['finding', 'downloading', 'checking'];
+    const current = order.indexOf(info.step);
+    const index = order.indexOf(step);
+    if (index < current) return 'step step--done';
+    if (index === current) return info.error ? 'step step--todo' : 'step step--now';
+    return 'step step--todo';
+  };
+  const stepIcon = (step: LoadInfo['step']) => {
+    const cls = stepClass(step);
+    if (cls.includes('done')) return 'check_circle';
+    if (cls.includes('now')) return 'progress_activity';
+    return 'radio_button_unchecked';
+  };
+  const savedAt = info.file ? friendlyDateTime(new Date(info.file.modifiedTime)).replace(/^Today/, 'today').replace(/^Yesterday/, 'yesterday') : '';
+  return (
+    <div className="si__card" aria-live="polite">
+      <div className="row gap-3"><span className="avatar" style={{ width: 40, height: 40 }}>{initials(profile.name)}</span><div className="col gap-0"><span className="t-label">{profile.name}</span><span className="t-caption muted">{profile.email}</span></div></div>
+      <div className="col gap-1"><h1 className="t-title" style={{ margin: 0 }}>Opening your data</h1><span className="t-small muted">Downloading {LIVE_FILE_LABEL} from Drive{total ? ` (${megabytes(total)} MB)` : ''}.</span></div>
+      <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}><span style={{ width: `${percent}%` }} /></div>
+      <div className="steps">
+        <div className="step step--done"><Icon name="check_circle" /><span className="t-small">Signed in</span></div>
+        <div className={stepClass('finding')}><Icon name={stepIcon('finding')} /><span className="t-small">{info.file ? `Found ${LIVE_FILE_LABEL} · saved ${savedAt}` : `Looking for ${LIVE_FILE_LABEL}…`}</span></div>
+        <div className={stepClass('downloading')}><Icon name={stepIcon('downloading')} /><span className="t-small">{info.step === 'downloading' && total ? `Downloading… ${megabytes(info.loaded)} of ${megabytes(total)} MB` : 'Downloading'}</span></div>
+        <div className={stepClass('checking')}><Icon name={stepIcon('checking')} /><span className="t-small">Checking the data</span></div>
+      </div>
+      {info.error ? (
+        <>
+          <div className="banner banner--danger banner--wrap" role="alert"><Icon name="error" /><div className="banner__copy"><div className="t-small-em">Couldn’t open your data</div><div className="t-small muted">{info.error}</div></div></div>
+          <div className="row gap-2"><button type="button" className="btn btn--primary" onClick={onRetry}><Icon name="refresh" />Try again</button><button type="button" className="btn btn--ghost" onClick={onSignOut}>Sign out</button></div>
+        </>
+      ) : (
+        <div className="banner banner--review banner--wrap"><Icon name="phone_android" /><div className="banner__copy t-small">Close the phone app while you use the website, so only one of them saves changes.</div></div>
+      )}
+    </div>
+  );
+}
+
+/* ================= App shell (web.js buildShell) ================= */
+
+const PAGE_TITLES: Record<string, string> = {
+  '/': 'Home',
+  '/transactions': 'Activity',
+  '/activity': 'Activity',
+  '/import': 'Import',
+  '/lending': 'Lending',
+  '/settings': 'Settings',
+};
+
+function useReviewCount(dbEpoch: number): number {
+  const revision = useDatabaseRevision();
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!dbEpoch) {
+      setCount(0);
+      return;
+    }
+    let active = true;
+    void import('@finance-tracker/core/db/repository').then(({ getAllTransactions }) => {
+      if (active) setCount(getAllTransactions().filter((txn) => txn.needsReview).length);
+    });
+    return () => {
+      active = false;
+    };
+  }, [dbEpoch, revision]);
+  return count;
+}
+
+function relativeSaved(savedAt: Date | null, now: number): string {
+  if (!savedAt) return 'Saved to Drive';
+  const minutes = Math.floor((now - savedAt.getTime()) / 60_000);
+  if (minutes < 1) return 'Saved to Drive · just now';
+  if (minutes < 60) return `Saved to Drive · ${minutes} min ago`;
+  return `Saved to Drive · ${friendlyDateTime(savedAt).replace(/^Today, /, '')}`;
+}
+
 function AppShell({
+  profile,
   status,
-  databaseReplacementInProgress,
+  pendingChanges,
   savedAt,
+  savedByTab,
+  loadedAt,
   message,
-  email,
+  readError,
+  signedOutElsewhere,
+  databaseReplacementInProgress,
+  dbEpoch,
   onReconnect,
+  onSaveNow,
+  onRetryLoad,
   onBackupNow,
+  onSaveNowAsync,
   onSignOut,
   onListSnapshots,
   onRestoreSnapshot,
   onBeforeDelete,
   onExportExcel,
 }: {
+  profile: Profile;
   status: SaveStatus;
-  databaseReplacementInProgress: boolean;
+  pendingChanges: number;
   savedAt: Date | null;
+  savedByTab: boolean;
+  loadedAt: Date | null;
   message: string;
-  email: string;
+  readError: boolean;
+  signedOutElsewhere: boolean;
+  databaseReplacementInProgress: boolean;
+  dbEpoch: number;
   onReconnect: () => void;
+  onSaveNow: () => void;
+  onRetryLoad: () => void;
   onBackupNow: () => Promise<boolean>;
+  onSaveNowAsync: () => Promise<boolean>;
   onSignOut: () => Promise<void>;
   onListSnapshots: () => Promise<SnapshotFile[]>;
   onRestoreSnapshot: (id: string) => Promise<void>;
   onBeforeDelete: () => Promise<void>;
   onExportExcel: (toDrive: boolean) => Promise<void>;
 }) {
+  const location = useLocation();
   const [search, setSearch] = useState('');
+  const [topActions, setTopActions] = useState<HTMLElement | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const reviewCount = useReviewCount(readError ? 0 : dbEpoch);
+  const isActivity = location.pathname === '/transactions' || location.pathname === '/activity';
+  const title = PAGE_TITLES[location.pathname] ?? 'Home';
+
+  useEffect(() => {
+    document.title = `${title} · Finance Tracker`;
+  }, [title]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
-      if (!searchRef.current?.getClientRects().length) return;
-      event.preventDefault();
-      searchRef.current.focus();
+      if (event.key === '?') {
+        event.preventDefault();
+        setShortcutsOpen(true);
+      } else if (event.key === '/' && searchRef.current?.getClientRects().length) {
+        event.preventDefault();
+        searchRef.current.focus();
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
-  const statusText = status === 'saved'
-    ? `Saved${savedAt ? ` · ${savedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}`
-    : (({
-        saving: 'Saving…',
-        unsaved: 'Unsaved changes',
-        offline: 'Offline · will retry',
-        reconnect: 'Reconnect Drive',
-        conflict: 'Conflict · action needed',
-        error: 'Save error',
-      } as Partial<Record<SaveStatus, string>>)[status] ?? 'Connected');
-  const syncIcon = ({
-    saved: 'cloud_done',
-    saving: 'progress_activity',
-    unsaved: 'cloud_upload',
-    offline: 'cloud_off',
-    reconnect: 'link_off',
-    conflict: 'error',
-    error: 'warning',
-  } as Partial<Record<SaveStatus, string>>)[status] ?? 'cloud_sync';
+
+  const content: ReactNode = readError ? (
+    <div className="w-body">
+      <main className="w-main">
+        <div className="col gap-3" style={{ maxWidth: 560, margin: 'var(--sp-6) auto 0', width: '100%' }}>
+          <div className="banner banner--danger banner--wrap" role="alert"><Icon name="error" />
+            <div className="banner__copy"><div className="t-small-em">Couldn’t read your Drive file</div>
+              <div className="t-small muted">{LIVE_FILE_LABEL} downloaded, but it isn’t a Finance Tracker database (it may be damaged). Nothing was changed on Drive.</div></div></div>
+          <div className="row gap-2 wrap"><button type="button" className="btn btn--primary" onClick={onRetryLoad}><Icon name="refresh" />Try again</button><button type="button" className="btn" onClick={() => setRestoreOpen(true)}>Restore a snapshot</button></div>
+        </div>
+      </main>
+    </div>
+  ) : (
+    <Suspense fallback={<div className="w-fallback" role="status"><span className="t-small muted">Loading…</span></div>}>
+      <Routes>
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/transactions" element={<TransactionsPage search={search} onSearchChange={setSearch} />} />
+        <Route path="/activity" element={<TransactionsPage search={search} onSearchChange={setSearch} />} />
+        <Route path="/import" element={<ImportPage />} />
+        <Route path="/lending" element={<LendingPage />} />
+        <Route path="/settings" element={<SettingsPage
+          email={profile.email}
+          name={profile.name}
+          status={status}
+          savedAt={savedAt}
+          onBackupNow={onBackupNow}
+          onSaveNow={onSaveNowAsync}
+          onListSnapshots={onListSnapshots}
+          onRestoreSnapshot={onRestoreSnapshot}
+          onBeforeDelete={onBeforeDelete}
+          onSignOut={onSignOut}
+          onExportExcel={onExportExcel}
+        />} />
+        <Route path="*" element={<DashboardPage />} />
+      </Routes>
+    </Suspense>
+  );
 
   return (
-    <>
-    <div className="app-shell" inert={databaseReplacementInProgress} aria-busy={databaseReplacementInProgress}>
-      <aside className="sidebar">
-        <NavLink className="brand" to="/">
-          <span className="brand-mark brand-mark-small"><span className="material-symbols-rounded" aria-hidden="true">account_balance_wallet</span></span>
-          <span className="brand-name">Finance Tracker</span>
-        </NavLink>
-        <nav className="side-nav" aria-label="Main navigation">
-          {NAV_ITEMS.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} aria-label={item.label} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-              <span className="material-symbols-rounded" aria-hidden="true">{item.icon}</span>
-              <span className="nav-label">{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="account-row"><span className="avatar">{email.slice(0, 1).toUpperCase()}</span><span className="account-email" title={email}>{email}</span></div>
-          <button className="button button-quiet sidebar-signout" onClick={() => void onSignOut()}>Sign out</button>
-        </div>
-      </aside>
-      <div className="app-column">
-        <header className="topbar">
-          <div className="mobile-brand"><span className="brand-mark brand-mark-small"><span className="material-symbols-rounded" aria-hidden="true">account_balance_wallet</span></span><strong>Finance Tracker</strong></div>
-          <div className="topbar-search">
-            <span className="material-symbols-rounded" aria-hidden="true">search</span>
-            <input ref={searchRef} aria-label="Search transactions" aria-keyshortcuts="/" placeholder="Search transactions" value={search} onChange={(event) => setSearch(event.target.value)} />
-            <kbd aria-hidden="true">/</kbd>
+    <TopActionsContext.Provider value={topActions}>
+      <div className="w-app" inert={databaseReplacementInProgress} aria-busy={databaseReplacementInProgress}>
+        <aside className="w-side">
+          <div className="w-brand"><span className="w-brand__mark"><Icon name="account_balance_wallet" /></span><span className="w-brand__name t-heading">Finance Tracker</span></div>
+          <nav className="w-nav" aria-label="Main">
+            {NAV_ITEMS.map((item) => (
+              <NavLink key={item.to} to={item.to} end={item.end} title={item.label} aria-label={item.label} className={({ isActive }) => `w-nav__item${isActive || (item.to === '/transactions' && location.pathname === '/activity') ? ' is-active' : ''}`}>
+                <Icon name={item.icon} /><span className="w-nav__label">{item.label}</span>
+                {item.to === '/transactions' && reviewCount > 0 && <span className="pill-count w-nav__count" title={`${reviewCount} need review`}>{reviewCount}</span>}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="w-side__spacer" />
+          <div className="w-side__foot">
+            <button type="button" className="w-nav__item" title="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Icon name="keyboard" /><span className="w-nav__label">Shortcuts</span><span className="kbd w-nav__count">?</span></button>
+            <Link className="w-account" to="/settings?section=account" title={profile.name}><span className="avatar">{initials(profile.name)}</span>
+              <span className="w-account__copy col gap-0" style={{ minWidth: 0 }}><span className="t-small-em truncate">{profile.name}</span><span className="t-caption muted truncate">{profile.email}</span></span></Link>
           </div>
-          <div className="topbar-spacer" />
-          <button className="backup-now" disabled={status === 'saving' || status === 'conflict' || status === 'reconnect'} onClick={() => void onBackupNow()} title="Create a Drive backup now">
-            <span className="material-symbols-rounded" aria-hidden="true">backup</span><span>Back up now</span>
-          </button>
-          <button
-            className={`save-status save-${status}`}
-            disabled={status !== 'reconnect'}
-            onClick={status === 'reconnect' ? onReconnect : undefined}
-            aria-live="polite"
-          >
-            <span className="material-symbols-rounded" aria-hidden="true">{syncIcon}</span>{statusText}
-          </button>
-        </header>
-        {status === 'reconnect' && (
-          <div className="shell-banner"><span>Drive needs to reconnect. Your changes remain in this tab.</span><button className="text-button" onClick={onReconnect}>Reconnect</button></div>
-        )}
-        {status === 'offline' && <div className="shell-banner shell-banner-warn">Offline — changes remain in memory and will retry when you’re back online.</div>}
-        {status === 'error' && <div className="shell-banner shell-banner-error" role="alert">{message}</div>}
-        <main className="page-content">
-          <Suspense fallback={<div className="center-screen" role="status">Loading page…</div>}>
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/transactions" element={<TransactionsPage search={search} />} />
-              <Route path="/import" element={<ImportPage />} />
-              <Route path="/lending" element={<LendingPage />} />
-              <Route path="/settings" element={<SettingsPage
-                email={email}
-                status={status}
-                savedAt={savedAt}
-                onBackupNow={onBackupNow}
-                onListSnapshots={onListSnapshots}
-                onRestoreSnapshot={onRestoreSnapshot}
-                onBeforeDelete={onBeforeDelete}
-                onSignOut={onSignOut}
-                onExportExcel={onExportExcel}
-              />} />
-              <Route path="*" element={<DashboardPage />} />
-            </Routes>
-          </Suspense>
-        </main>
-        <nav className="bottom-tabs" aria-label="Mobile navigation">
+        </aside>
+
+        <div className="w-col">
+          <header className="w-top">
+            <h1 className="w-top__title t-heading truncate">{title}</h1>
+            <div className="w-top__spacer" />
+            {isActivity && (
+              <label className="w-search"><Icon name="search" /><input ref={searchRef} className="grow" aria-label="Search payee, note, amount" aria-keyshortcuts="/" placeholder="Search payee, note, amount…" value={search} onChange={(event) => setSearch(event.target.value)} /><span className="kbd" aria-hidden="true">/</span></label>
+            )}
+            <SyncPill status={status} pendingChanges={pendingChanges} savedAt={savedAt} savedByTab={savedByTab} loadedAt={loadedAt} onSaveNow={onSaveNow} onReconnect={onReconnect} />
+            <div ref={setTopActions} style={{ display: 'contents' }} />
+          </header>
+
+          {status === 'reconnect' && (
+            <div className="w-shell-banner"><div className="banner banner--review banner--wrap"><Icon name="link_off" /><div className="banner__copy"><div className="t-small-em">Google Drive disconnected</div><div className="t-small muted">{pendingChanges > 0 ? `Your ${pendingChanges} ${pendingChanges === 1 ? 'change is' : 'changes are'} kept in this tab. Reconnect to save them. Don’t close the tab until then.` : 'Reconnect to keep saving changes from this tab.'}</div></div><button type="button" className="banner__action" onClick={onReconnect}>Reconnect</button></div></div>
+          )}
+          {signedOutElsewhere && (
+            <div className="w-shell-banner"><div className="banner banner--review banner--wrap" role="alert"><Icon name="logout" /><div className="banner__copy"><div className="t-small-em">You were signed out</div><div className="t-small muted">This tab still has unsaved changes. It closes your data as soon as they’re saved to Drive. Don’t close the tab until then.</div></div></div></div>
+          )}
+          {status === 'offline' && (
+            <div className="w-shell-banner"><div className="banner banner--review"><Icon name="cloud_off" /><div className="banner__copy t-small">You’re offline. Changes are kept in this tab and will save to Drive when you’re back online.</div></div></div>
+          )}
+          {status === 'error' && message && (
+            <div className="w-shell-banner"><div className="banner banner--danger banner--wrap" role="alert"><Icon name="error" /><div className="banner__copy"><div className="t-small-em">Couldn’t save to Drive</div><div className="t-small muted">{message}</div></div><button type="button" className="banner__action" onClick={onSaveNow}>Retry</button></div></div>
+          )}
+
+          {content}
+        </div>
+
+        <nav className="w-tabs" aria-label="Main">
           {NAV_ITEMS.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} aria-label={item.label} className={({ isActive }) => `bottom-tab${isActive ? ' active' : ''}`}>
-              <span className="material-symbols-rounded" aria-hidden="true">{item.icon}</span><span>{item.label}</span>
+            <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `tab${isActive || (item.to === '/transactions' && location.pathname === '/activity') ? ' is-active' : ''}`}>
+              <span className="tab-ind"><Icon name={item.icon} />{item.to === '/transactions' && reviewCount > 0 && <span className="tab-badge">{reviewCount}</span>}</span><span>{item.label}</span>
             </NavLink>
           ))}
         </nav>
       </div>
-    </div>
-    {databaseReplacementInProgress && <div className="database-operation-overlay" role="status" aria-live="polite">Restoring the database…</div>}
-    </>
+
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
+      {restoreOpen && <RestoreSnapshotDialog onClose={() => setRestoreOpen(false)} onList={onListSnapshots} onRestore={onRestoreSnapshot} />}
+      {databaseReplacementInProgress && (
+        <div className="w-modal" role="status" aria-live="polite"><div className="w-dialog"><div className="w-dialog__head"><span className="w-dialog__icon"><Icon name="history" /></span><div className="col gap-1"><span className="t-heading">Restoring snapshot…</span><span className="t-small muted">Keep this tab open until the restore finishes.</span></div></div><div className="progress"><span style={{ width: '60%' }} /></div></div></div>
+      )}
+    </TopActionsContext.Provider>
   );
 }
 
-function ConflictDialog({ onReload, onOverwrite }: { onReload: () => void; onOverwrite: () => void }) {
+const SYNC_ICON: Record<SaveStatus, string> = {
+  saved: 'cloud_done',
+  saving: 'progress_activity',
+  unsaved: 'cloud_upload',
+  offline: 'cloud_off',
+  reconnect: 'link_off',
+  conflict: 'error',
+  error: 'error',
+};
+
+function SyncPill({
+  status,
+  pendingChanges,
+  savedAt,
+  savedByTab,
+  loadedAt,
+  onSaveNow,
+  onReconnect,
+}: {
+  status: SaveStatus;
+  pendingChanges: number;
+  savedAt: Date | null;
+  savedByTab: boolean;
+  loadedAt: Date | null;
+  onSaveNow: () => void;
+  onReconnect: () => void;
+}) {
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const size = useMemo(() => (open ? exportSize() : ''), [open]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!anchorRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const text = {
+    saved: relativeSaved(savedAt, now),
+    saving: 'Saving…',
+    unsaved: `Unsaved · ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`,
+    offline: 'Offline · will retry',
+    reconnect: 'Reconnect Drive',
+    conflict: 'Conflict · action needed',
+    error: 'Not saved · retry',
+  }[status];
+  const pillClass = status === 'error' ? 'conflict' : status;
+
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="dialog-card" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
-        <span className="dialog-icon"><span className="material-symbols-rounded">sync_problem</span></span>
-        <p className="eyebrow">DRIVE CONFLICT</p>
-        <h2 id="conflict-title">This file changed on another device</h2>
-        <p className="muted">Choose which version to keep. Overwriting first saves a snapshot of the current Drive file.</p>
-        <div className="dialog-actions">
-          <button className="button button-quiet" onClick={() => { navigate('/transactions'); onReload(); }}>Reload Drive version</button>
-          <button className="button button-danger" onClick={onOverwrite}>Overwrite with mine</button>
+    <span className="anchor" ref={anchorRef}>
+      <button type="button" className={`sync sync--${pillClass}`} aria-haspopup="dialog" aria-expanded={open} aria-live="polite" onClick={() => setOpen((value) => !value)}>
+        <Icon name={SYNC_ICON[status]} /><span className="sync__text">{text}</span>
+      </button>
+      {open && (
+        <div className="pop" role="dialog" aria-label="Google Drive save status" style={{ top: 40, right: 0, width: 320 }}>
+          <div style={{ padding: 'var(--sp-3) var(--sp-3) var(--sp-2)' }} className="col gap-1"><span className="t-overline muted">GOOGLE DRIVE</span>
+            <span className="t-small-em">{text}</span></div>
+          <div className="dl" style={{ padding: '0 var(--sp-3)' }}>
+            <div className="dl__row"><span className="dl__k">File</span><span className="dl__v">Finance Tracker / {LIVE_FILE_LABEL}</span></div>
+            <div className="dl__row"><span className="dl__k">Last saved</span><span className="dl__v">{savedAt ? `${friendlyDateTime(savedAt)}${savedByTab ? ' · this tab' : ''}` : 'Not saved yet'}</span></div>
+            <div className="dl__row"><span className="dl__k">Loaded at</span><span className="dl__v">{loadedAt ? friendlyDateTime(loadedAt) : '—'}</span></div>
+            <div className="dl__row"><span className="dl__k">Size</span><span className="dl__v">{size}</span></div>
+          </div>
+          <div className="pop__foot">
+            <button type="button" className="btn btn--sm btn--ghost" onClick={() => { setOpen(false); navigate('/settings?section=drive'); }}>Snapshots</button>
+            {status === 'reconnect'
+              ? <button type="button" className="btn btn--sm btn--primary" onClick={() => { setOpen(false); onReconnect(); }}><Icon name="link" />Reconnect</button>
+              : <button type="button" className="btn btn--sm btn--primary" disabled={status === 'saving' || status === 'conflict'} onClick={() => { setOpen(false); onSaveNow(); }}><Icon name="cloud_upload" />Save now</button>}
+          </div>
         </div>
-      </section>
+      )}
+    </span>
+  );
+}
+
+function exportSize(): string {
+  try {
+    return `${megabytes(exportDatabase().byteLength)} MB`;
+  } catch {
+    return '—';
+  }
+}
+
+function ConflictDialog({
+  driveTime,
+  loadedAt,
+  pendingChanges,
+  onLoadDrive,
+  onKeepTab,
+}: {
+  driveTime: string | null;
+  loadedAt: Date | null;
+  pendingChanges: number;
+  onLoadDrive: () => void;
+  onKeepTab: () => void;
+}) {
+  const navigate = useNavigate();
+  const driveDate = driveTime ? new Date(driveTime) : null;
+  const time = (date: Date) => date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase();
+  const changes = `${pendingChanges} unsaved ${pendingChanges === 1 ? 'change' : 'changes'}`;
+  return (
+    <div className="w-modal">
+      <div className="w-dialog" role="alertdialog" aria-modal="true" aria-labelledby="cf-t">
+        <div className="w-dialog__head"><span className="w-dialog__icon w-dialog__icon--danger"><Icon name="sync_problem" /></span>
+          <div className="col gap-1"><span id="cf-t" className="t-heading">Drive has a newer version</span>
+            <span className="t-small muted">Another device saved changes to Drive{driveDate ? ` at ${time(driveDate)}` : ''}, after this tab loaded the file{loadedAt ? ` at ${time(loadedAt)}` : ''}. This tab also has {changes}. Only one version can be kept.</span></div></div>
+        <div className="card card--subtle col gap-2">
+          <div className="row row--between"><span className="t-small">On Drive</span><span className="t-small-em">{driveDate ? friendlyDateTime(driveDate).replace(',', '') : 'Changed elsewhere'}</span></div>
+          <div className="row row--between"><span className="t-small">In this tab</span><span className="t-small-em">{pendingChanges} {pendingChanges === 1 ? 'change' : 'changes'} · not saved</span></div></div>
+        <div className="row gap-1 t-caption muted"><Icon name="history" className="ms-14" />A snapshot of the version you don’t keep is saved to Drive, so you can restore it from Settings.</div>
+        <div className="w-dialog__actions">
+          <button type="button" className="btn btn--danger" onClick={onKeepTab}>Keep this tab’s version</button>
+          <button type="button" className="btn btn--primary" onClick={() => { navigate('/'); onLoadDrive(); }}><Icon name="download" />Load Drive’s version</button>
+        </div>
+      </div>
     </div>
   );
 }
 
-function SignInRoot() {
-  return <App />;
+function ShortcutsDialog({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const rows: [string, string][] = [
+    ['/', 'Search Activity'],
+    ['?', 'Show keyboard shortcuts'],
+    ['Esc', 'Close a panel, menu or dialog'],
+  ];
+  return (
+    <div className="w-modal" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="w-dialog" role="dialog" aria-modal="true" aria-labelledby="ks-t">
+        <div className="w-dialog__head"><span className="w-dialog__icon"><Icon name="keyboard" /></span>
+          <div className="col gap-1"><span id="ks-t" className="t-heading">Keyboard shortcuts</span><span className="t-small muted">Work faster on a big screen.</span></div></div>
+        <div className="col gap-0">
+          {rows.map(([key, label]) => <div key={key} className="shortcut-row"><span className="t-small">{label}</span><span className="kbd">{key}</span></div>)}
+        </div>
+        <div className="w-dialog__actions"><button type="button" className="btn btn--primary" autoFocus onClick={onClose}>Done</button></div>
+      </div>
+    </div>
+  );
 }
 
-export default SignInRoot;
+function RestoreSnapshotDialog({
+  onClose,
+  onList,
+  onRestore,
+}: {
+  onClose: () => void;
+  onList: () => Promise<SnapshotFile[]>;
+  onRestore: (id: string) => Promise<void>;
+}) {
+  const [snapshots, setSnapshots] = useState<SnapshotFile[] | null>(null);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    onList().then((files) => active && setSnapshots(files)).catch((reason) => active && setError(reason instanceof Error ? reason.message : 'Could not list snapshots.'));
+    return () => {
+      active = false;
+    };
+  }, [onList]);
+  return (
+    <div className="w-modal">
+      <div className="w-dialog" role="dialog" aria-modal="true" aria-labelledby="rs-t">
+        <div className="w-dialog__head"><span className="w-dialog__icon"><Icon name="history" /></span>
+          <div className="col gap-1"><span id="rs-t" className="t-heading">Restore a snapshot</span><span className="t-small muted">Opens an earlier copy of your data. It replaces {LIVE_FILE_LABEL} on Drive the next time this tab saves.</span></div></div>
+        {error && <div className="banner banner--danger" role="alert"><Icon name="error" /><div className="banner__copy t-small">{error}</div></div>}
+        <div className="card card--none">
+          {!snapshots && !error && <div className="lrow"><span className="t-small muted">Loading snapshots…</span></div>}
+          {snapshots?.length === 0 && <div className="lrow"><span className="t-small muted">No snapshots on Drive yet.</span></div>}
+          {snapshots?.slice(0, 8).map((file) => (
+            <div key={file.id} className="lrow"><Icon name="description" className="muted" /><div className="grow col gap-0"><span className="t-label">{friendlyDateTime(new Date(file.modifiedTime))}</span><span className="t-caption muted truncate">{file.name}</span></div>
+              <button type="button" className="btn btn--sm" disabled={busyId !== null} onClick={() => { setBusyId(file.id); onRestore(file.id).then(onClose).catch((reason) => { setBusyId(null); setError(reason instanceof Error ? reason.message : 'Could not restore.'); }); }}>{busyId === file.id ? 'Restoring…' : 'Restore'}</button></div>
+          ))}
+        </div>
+        <div className="w-dialog__actions"><button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button></div>
+      </div>
+    </div>
+  );
+}
+
+export default App;

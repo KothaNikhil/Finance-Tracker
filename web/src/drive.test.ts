@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DriveReconnectRequiredError, GoogleDriveSyncPort } from './drive';
+import { DriveAccessMissingError, DriveReconnectRequiredError, GoogleDriveSyncPort } from './drive';
 
 function jsonResponse(data: unknown, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(data), {
@@ -46,6 +46,30 @@ describe('GoogleDriveSyncPort', () => {
     await expect(new GoogleDriveSyncPort('expired').listSnapshots()).rejects.toBeInstanceOf(
       DriveReconnectRequiredError,
     );
+  });
+
+  it('reports a missing Drive scope separately from an expired token', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      JSON.stringify({ error: { code: 403, errors: [{ reason: 'insufficientPermissions' }] } }),
+      { status: 403 },
+    ));
+
+    await expect(new GoogleDriveSyncPort('no-scope').listSnapshots()).rejects.toBeInstanceOf(
+      DriveAccessMissingError,
+    );
+  });
+
+  it('streams download progress for the loading screen', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(Uint8Array.from([1, 2, 3, 4]), {
+      headers: { 'Content-Length': '4' },
+    }));
+    const progress = vi.fn();
+
+    const bytes = await new GoogleDriveSyncPort('drive-token', { onDownloadProgress: progress }).download('live');
+
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4]);
+    expect(progress).toHaveBeenCalledWith(0, 4);
+    expect(progress).toHaveBeenLastCalledWith(4, 4);
   });
 
   it('uploads an export into the Finance Tracker Drive folder', async () => {

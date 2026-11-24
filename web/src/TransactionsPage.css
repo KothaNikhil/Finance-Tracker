@@ -1,0 +1,56 @@
+/* Activity page. The first block is copied verbatim from ui-mocks/web/activity.html <style>. */
+.sumstrip { display: flex; align-items: stretch; gap: 0; padding: var(--sp-3) var(--sp-4); }
+.sumstrip > .stat-col { padding: 0 var(--sp-3); }
+.sumstrip > .stat-col:first-child { padding-left: 0; }
+.sumstrip .stat-divider { width: 1px; background: var(--border); }
+@media (max-width: 719px) { .sumstrip { padding: var(--sp-2) var(--sp-3); } .sumstrip > .stat-col { padding: 0 var(--sp-2); } .sumstrip .first-only { display: none; } }
+.tbl-foot { padding: var(--sp-3); text-align: center; }
+.review-mark { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--review); margin-right: 6px; vertical-align: 1px; }
+.w-panel__body { position: relative; }
+.shortcut-hint { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ---------- Real controls drawn with the mock's classes ---------- */
+:where(.act) :where(button.chip, button.pop__item, button.lrow, button.tchip, button.seg__item, button.mrow) {
+  font: inherit; text-align: left;
+}
+:where(.act) :where(button.pop__item) { width: 100%; border: 0; background: none; color: inherit; }
+:where(.act) :where(button.lrow) { width: 100%; color: inherit; }
+:where(.act) :where(button.mrow) { width: 100%; border-width: 0 0 var(--hairline); border-style: solid; border-color: var(--border); background: none; color: inherit; }
+:where(.act) :where(button.seg__item) { border: 0; background: none; cursor: pointer; }
+:where(.act) :where(button.note-box) { width: 100%; background: none; color: inherit; font: inherit; text-align: left; cursor: text; }
+.act .pop__item[disabled], .act .seg__item[disabled], .act .tchip[disabled] { opacity: 0.45; cursor: default; }
+.act .cb:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.act .tbl tbody tr.t-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.act .mrow { cursor: pointer; }
+.act .tbl tr.act-spacer td { padding: 0; border: 0; }
+
+/* Inputs living inside .field__box (the mocks draw them as plain text) */
+.act .field__box:focus-within { border-color: var(--focus); }
+.act-input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0;
+  font: inherit; color: var(--text);
+}
+.act-input::placeholder { color: var(--text-secondary); opacity: 1; }
+body.w .act-input:focus-visible { outline: none; }
+.act-select-box { position: relative; }
+.act-select {
+  position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; font: inherit;
+}
+.act-select-box .act-select-value { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-select-box.is-disabled { pointer-events: none; }
+textarea.note-box { width: 100%; resize: vertical; background: var(--background-element); color: var(--text); font: inherit; font-size: 13px; line-height: 18px; outline: 0; }
+textarea.note-box:focus { border-color: var(--focus); }
+.note-box { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Filter popovers inside the horizontally scrolling phone toolbar would be clipped: show them as a sheet. */
+@media (max-width: 719px) {
+  .act .toolbar .pop, .act .bulk .pop {
+    position: fixed; left: var(--sp-2) !important; right: var(--sp-2); top: auto !important;
+    bottom: calc(64px + var(--sp-2)); width: auto !important; max-height: 70vh; overflow: auto;
+  }
+  .act .bulk .pop { bottom: calc(64px + 64px); }
+}
+.act .bulk .pop { bottom: calc(100% + var(--sp-2)); left: 0; }
+.act-range { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); padding: var(--sp-2); }
+.act-range .field__label { font-size: 12px; }
+.act .w-panel__bar .act-nav { margin-left: auto; margin-right: calc(var(--sp-1) - var(--sp-2)); }

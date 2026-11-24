@@ -1,0 +1,77 @@
+/* Lending page. The first block is copied verbatim from the inline <style> of ui-mocks/web/lending.html. */
+.ln-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 140px 140px 120px; gap: var(--sp-3); align-items: center; padding: var(--sp-3) var(--sp-4); cursor: pointer; }
+.ln-row + .ln-row { border-top: var(--hairline) solid var(--border); }
+.ln-row:hover { background: var(--background-selected); }
+.ln-row.is-active { background: var(--accent-muted); box-shadow: inset 3px 0 0 var(--accent); }
+.ln-head { padding-top: var(--sp-2); padding-bottom: var(--sp-2); cursor: default; }
+.ln-head:hover { background: none; }
+.ln-num { text-align: right; font-variant-numeric: tabular-nums; }
+.hist { display: flex; flex-direction: column; }
+.hist__row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: var(--sp-2); align-items: center; padding: var(--sp-2) 0; }
+.hist__row + .hist__row { border-top: var(--hairline) solid var(--border); }
+.hist__dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--background-selected); }
+.hist__dot .ms { font-size: 16px; }
+.split { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--background-selected); }
+.split > span { display: block; height: 100%; }
+@media (max-width: 1199px) { .ln-row { grid-template-columns: 40px minmax(0, 1fr) 130px 110px; } .ln-row > .c5 { display: none; } }
+body.has-panel .ln-row { grid-template-columns: 40px minmax(0, 1fr) 130px; }
+body.has-panel .ln-row > .c4, body.has-panel .ln-row > .c5 { display: none; }
+@media (min-width: 1680px) { body.has-panel .ln-row { grid-template-columns: 40px minmax(0, 1fr) 140px 140px; } body.has-panel .ln-row > .c4 { display: block; } }
+@media (max-width: 719px) { .ln-row, body.has-panel .ln-row { grid-template-columns: 40px minmax(0, 1fr) auto; padding: var(--sp-3); } .ln-row > .c4, .ln-row > .c5 { display: none; } .ln-head { display: none; } }
+
+/* ---------- App-only: real controls drawn exactly like the mock's static spans ---------- */
+/* `body.w button { font: inherit; color: inherit }` outranks the single-class mock rules, so restate them. */
+.ln button.btn, body.w button.ln-top { font-size: 13px; line-height: 17px; font-weight: 500; color: var(--text); }
+.ln button.btn--primary, body.w button.ln-top { color: var(--on-accent); }
+.ln button.btn--ghost { color: var(--accent); }
+.ln button.btn--danger { color: var(--spend); }
+.ln a.btn { color: var(--text); }
+.ln button.icon-btn { color: var(--text); }
+.ln button.icon-btn--plain { color: var(--accent); }
+.ln button.seg__item { border: 0; background: transparent; cursor: pointer; font-size: 13px; line-height: 17px; font-weight: 500; color: var(--text-secondary); }
+.ln button.seg__item.is-selected { background: var(--accent); color: var(--on-accent); }
+.ln button.chip { font-size: 13px; line-height: 17px; font-weight: 500; color: var(--text-secondary); }
+.ln button.chip.is-set { color: var(--accent); }
+.ln button.pop__item { width: 100%; border: 0; background: transparent; text-align: left; font-size: 13px; line-height: 17px; color: var(--text); }
+.ln button.pop__item:hover { background: var(--background-selected); }
+.ln button.pop__item.is-selected { color: var(--accent); }
+.ln button.banner__action { border: 0; background: none; cursor: pointer; }
+
+.ln .pop { top: calc(100% + 4px); left: 0; min-width: 200px; }
+.ln .pop__item .ms { font-size: 16px; }
+
+.ln .field__box:focus-within { border-color: var(--focus); }
+.ln .field__box input,
+.ln .field__box select,
+.ln .field__box textarea {
+  flex: 1; min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; padding: 0; margin: 0;
+  font: inherit; font-size: 14px; line-height: 19px; color: var(--text);
+}
+.ln .field__box input::placeholder,
+.ln .field__box textarea::placeholder { color: var(--text-secondary); opacity: 1; }
+.ln .field__box input[readonly] { color: var(--text-secondary); }
+.ln .field__box textarea { resize: none; min-height: 60px; }
+.ln .field__box input::-webkit-calendar-picker-indicator { display: none !important; }
+.ln .field__box input:disabled, .ln .field__box textarea:disabled { color: var(--text-secondary); }
+.ln .field__box select { appearance: none; cursor: pointer; }
+.ln .field__icon { cursor: pointer; }
+
+.hist__row[role='button'] { cursor: pointer; border-radius: var(--r-sm); }
+.hist__row[role='button']:hover { background: var(--background-selected); }
+.ln-note { cursor: pointer; }
+.ln-edit { margin-right: -4px; }
+
+/* Transaction picker (Attach existing / Link to a transaction) */
+.ln-pick { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ln-pick__list {
+  max-height: 260px; overflow-y: auto; padding: var(--sp-1);
+  border: var(--hairline) solid var(--border); border-radius: var(--r-md);
+}
+.ln-pick__list .pop__item { min-height: 44px; padding: var(--sp-1) var(--sp-2); }
+.ln-pick__empty { padding: var(--sp-2); }
+
+/* Split editor */
+.ln-slice { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 32px; gap: var(--sp-2); align-items: center; }
+@media (max-width: 719px) { .ln-slice { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .ln-slice > :first-child { grid-column: 1 / -1; } }
+
+.ln-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

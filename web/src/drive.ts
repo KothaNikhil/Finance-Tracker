@@ -31,6 +31,25 @@ export class DriveReconnectRequiredError extends Error {
   }
 }
 
+/** Google returned a token without the drive.file scope (the consent checkbox was left unticked). */
+export class DriveAccessMissingError extends Error {
+  constructor() {
+    super('Google Drive access was not granted.');
+    this.name = 'DriveAccessMissingError';
+  }
+}
+
+export interface DriveLoadProgress {
+  onLiveFileFound?(file: LiveDatabaseFile & { size: number | null }): void;
+  onDownloadProgress?(loadedBytes: number, totalBytes: number | null): void;
+}
+
+async function isScopeError(response: Response): Promise<boolean> {
+  if (response.status !== 403) return false;
+  const detail = await response.clone().text().catch(() => '');
+  return /insufficient(Permissions|.*scopes?)|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(detail);
+}
+
 function asLiveFile(file: DriveFileResponse, etag?: string): LiveDatabaseFile {
   if (!file.headRevisionId) throw new Error('Drive returned a live database without a head revision id.');
   return {
@@ -57,7 +76,7 @@ async function concatenate(parts: (string | Uint8Array)[]): Promise<ArrayBuffer>
 export class GoogleDriveSyncPort implements DriveSyncPort {
   private folderId: string | null = null;
 
-  constructor(private readonly token: string) {}
+  constructor(private readonly token: string, private readonly progress: DriveLoadProgress = {}) {}
 
   private async request<T>(url: string, init?: RequestInit): Promise<{ value: T; etag: string | null }> {
     const response = await fetch(url, {
@@ -65,6 +84,7 @@ export class GoogleDriveSyncPort implements DriveSyncPort {
       headers: { Authorization: `Bearer ${this.token}`, ...(init?.headers ?? {}) },
     });
     if (response.status === 401) throw new DriveReconnectRequiredError();
+    if (await isScopeError(response)) throw new DriveAccessMissingError();
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       if (response.status === 412) throw new RevisionConflictError();
@@ -124,10 +144,12 @@ export class GoogleDriveSyncPort implements DriveSyncPort {
       }
       await Promise.all(duplicates.map((duplicate) => this.deleteFile(duplicate.id)));
     }
-    const metadata = await this.request<DriveFileResponse>(
-      `${DRIVE_API}/${canonical.id}?fields=id,name,headRevisionId,modifiedTime`,
+    const metadata = await this.request<DriveFileResponse & { size?: string }>(
+      `${DRIVE_API}/${canonical.id}?fields=id,name,headRevisionId,modifiedTime,size`,
     );
-    return asLiveFile(metadata.value, metadata.etag ?? undefined);
+    const live = asLiveFile(metadata.value, metadata.etag ?? undefined);
+    this.progress.onLiveFileFound?.({ ...live, size: metadata.value.size ? Number(metadata.value.size) : null });
+    return live;
   }
 
   async listSnapshots(): Promise<SnapshotFile[]> {
@@ -146,8 +168,29 @@ export class GoogleDriveSyncPort implements DriveSyncPort {
       headers: { Authorization: `Bearer ${this.token}` },
     });
     if (response.status === 401) throw new DriveReconnectRequiredError();
+    if (await isScopeError(response)) throw new DriveAccessMissingError();
     if (!response.ok) throw new Error(`Could not download Drive database (${response.status}).`);
-    return new Uint8Array(await response.arrayBuffer());
+    const onProgress = this.progress.onDownloadProgress;
+    if (!onProgress || !response.body) return new Uint8Array(await response.arrayBuffer());
+    const total = Number(response.headers.get('content-length')) || null;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    onProgress(0, total);
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.length;
+      onProgress(loaded, total);
+    }
+    const bytes = new Uint8Array(loaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return bytes;
   }
 
   async createLive(bytes: Uint8Array): Promise<LiveDatabaseFile> {
@@ -250,6 +293,6 @@ export class GoogleDriveSyncPort implements DriveSyncPort {
   }
 }
 
-export function createDriveSyncEngine(token: string): DriveSyncEngine {
-  return new DriveSyncEngine(new GoogleDriveSyncPort(token));
+export function createDriveSyncEngine(token: string, progress?: DriveLoadProgress): DriveSyncEngine {
+  return new DriveSyncEngine(new GoogleDriveSyncPort(token, progress));
 }

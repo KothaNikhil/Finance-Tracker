@@ -36,16 +36,24 @@ function getRows<T>(db: Database, query: string): T[] {
 
 export async function openDatabase(bytes?: Uint8Array): Promise<Database> {
   const SQL = await getSql();
+  // Prepare the replacement fully before touching the open database, so a file that fails to open
+  // (damaged, or saved by a newer app) leaves the current data and provider intact.
+  const next = bytes ? new SQL.Database(bytes) : new SQL.Database();
+  let db: ReturnType<typeof drizzle<typeof schema>>;
+  try {
+    next.run('PRAGMA foreign_keys = ON;');
+    migrateSchema({
+      execute: (sql) => next.run(sql),
+      all: <T>(sql: string) => getRows<T>(next, sql),
+    });
+    db = drizzle(next, { schema });
+    seedDatabase(db);
+  } catch (error) {
+    next.close();
+    throw error;
+  }
   database?.close();
-  database = bytes ? new SQL.Database(bytes) : new SQL.Database();
-  database.run('PRAGMA foreign_keys = ON;');
-  migrateSchema({
-    execute: (sql) => database?.run(sql),
-    all: <T>(sql: string) => getRows<T>(database!, sql),
-  });
-
-  const db = drizzle(database, { schema });
-  seedDatabase(db);
+  database = next;
   configureDatabaseProvider(() => ({
     db,
     getMeta(key) {
