@@ -19,8 +19,10 @@ import {
   acceptAllReviews,
   acceptTransactionReview,
   addCategory,
+  addPerson,
   addSubcategory,
   attachTransactionToLoan,
+  createLoan,
   deleteTransaction,
   detachTransactionFromLoan,
   getAllTransactions,
@@ -38,7 +40,7 @@ import {
 import { cardStatementsQuery, matchingCardStatementsQuery } from '@finance-tracker/core/db/queries/cards';
 import { loansQuery } from '@finance-tracker/core/db/queries/lending';
 import { categories, imports, loanAllocations, paymentModes, people, subcategories, type TransactionRow } from '@finance-tracker/core/db/schema';
-import { isTransferRole, LOAN_PARTS, ROLE_META, type LoanPart } from '@finance-tracker/core/lending/roles';
+import { isTransferRole, LOAN_PARTS, ROLE_META, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@finance-tracker/core/lending/roles';
 import { monthKeyOf, type TxnFilter } from '@finance-tracker/core/analytics/filter';
 import { getDb } from '@finance-tracker/core/db/runtime';
 import { inr, useDatabaseRevision } from './feature-utils';
@@ -49,6 +51,7 @@ import './TransactionsPage.css';
 type Direction = 'in' | 'out' | 'self';
 type Menu = 'period' | 'category' | 'account' | 'person' | 'direction' | 'amount' | 'columns' | null;
 type Category = typeof categories.$inferSelect;
+type LoanRow = { id: number; name: string; personId: number; kind: string; closed: boolean };
 type Subcategory = typeof subcategories.$inferSelect;
 
 interface SplitDraft {
@@ -1015,7 +1018,7 @@ function TransactionDetail({
   peopleRows: { id: number; name: string }[];
   paymentModeRows: { id: number; name: string }[];
   importRows: Map<number, typeof imports.$inferSelect>;
-  loans: { id: number; name: string }[];
+  loans: LoanRow[];
   statements: (typeof imports.$inferSelect)[];
   loanLinked: boolean;
   pickerOpen: boolean;
@@ -1031,6 +1034,11 @@ function TransactionDetail({
   const [cardOpen, setCardOpen] = useState(false);
   const [attachLoanId, setAttachLoanId] = useState('');
   const [attachPart, setAttachPart] = useState<LoanPart>('principal');
+  const [creatingLoan, setCreatingLoan] = useState(false);
+  const [newLoanKind, setNewLoanKind] = useState<LoanKind>(txn.direction === 'in' ? 'borrowed' : 'lent');
+  const [newLoanPersonId, setNewLoanPersonId] = useState('');
+  const [newPersonName, setNewPersonName] = useState('');
+  const [newLoanName, setNewLoanName] = useState('');
   const [splitRows, setSplitRows] = useState<SplitDraft[]>([{ loanId: '', part: 'principal', amount: '' }]);
   const [linkStatementId, setLinkStatementId] = useState('');
   const catRef = useRef<HTMLDivElement>(null);
@@ -1057,7 +1065,28 @@ function TransactionDetail({
   const selfLocked = txn.transferRole != null || txn.loanId != null || txn.linkedImportId != null;
   const lent = txn.loanId != null || loanLinked;
   const card = txn.linkedImportId != null;
-  const loanName = (id: number | null) => { const loan = loans.find((item) => item.id === id); return loan ? loan.name || `Loan #${loan.id}` : `Loan #${id}`; };
+  const personNameOf = (id: number) => peopleRows.find((item) => item.id === id)?.name ?? 'Someone';
+  const loanLabel = (loan: LoanRow) => `${personNameOf(loan.personId)}${loan.name ? ` · ${loan.name}` : ''} · ${loan.kind === 'borrowed' ? 'borrowed' : 'lent'}`;
+  const loanName = (id: number | null) => { const loan = loans.find((item) => item.id === id); return loan ? loanLabel(loan) : `Loan #${id}`; };
+  const openLoans = loans.filter((loan) => !loan.closed || loan.id === txn.loanId);
+  // Like the phone app: an imported row keeps its statement direction, so the loan part must move money the same way.
+  const attachKind: LoanKind | null = creatingLoan ? newLoanKind : (loans.find((loan) => loan.id === Number(attachLoanId))?.kind as LoanKind | undefined) ?? null;
+  const attachDirection = attachKind ? roleDirection(roleForLoanPart(attachKind, attachPart)) : null;
+  const directionMismatch = txn.source !== 'manual' && attachDirection != null && attachDirection !== txn.direction;
+  const canAttach = !directionMismatch && (creatingLoan ? newLoanPersonId !== '' : attachLoanId !== '');
+  const submitAttach = () => run(() => {
+    let loanId = Number(attachLoanId);
+    if (creatingLoan) loanId = createLoan({ name: newLoanName.trim(), personId: Number(newLoanPersonId), kind: newLoanKind });
+    attachTransactionToLoan(txn.id, loanId, attachPart);
+    setAttachLoanId('');
+    setCreatingLoan(false);
+    setNewLoanName('');
+  });
+  const addNewPerson = () => {
+    const name = newPersonName.trim();
+    if (!name) return;
+    run(() => { setNewLoanPersonId(String(addPerson(name))); setNewPersonName(''); });
+  };
   const othersSamePayee = txn.counterpartyName ? rows.filter((row) => row.id !== txn.id && row.counterpartyName === txn.counterpartyName) : [];
   const matchingStatements = cardOpen && !card ? matchingCardStatementsQuery(db, txn.paise).all() : [];
 
@@ -1155,21 +1184,44 @@ function TransactionDetail({
                   <div className="row row--between gap-2"><span className="t-small">Attached to <b>{loanName(txn.loanId)}</b>{isTransferRole(txn.transferRole) ? ` · ${ROLE_META[txn.transferRole].label}` : ''}</span>
                     <button type="button" className="btn btn--sm" onClick={() => run(() => detachTransactionFromLoan(txn.id))}>Detach from loan</button></div>
                 )}
-                <span className="t-small-em">Attach to a loan</span>
-                <div className="grid grid-2" style={{ gap: 'var(--sp-2)' }}>
-                  <SelectBox label="Loan" value={attachLoanId} display={attachLoanId ? loanName(Number(attachLoanId)) : 'Choose loan…'} onChange={setAttachLoanId}>
-                    <option value="">Choose loan…</option>{loans.map((loan) => <option key={loan.id} value={loan.id}>{loan.name || `Loan #${loan.id}`}</option>)}
-                  </SelectBox>
-                  <SelectBox label="Loan part" value={attachPart} display={LOAN_PARTS.find((item) => item.part === attachPart)?.label ?? attachPart} onChange={(value) => setAttachPart(value as LoanPart)}>
-                    {LOAN_PARTS.map((item) => <option key={item.part} value={item.part}>{item.label}</option>)}
-                  </SelectBox>
+                <span className="t-small-em">{txn.loanId != null ? 'Move to another loan' : 'Add to Money Lent'}</span>
+                <div className="seg" role="radiogroup" aria-label="Loan">
+                  <button type="button" role="radio" aria-checked={!creatingLoan} className={`seg__item${creatingLoan ? '' : ' is-selected'}`} onClick={() => setCreatingLoan(false)}>Existing loan</button>
+                  <button type="button" role="radio" aria-checked={creatingLoan} className={`seg__item${creatingLoan ? ' is-selected' : ''}`} onClick={() => setCreatingLoan(true)}><Icon name="add" />New loan</button>
                 </div>
-                <button type="button" className="btn btn--sm" style={{ alignSelf: 'flex-start' }} disabled={!attachLoanId} onClick={() => run(() => { attachTransactionToLoan(txn.id, Number(attachLoanId), attachPart); setAttachLoanId(''); })}>Attach</button>
+                {creatingLoan ? (
+                  <div className="col gap-2">
+                    <div className="seg" role="radiogroup" aria-label="New loan direction">
+                      {(['lent', 'borrowed'] as const).map((kind) => (
+                        <button type="button" key={kind} role="radio" aria-checked={newLoanKind === kind} className={`seg__item${newLoanKind === kind ? ' is-selected' : ''}`} onClick={() => setNewLoanKind(kind)}>{kind === 'lent' ? 'I lent' : 'I borrowed'}</button>
+                      ))}
+                    </div>
+                    <SelectBox label="Person" value={newLoanPersonId} display={newLoanPersonId ? personNameOf(Number(newLoanPersonId)) : 'Choose a person…'} onChange={setNewLoanPersonId}>
+                      <option value="">Choose a person…</option>{peopleRows.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    </SelectBox>
+                    <div className="row gap-1">
+                      <label className="field__box field__box--sm grow"><input className="act-input" aria-label="New person name" placeholder="Add a new person…" value={newPersonName} onChange={(event) => setNewPersonName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addNewPerson(); } }} /></label>
+                      <button type="button" className="btn btn--sm" disabled={!newPersonName.trim()} onClick={addNewPerson}>Add</button>
+                    </div>
+                    <label className="field__box field__box--sm"><input className="act-input" aria-label="Loan name (optional)" placeholder="Loan name (optional), e.g. Wedding" value={newLoanName} onChange={(event) => setNewLoanName(event.target.value)} /></label>
+                  </div>
+                ) : openLoans.length > 0 ? (
+                  <SelectBox label="Loan" value={attachLoanId} display={attachLoanId ? loanName(Number(attachLoanId)) : 'Choose a loan…'} onChange={setAttachLoanId}>
+                    <option value="">Choose a loan…</option>{openLoans.map((loan) => <option key={loan.id} value={loan.id}>{loanLabel(loan)}</option>)}
+                  </SelectBox>
+                ) : (
+                  <span className="t-small muted">No open loans yet. Choose <b>New loan</b> to create one.</span>
+                )}
+                <SelectBox label="Loan part" value={attachPart} display={LOAN_PARTS.find((item) => item.part === attachPart)?.label ?? attachPart} onChange={(value) => setAttachPart(value as LoanPart)}>
+                  {LOAN_PARTS.map((item) => <option key={item.part} value={item.part}>{item.label}</option>)}
+                </SelectBox>
+                {directionMismatch && <span className="t-small c-spend" role="alert">This choice moves money {attachDirection}, but the imported transaction is money {txn.direction}. Choose a matching loan part.</span>}
+                <button type="button" className="btn btn--sm btn--primary" style={{ alignSelf: 'flex-start' }} disabled={!canAttach} onClick={submitAttach}>{creatingLoan ? 'Create loan and add' : 'Add to Money Lent'}</button>
                 <span className="t-small-em">Split across loans</span>
                 {splitRows.map((row, index) => (
                   <div className="row gap-1" key={index}>
                     <div className="grow"><SelectBox label="Loan" value={row.loanId} display={row.loanId ? loanName(Number(row.loanId)) : 'Choose loan…'} onChange={(value) => setSplitRows((current) => current.map((item, i) => i === index ? { ...item, loanId: value } : item))}>
-                      <option value="">Choose loan…</option>{loans.map((loan) => <option key={loan.id} value={loan.id}>{loan.name || `Loan #${loan.id}`}</option>)}
+                      <option value="">Choose loan…</option>{openLoans.map((loan) => <option key={loan.id} value={loan.id}>{loanLabel(loan)}</option>)}
                     </SelectBox></div>
                     <SelectBox label="Split part" value={row.part} display={LOAN_PARTS.find((item) => item.part === row.part)?.label ?? row.part} onChange={(value) => setSplitRows((current) => current.map((item, i) => i === index ? { ...item, part: value as LoanPart } : item))}>
                       {LOAN_PARTS.map((item) => <option key={item.part} value={item.part}>{item.label}</option>)}
@@ -1283,6 +1335,81 @@ function TransactionDetail({
         panelEl,
       )}
     </>
+  );
+}
+
+/* ---------------- Standalone detail panel (used by other pages, e.g. Import) ---------------- */
+
+/** The Activity transaction panel for one saved transaction, loading everything it needs itself. */
+export function TransactionDetailPanel({ txnId, onClose, footerNote }: { txnId: number | null; onClose: () => void; footerNote?: ReactNode }) {
+  const revision = useDatabaseRevision();
+  const db = getDb();
+  const open = txnId != null;
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [error, setError] = useState('');
+  const data = useMemo(() => {
+    if (!open) return null;
+    const categoryRows = db.select().from(categories).where(eq(categories.isArchived, false)).orderBy(asc(categories.sortOrder), asc(categories.id)).all();
+    const subRows = db.select().from(subcategories).orderBy(asc(subcategories.sortOrder), asc(subcategories.id)).all();
+    return {
+      rows: getAllTransactions(),
+      categoryRows,
+      subRows,
+      categoryMap: new Map(categoryRows.map((item) => [item.id, item])),
+      subMap: new Map(subRows.map((item) => [item.id, item])),
+      peopleRows: db.select().from(people).where(eq(people.isArchived, false)).orderBy(asc(people.sortOrder), asc(people.id)).all(),
+      paymentModeRows: db.select().from(paymentModes).where(eq(paymentModes.isArchived, false)).orderBy(asc(paymentModes.sortOrder), asc(paymentModes.id)).all(),
+      importRows: new Map(db.select().from(imports).all().map((row) => [row.id, row])),
+      loanLinkedIds: new Set(db.select({ txnId: loanAllocations.txnId }).from(loanAllocations).all().map((row) => row.txnId)),
+      loans: loansQuery(db).all(),
+      statements: cardStatementsQuery(db).all(),
+    };
+  }, [db, open, revision]);
+  const txn = data && txnId != null ? data.rows.find((row) => row.id === txnId) ?? null : null;
+  useEffect(() => { setPickerOpen(false); setError(''); }, [txnId]);
+  const run = (action: () => void) => {
+    setError('');
+    try { action(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  };
+
+  return (
+    // The Activity styles for panel controls are scoped to .act; display: contents keeps the panel a direct flex child.
+    <div className="act" style={{ display: 'contents' }}>
+    <DetailPanel
+      open={open}
+      onClose={onClose}
+      label="Transaction detail"
+      bar={<>
+        <span className="t-overline muted">TRANSACTION</span>
+        {txn && <Link className="btn btn--sm btn--ghost hide-phone" to={`/transactions?txn=${txn.id}`}>Open in Activity<Icon name="arrow_forward" /></Link>}
+      </>}
+      footer={<span className="save-note t-caption grow"><Icon name="cloud_done" />{footerNote ?? 'Changes save to Drive automatically'}</span>}
+    >
+      {error && <div className="banner banner--danger" role="alert"><Icon name="error" /><div className="banner__copy t-small">{error}</div></div>}
+      {data && txn ? (
+        <TransactionDetail
+          key={txn.id}
+          txn={txn}
+          rows={data.rows}
+          categoryRows={data.categoryRows}
+          subRows={data.subRows}
+          categoryMap={data.categoryMap}
+          subMap={data.subMap}
+          peopleRows={data.peopleRows}
+          paymentModeRows={data.paymentModeRows}
+          importRows={data.importRows}
+          loans={data.loans}
+          statements={data.statements}
+          loanLinked={data.loanLinkedIds.has(txn.id)}
+          pickerOpen={pickerOpen}
+          setPickerOpen={setPickerOpen}
+          run={run}
+          onError={setError}
+          onDeleted={onClose}
+        />
+      ) : open ? <span className="t-small muted">This transaction is no longer in your data.</span> : null}
+    </DetailPanel>
+    </div>
   );
 }
 

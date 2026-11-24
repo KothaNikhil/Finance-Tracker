@@ -25,7 +25,8 @@ import { imports, transactions } from '@finance-tracker/core/db/schema';
 import { getDb } from '@finance-tracker/core/db/runtime';
 import { ilog, resetImportLog } from '@finance-tracker/core/import/import-log';
 import { useDatabaseRevision } from './feature-utils';
-import { MONTHS_SHORT, formatInr, friendlyDateTime, longDate, shortDate } from './shell';
+import { DetailPanel, Icon, MONTHS_SHORT, formatInr, friendlyDateTime, longDate, shortDate } from './shell';
+import { TransactionDetailPanel } from './TransactionsPage';
 import './ImportPage.css';
 
 type FileStatus = 'reading' | 'locked' | 'ready' | 'error' | 'saved';
@@ -78,6 +79,9 @@ interface PickerState {
   key: string;
   anchor: DOMRect;
 }
+
+/** A saved transaction opens the full Activity panel; a row that isn't saved yet opens a preview. */
+type DetailTarget = { kind: 'saved'; txnId: number; key: string } | { kind: 'preview'; key: string };
 
 const PAGE_SIZE = 100;
 const UNSUPPORTED_COPY = 'Not a supported statement. Export it from your bank as .xlsx and drop it again.';
@@ -203,6 +207,7 @@ export function ImportPage() {
   const [choices, setChoices] = useState<Record<string, CategoryChoice>>({});
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set());
   const [picker, setPicker] = useState<PickerState | null>(null);
+  const [detail, setDetail] = useState<DetailTarget | null>(null);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [revertTarget, setRevertTarget] = useState<{ importId: number; title: string } | null>(null);
   const dragging = dragCount != null;
@@ -230,11 +235,12 @@ export function ImportPage() {
 
   /** Where each duplicate already lives (import batch + its saved category). */
   const duplicateInfo = useMemo(() => {
-    const info = new Map<string, { importId: number | null; categoryId: number | null; subcategoryId: number | null }>();
+    const info = new Map<string, { id: number; importId: number | null; categoryId: number | null; subcategoryId: number | null }>();
     const keys = [...new Set(duplicateRows.map(({ txn }) => txn.dedupeKey))];
     for (let start = 0; start < keys.length; start += 500) {
       const chunk = keys.slice(start, start + 500);
       const rows = db.select({
+        id: transactions.id,
         dedupeKey: transactions.dedupeKey,
         importId: transactions.importId,
         categoryId: transactions.categoryId,
@@ -267,8 +273,34 @@ export function ImportPage() {
     return { perFile, total };
   }, [db, newRows, previewFiles, revision]);
 
+  /** After saving, a row is a real transaction that can be edited (or deleted) elsewhere, so read it back. */
+  const savedInfo = useMemo(() => {
+    const info = new Map<string, { id: number; categoryId: number | null; subcategoryId: number | null; needsReview: boolean }>();
+    const keys = newRows.filter(({ item }) => item.status === 'saved').map(({ row }) => row.txn.dedupeKey);
+    for (let start = 0; start < keys.length; start += 500) {
+      const rows = db.select({
+        id: transactions.id,
+        dedupeKey: transactions.dedupeKey,
+        categoryId: transactions.categoryId,
+        subcategoryId: transactions.subcategoryId,
+        needsReview: transactions.needsReview,
+      }).from(transactions).where(inArray(transactions.dedupeKey, keys.slice(start, start + 500))).all();
+      for (const row of rows) info.set(row.dedupeKey, row);
+    }
+    return info;
+  }, [db, newRows, revision]);
+  const isDeleted = ({ item, row }: PreviewEntry) => item.status === 'saved' && !savedInfo.has(row.txn.dedupeKey);
+  const entryCategory = ({ item, row }: PreviewEntry) => {
+    const stored = item.status === 'saved' ? savedInfo.get(row.txn.dedupeKey) : undefined;
+    if (stored) return categoryDisplay(index, stored.categoryId, stored.subcategoryId);
+    const choice = choices[row.txn.dedupeKey];
+    return choice ? categoryDisplay(index, choice.categoryId, choice.subcategoryId) : categoryDisplay(index, row.categoryId, row.subcategoryId);
+  };
+
   const isIncluded = (key: string) => !excluded.has(key);
-  const needsCategory = ({ row }: PreviewEntry) => row.needsReview && choices[row.txn.dedupeKey] == null;
+  const needsCategory = ({ item, row }: PreviewEntry) => item.status === 'saved'
+    ? savedInfo.get(row.txn.dedupeKey)?.needsReview ?? false
+    : row.needsReview && choices[row.txn.dedupeKey] == null;
   const includedRows = newRows.filter(({ row }) => isIncluded(row.txn.dedupeKey));
   const pendingRows = includedRows.filter(({ item }) => item.status === 'ready');
   const reviewRows = newRows.filter(needsCategory);
@@ -428,6 +460,36 @@ export function ImportPage() {
     ? newRows.filter(({ row }) => row.txn.dedupeKey !== pickerEntry.row.txn.dedupeKey && payeeKey(row.txn) === payeeKey(pickerEntry.row.txn))
     : [];
   const closePicker = useCallback(() => setPicker(null), []);
+  const closeDetail = useCallback(() => setDetail(null), []);
+
+  const openEntry = ({ item, row }: PreviewEntry) => {
+    const key = row.txn.dedupeKey;
+    setPicker(null);
+    if (item.status !== 'saved') {
+      setDetail({ kind: 'preview', key });
+      return;
+    }
+    const txnId = savedInfo.get(key)?.id;
+    if (txnId != null) setDetail({ kind: 'saved', txnId, key });
+  };
+  const openDuplicate = (dedupeKey: string) => {
+    const known = duplicateInfo.get(dedupeKey);
+    if (known) setDetail({ kind: 'saved', txnId: known.id, key: dedupeKey });
+  };
+  /** Rows open on click or Enter, except when the click lands on the row's own checkbox or category pill. */
+  const rowProps = (open: () => void, label: string) => ({
+    tabIndex: 0,
+    'aria-label': label,
+    onClick: (event: ReactMouseEvent<HTMLElement>) => { if (!(event.target as HTMLElement).closest('button, a, input')) open(); },
+    onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+      if (event.target !== event.currentTarget) return;
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
+    },
+  });
+  const previewEntry = detail?.kind === 'preview' ? newRows.find(({ row }) => row.txn.dedupeKey === detail.key) ?? null : null;
+  useEffect(() => {
+    if (detail?.kind === 'preview' && !previewEntry) setDetail(null);
+  }, [detail, previewEntry]);
 
   const applyChoice = (choice: CategoryChoice, alsoSame: boolean) => {
     if (!pickerEntry) return;
@@ -482,6 +544,11 @@ export function ImportPage() {
         const done = savedFiles.get(item.id);
         return done ? { ...item, preview: done.preview, formatName: done.formatName, status: 'saved' } : item;
       }));
+      setDetail((current) => {
+        if (current?.kind !== 'preview') return current;
+        const txnId = lookupTxnId(current.key);
+        return txnId != null ? { kind: 'saved', txnId, key: current.key } : null;
+      });
       ilog(`web import: saved ${added} transaction(s) in one batch`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -495,6 +562,7 @@ export function ImportPage() {
     try {
       const count = revertImport(importId);
       setNotice({ title: `Reverted import #${importId}`, body: `Removed ${count} transaction${count === 1 ? '' : 's'} from your data.` });
+      setDetail((current) => current?.kind === 'saved' && lookupTxnId(current.key) == null ? null : current);
       if (saved && saved.importId === importId) {
         setSaved(null);
         setFiles((current) => current.map((item) => item.status === 'saved' ? { ...item, status: 'ready' } : item));
@@ -541,8 +609,8 @@ export function ImportPage() {
 
   const renderPill = ({ item, row }: PreviewEntry) => {
     const key = row.txn.dedupeKey;
-    const choice = choices[key];
-    const display = choice ? categoryDisplay(index, choice.categoryId, choice.subcategoryId) : categoryDisplay(index, row.categoryId, row.subcategoryId);
+    if (isDeleted({ item, row })) return <span className="cat-pill"><span className="ms" style={{ fontSize: 14 }} aria-hidden="true">delete</span><span>Deleted</span></span>;
+    const display = entryCategory({ item, row });
     const review = needsCategory({ item, row });
     const open = (event: ReactMouseEvent<HTMLElement>) => {
       event.stopPropagation();
@@ -627,7 +695,7 @@ export function ImportPage() {
           </div>
         </>}
 
-        {files.length > 0 && <div className="grid grid-main-side">
+        {files.length > 0 && <div className="grid grid-main-side imp-grid">
           <div className="col gap-4" style={{ minWidth: 0 }}>
             {!isSaved && <div
               className={`drop${dragging ? ' is-over' : ''}`}
@@ -662,7 +730,7 @@ export function ImportPage() {
                       {label} <span className="muted">{count}</span>
                     </button>)}
                 </div>
-                <span className="t-caption muted hide-phone">Click a category to change it before saving</span>
+                <span className="t-caption muted hide-phone">Click a row for details, or a category to change it</span>
               </div>
               <div className="tbl-wrap hide-phone" style={{ border: 0, borderRadius: 0 }}>
                 <table className="tbl">
@@ -670,7 +738,7 @@ export function ImportPage() {
                     <th className="c-check">{tab === 'duplicates'
                       ? <span className="cb" aria-hidden="true"><span className="ms">check</span></span>
                       : <button type="button" className={`cb${headerState}`} role="checkbox" aria-checked={headerState === ' is-on' ? true : headerState === ' is-mixed' ? 'mixed' : false} aria-label="Include all rows" disabled={isSaved || visibleKeys.length === 0} onClick={toggleAll}><span className="ms" aria-hidden="true">check</span></button>}</th>
-                    <th className="c-date">Date</th><th>Payee</th><th className="c-cat">Category</th><th className="c-src hide-tablet">From file</th><th className="c-amt num">Amount</th>
+                    <th className="c-date">Date</th><th>Payee</th><th className="c-cat">Category</th><th className="c-src hide-tablet hide-with-panel">From file</th><th className="c-amt num">Amount</th>
                   </tr></thead>
                   <tbody>
                     {tab === 'duplicates'
@@ -678,7 +746,8 @@ export function ImportPage() {
                         const known = duplicateInfo.get(txn.dedupeKey);
                         const display = known ? categoryDisplay(index, known.categoryId, known.subcategoryId) : null;
                         const amount = signedPaise(txn);
-                        return <tr className="t-row dup" key={`${item.id}-${position}`}>
+                        return <tr className={`t-row dup${detail?.key === txn.dedupeKey ? ' is-active' : ''}`} key={`${item.id}-${position}`}
+                          {...(known ? rowProps(() => openDuplicate(txn.dedupeKey), `${payeeOf(txn)}: open details`) : {})}>
                           <td className="c-check"><span className="cb" aria-hidden="true"><span className="ms">check</span></span></td>
                           <td className="t-small muted">{shortDate(txn.isoDate)}</td>
                           <td><div className="col gap-0" style={{ minWidth: 0 }}><span className="t-label truncate">{payeeOf(txn)}</span>
@@ -686,7 +755,7 @@ export function ImportPage() {
                           <td>{display
                             ? <span className="cat-pill"><span className="em">{display.emoji}</span><span>{display.label}</span></span>
                             : <span className="cat-pill"><span className="em">🏷️</span><span>Uncategorised</span></span>}</td>
-                          <td className="t-small muted hide-tablet">{fileSourceLabel(item)}</td>
+                          <td className="t-small muted hide-tablet hide-with-panel">{fileSourceLabel(item)}</td>
                           <td className={`num t-small-em${amount > 0 && txn.direction === 'in' ? ' c-income' : ''}`}>{formatInr(amount, { sign: txn.direction === 'in' })}</td>
                         </tr>;
                       })
@@ -695,12 +764,12 @@ export function ImportPage() {
                         const key = row.txn.dedupeKey;
                         const on = isIncluded(key);
                         const amount = signedPaise(row.txn);
-                        return <tr className="t-row" key={`${item.id}-${key}`}>
+                        return <tr className={`t-row${detail?.key === key ? ' is-active' : ''}`} key={`${item.id}-${key}`} {...(isDeleted(entry) ? {} : rowProps(() => openEntry(entry), `${payeeOf(row.txn)}: open details`))}>
                           <td className="c-check"><button type="button" className={`cb${on ? ' is-on' : ''}`} role="checkbox" aria-checked={on} aria-label={`Include ${payeeOf(row.txn)}`} disabled={item.status === 'saved'} onClick={() => toggleRow(key)}><span className="ms" aria-hidden="true">check</span></button></td>
                           <td className="t-small muted">{shortDate(row.txn.isoDate)}</td>
                           <td><div className="col gap-0" style={{ minWidth: 0 }}><span className="t-label truncate">{payeeOf(row.txn)}</span></div></td>
                           <td>{renderPill(entry)}</td>
-                          <td className="t-small muted hide-tablet">{fileSourceLabel(item)}</td>
+                          <td className="t-small muted hide-tablet hide-with-panel">{fileSourceLabel(item)}</td>
                           <td className={`num t-small-em${row.txn.direction === 'in' ? ' c-income' : ''}`}>{formatInr(amount, { sign: row.txn.direction === 'in' })}</td>
                         </tr>;
                       })}
@@ -716,7 +785,8 @@ export function ImportPage() {
                   ? duplicateRows.slice(0, limit).map(({ item, txn }, position) => {
                     const known = duplicateInfo.get(txn.dedupeKey);
                     const display = known ? categoryDisplay(index, known.categoryId, known.subcategoryId) : null;
-                    return <div className="mrow" style={{ opacity: 0.55 }} key={`${item.id}-${position}`}>
+                    return <div className="mrow" style={{ opacity: 0.55 }} key={`${item.id}-${position}`} role={known ? 'button' : undefined}
+                      {...(known ? rowProps(() => openDuplicate(txn.dedupeKey), `${payeeOf(txn)}: open details`) : {})}>
                       <span className="mrow__glyph" aria-hidden="true">{display?.emoji ?? '🏷️'}</span>
                       <div className="mrow__left"><span className="t-label">{payeeOf(txn)}</span><span className="t-caption muted">{display?.label ?? 'Already imported'} · {shortDate(txn.isoDate)}</span></div>
                       <div className="mrow__right"><span className={`t-small-em${txn.direction === 'in' ? ' c-income' : ''}`}>{formatInr(signedPaise(txn), { sign: txn.direction === 'in' })}</span><span className="t-caption muted">{fileSourceLabel(item)}</span></div>
@@ -725,22 +795,19 @@ export function ImportPage() {
                   : visibleRows.slice(0, limit).map((entry) => {
                     const { item, row } = entry;
                     const key = row.txn.dedupeKey;
-                    const choice = choices[key];
-                    const display = choice ? categoryDisplay(index, choice.categoryId, choice.subcategoryId) : categoryDisplay(index, row.categoryId, row.subcategoryId);
+                    const deleted = isDeleted(entry);
+                    const display = entryCategory(entry);
                     const review = needsCategory(entry);
                     return <div
                       className={`mrow${isIncluded(key) ? '' : ' is-muted'}`}
                       style={isIncluded(key) ? undefined : { opacity: 0.55 }}
                       key={`${item.id}-${key}`}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`${payeeOf(row.txn)}: change category`}
-                      onClick={(event) => setPicker({ key, anchor: event.currentTarget.getBoundingClientRect() })}
-                      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPicker({ key, anchor: event.currentTarget.getBoundingClientRect() }); } }}
+                      role={deleted ? undefined : 'button'}
+                      {...(deleted ? {} : rowProps(() => openEntry(entry), `${payeeOf(row.txn)}: open details`))}
                     >
                       <span className="mrow__glyph" aria-hidden="true">{review ? '❔' : display?.emoji ?? '🏷️'}</span>
                       <div className="mrow__left"><span className="t-label">{payeeOf(row.txn)}</span>
-                        <span className={`t-caption ${review ? 'c-review' : 'muted'}`}>{review ? 'Pick a category' : display?.label.split(' · ')[0] ?? 'Uncategorised'} · {shortDate(row.txn.isoDate)}</span></div>
+                        <span className={`t-caption ${review ? 'c-review' : 'muted'}`}>{deleted ? 'Deleted' : review ? 'Pick a category' : display?.label.split(' · ')[0] ?? 'Uncategorised'} · {shortDate(row.txn.isoDate)}</span></div>
                       <div className="mrow__right"><span className={`t-small-em${row.txn.direction === 'in' ? ' c-income' : ''}`}>{formatInr(signedPaise(row.txn), { sign: row.txn.direction === 'in' })}</span><span className="t-caption muted">{fileSourceLabel(item)}</span></div>
                     </div>;
                   })}
@@ -788,6 +855,29 @@ export function ImportPage() {
         </div>}
       </main>
 
+      <TransactionDetailPanel
+        txnId={detail?.kind === 'saved' ? detail.txnId : null}
+        onClose={closeDetail}
+      />
+      <div className="act" style={{ display: 'contents' }}><DetailPanel
+        open={detail?.kind === 'preview' && previewEntry != null}
+        onClose={closeDetail}
+        label="Transaction preview"
+        bar={<span className="t-overline muted">NOT SAVED YET</span>}
+        footer={<span className="save-note t-caption grow"><Icon name="info" />Saved with the rest of this import</span>}
+      >
+        {previewEntry && <PreviewDetail
+          entry={previewEntry}
+          sourceLabel={fileSourceLabel(previewEntry.item)}
+          display={entryCategory(previewEntry)}
+          chosen={choices[previewEntry.row.txn.dedupeKey] != null}
+          review={needsCategory(previewEntry)}
+          included={isIncluded(previewEntry.row.txn.dedupeKey)}
+          onToggleIncluded={() => toggleRow(previewEntry.row.txn.dedupeKey)}
+          onPick={(anchor) => setPicker({ key: previewEntry.row.txn.dedupeKey, anchor })}
+        />}
+      </DetailPanel></div>
+
       {picker && pickerEntry && <CategoryPicker
         anchor={picker.anchor}
         index={index}
@@ -814,6 +904,82 @@ export function ImportPage() {
       </div>}
     </div>
   );
+}
+
+function time12(time: string | null): string {
+  if (!time) return '';
+  const [h, m] = time.split(':').map(Number);
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** Read-only view of a statement row before it is saved, laid out like the Activity detail panel. */
+function PreviewDetail({ entry, sourceLabel, display, chosen, review, included, onToggleIncluded, onPick }: {
+  entry: PreviewEntry;
+  sourceLabel: string;
+  display: { emoji: string; label: string } | null;
+  chosen: boolean;
+  review: boolean;
+  included: boolean;
+  onToggleIncluded: () => void;
+  onPick: (anchor: DOMRect) => void;
+}) {
+  const { item, row } = entry;
+  const txn = row.txn;
+  const out = txn.direction === 'out';
+  const isSelf = txn.direction === 'self';
+  const amount = signedPaise(txn);
+  const payee = payeeOf(txn);
+  const canEdit = item.status !== 'saved';
+  return <>
+    <div className="dp-head">
+      <div className="dp-title">
+        <span className="dp-badge" style={{ background: `var(--${out ? 'spend' : 'income'}-muted)`, color: `var(--${out ? 'spend' : 'income'})` }}><Icon name={isSelf ? 'swap_horiz' : out ? 'north_east' : 'south_west'} /></span>
+        <span className="t-heading grow truncate">{payee}</span>
+        <span className={`dp-amount${txn.direction === 'in' ? ' c-income' : ''}`}>{formatInr(amount, { sign: true })}</span>
+      </div>
+      <span className="t-small muted">{isSelf ? 'Self-transfer' : out ? 'Money out' : 'Money in'} · {longDate(txn.isoDate)}{txn.time ? ` · ${time12(txn.time)}` : ''}</span>
+    </div>
+
+    <div className="banner banner--wrap"><Icon name="info" /><div className="banner__copy t-small">This row isn’t saved yet. After you save the import, it opens like any transaction in Activity, with notes, people, loans and card bills.</div></div>
+
+    <div className="dp-section"><span className="t-overline muted">CATEGORY</span>
+      <div className={`dp-cat${review ? ' dp-cat--review' : ''}`}>
+        <span className="dp-cat__em">{review ? '❔' : display?.emoji ?? '🏷️'}</span>
+        <div className="grow col gap-0" style={{ minWidth: 0 }}>
+          <span className="t-label truncate">{review ? 'Needs a category' : display?.label ?? 'Uncategorised'}</span>
+          <span className={`t-caption ${review ? 'c-review' : 'muted'}`}>{review
+            ? 'Couldn’t match this payee. Pick one and it will be remembered.'
+            : chosen ? 'Set by you' : display ? 'Auto-categorized from payee' : 'Not counted in any category yet'}</span>
+        </div>
+        <button type="button" className="btn btn--sm" aria-haspopup="dialog" onClick={(event) => onPick(event.currentTarget.getBoundingClientRect())}>{review || !display ? 'Pick' : 'Change'}</button>
+      </div>
+    </div>
+
+    {canEdit && <div className="dp-section"><span className="t-overline muted">THIS IMPORT</span>
+      <div className="toggle-chips">
+        <button type="button" className={`tchip${included ? ' is-on' : ''}`} aria-pressed={included} onClick={onToggleIncluded}><Icon name={included ? 'check' : 'block'} />{included ? 'Will be saved' : 'Skipped'}</button>
+      </div>
+      {!included && <span className="t-caption muted">Skipped rows aren’t saved. Turn this back on to include it.</span>}
+    </div>}
+
+    <div className="dp-section"><span className="t-overline muted">TRANSACTION</span><div className="dl">
+      <div className="dl__row"><span className="dl__k">Direction</span><span className="dl__v">{isSelf ? 'Self-transfer' : out ? 'Outgoing' : 'Incoming'}</span></div>
+      <div className="dl__row"><span className="dl__k">Amount</span><span className="dl__v tabular">{formatInr(txn.paise)}</span></div>
+      <div className="dl__row"><span className="dl__k">Date and time</span><span className="dl__v">{longDate(txn.isoDate)}{txn.time ? `, ${time12(txn.time)}` : ''}</span></div>
+      <div className="dl__row"><span className="dl__k">{out ? 'Paid to' : 'Received from'}</span><span className="dl__v">{payee}{txn.counterpartyVpa ? ` · ${txn.counterpartyVpa}` : ''}</span></div>
+      <div className="dl__row"><span className="dl__k">Account</span><span className="dl__v">{txn.accountName || '—'}</span></div>
+    </div></div>
+
+    <div className="dp-section"><span className="t-overline muted">FROM THE STATEMENT</span><div className="dl">
+      <div className="dl__row"><span className="dl__k">File</span><span className="dl__v">{item.file.name}</span></div>
+      <div className="dl__row"><span className="dl__k">Format</span><span className="dl__v">{sourceLabel}</span></div>
+      <div className="dl__row"><span className="dl__k">UPI reference</span><span className="dl__v t-code" style={{ fontSize: 12 }}>{txn.sourceRef || '—'}</span></div>
+      {txn.orderId && <div className="dl__row"><span className="dl__k">Order ID</span><span className="dl__v t-code" style={{ fontSize: 12 }}>{txn.orderId}</span></div>}
+      {txn.rawTag && <div className="dl__row"><span className="dl__k">Tag</span><span className="dl__v">{txn.rawTag}</span></div>}
+      <div className="dl__row"><span className="dl__k">Original text</span><span className="dl__v">{txn.rawDetails || '—'}</span></div>
+      {txn.remarks && <div className="dl__row"><span className="dl__k">Remarks</span><span className="dl__v">{txn.remarks}</span></div>}
+    </div></div>
+  </>;
 }
 
 function FileRow({ item, cardMatches, onRemove, onUnlock }: {
@@ -929,7 +1095,12 @@ function CategoryPicker({ anchor, index, current, suggested, payee, sameCount, o
     const onPointer = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // Close only the picker, not the detail panel listening on window.
+      event.stopPropagation();
+      onClose();
+    };
     const onScroll = (event: Event) => {
       if (ref.current && event.target instanceof Node && ref.current.contains(event.target)) return;
       onClose();

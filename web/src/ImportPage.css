@@ -70,3 +70,6 @@ button.cat-pill--review:hover { border-color: var(--review); }
 .imp-pop .pop__foot label { cursor: pointer; }
 .imp-pop .pop__foot input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .imp-pop .pop__foot input:focus-visible + .cb { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* With the detail panel docked, stack the summary under the table so Payee and Amount keep their room. */
+@media (min-width: 1200px) and (max-width: 1679px) { body.has-panel .imp-grid { grid-template-columns: minmax(0, 1fr); } }

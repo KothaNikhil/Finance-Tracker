@@ -42,3 +42,5 @@ button.btn, button.icon-btn, button.chip, button.seg__item, button.tchip, button
 .w-fallback { flex: 1; display: flex; align-items: center; justify-content: center; padding: var(--sp-6); }
 .shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: var(--hairline) solid var(--border); }
 .shortcut-row:last-child { border-bottom: 0; }
+/* The panel body scrolls; its sections must keep their height instead of shrinking into each other. */
+.w-panel__body > * { flex-shrink: 0; }
