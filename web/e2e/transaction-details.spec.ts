@@ -30,6 +30,53 @@ test('money lent can create a loan from a transaction', async ({ page }) => {
   await page.getByRole('button', { name: 'Create loan and add' }).click();
   await expect(page.locator('.w-panel').getByText('Attached to')).toBeVisible();
   await expect(page.locator('.w-panel b', { hasText: 'Rahul Verma · Rent help · lent' })).toBeVisible();
+  const panel = page.locator('.w-panel');
+  const attached = panel.getByRole('button', { name: 'Attached loan', exact: true });
+  await expect(attached).toHaveAttribute('aria-expanded', 'false');
+  await expect(panel.getByRole('radio', { name: 'Existing loan' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Remove from transaction' })).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(attached).toBeVisible();
+  await attached.focus();
+  await page.keyboard.press('Enter');
+  await expect(panel.getByRole('button', { name: 'Remove from transaction' })).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await panel.getByRole('button', { name: 'Edit loan attachment' }).click();
+  const loanSelect = panel.getByRole('combobox', { name: 'Loan', exact: true }).first();
+  await expect(loanSelect.locator('option:checked')).toHaveText('Rahul Verma · Rent help · lent');
+  await loanSelect.selectOption({ label: 'Meera Nair · Laptop · borrowed' });
+  await panel.getByRole('combobox', { name: 'Loan part', exact: true }).selectOption('repayment');
+  await panel.getByRole('button', { name: 'Save loan attachment' }).click();
+  await expect(attached).toContainText('Meera Nair · Laptop · borrowed · Repaid by me');
+  await expect(attached).toHaveAttribute('aria-expanded', 'false');
+  await attached.click();
+  await panel.getByRole('button', { name: 'Edit loan attachment' }).click();
+  await expect(panel.getByRole('combobox', { name: 'Loan part', exact: true })).toHaveValue('repayment');
+  await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(attached).toHaveAttribute('aria-expanded', 'false');
+
+  // Splits use the same compact item and reopen with their saved slices.
+  await attached.click();
+  await panel.getByRole('button', { name: 'Edit loan attachment' }).click();
+  await panel.getByRole('combobox', { name: 'Loan', exact: true }).nth(1).selectOption({ label: 'Rahul Verma · Rent help · lent' });
+  await panel.getByRole('textbox', { name: 'Split amount in rupees' }).fill('700');
+  await panel.getByRole('button', { name: 'Add slice' }).click();
+  await panel.getByRole('combobox', { name: 'Loan', exact: true }).nth(2).selectOption({ label: 'Arjun Mehta · Bike down payment · lent' });
+  await panel.getByRole('textbox', { name: 'Split amount in rupees' }).nth(1).fill('500');
+  await panel.getByRole('button', { name: 'Save split', exact: true }).click();
+  await expect(attached).toContainText('Split across loans');
+  await expect(attached).toHaveAttribute('aria-expanded', 'false');
+  await attached.click();
+  await panel.getByRole('button', { name: 'Edit loan attachment' }).click();
+  await expect(panel.getByRole('textbox', { name: 'Split amount in rupees' }).first()).toHaveValue('700');
+  await expect(panel.getByRole('textbox', { name: 'Split amount in rupees' }).nth(1)).toHaveValue('500');
+  await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await attached.click();
+  await panel.getByRole('button', { name: 'Remove from transaction' }).click();
+  await expect(attached).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Money lent', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await panel.getByRole('button', { name: 'Money lent', exact: true }).click();
+  await expect(panel.getByRole('combobox', { name: 'Loan', exact: true }).first().getByRole('option', { name: 'Rahul Verma · Rent help · lent' })).toHaveCount(1);
 
   // A part that moves money the wrong way is blocked for imported rows.
   await page.locator('.tbl tbody tr.t-row', { hasText: 'Swiggy Instamart' }).first().getByText('Swiggy Instamart').click();
@@ -85,6 +132,11 @@ test('import rows open transaction details', async ({ page }) => {
     await saved.getByRole('button', { name: 'Add', exact: true }).click();
     await saved.getByRole('button', { name: 'Create loan and add' }).click();
     await expect(saved.locator('b', { hasText: 'Kiran Rao · lent' })).toBeVisible();
+    await expect(saved.getByRole('radio', { name: 'Existing loan' })).toHaveCount(0);
+    await saved.getByRole('button', { name: 'Attached loan', exact: true }).click();
+    await expect(saved.getByRole('button', { name: 'Edit loan attachment' })).toBeVisible();
+    await saved.getByRole('button', { name: 'Remove from transaction' }).click();
+    await expect(saved.getByRole('button', { name: 'Attached loan', exact: true })).toHaveCount(0);
 
     // Category edits in the panel show up in the review table.
     await saved.getByRole('button', { name: 'Pick' }).click();

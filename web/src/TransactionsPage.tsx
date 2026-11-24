@@ -40,7 +40,7 @@ import {
 import { cardStatementsQuery, matchingCardStatementsQuery } from '@finance-tracker/core/db/queries/cards';
 import { loansQuery } from '@finance-tracker/core/db/queries/lending';
 import { categories, imports, loanAllocations, paymentModes, people, subcategories, type TransactionRow } from '@finance-tracker/core/db/schema';
-import { isTransferRole, LOAN_PARTS, ROLE_META, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@finance-tracker/core/lending/roles';
+import { isTransferRole, loanPartOf, LOAN_PARTS, ROLE_META, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@finance-tracker/core/lending/roles';
 import { monthKeyOf, type TxnFilter } from '@finance-tracker/core/analytics/filter';
 import { getDb } from '@finance-tracker/core/db/runtime';
 import { inr, useDatabaseRevision } from './feature-utils';
@@ -1031,6 +1031,7 @@ function TransactionDetail({
   const [tab, setTab] = useState<'ov' | 'dt'>('ov');
   const [editingNote, setEditingNote] = useState(false);
   const [lendOpen, setLendOpen] = useState(false);
+  const [loanActionsOpen, setLoanActionsOpen] = useState(false);
   const [cardOpen, setCardOpen] = useState(false);
   const [attachLoanId, setAttachLoanId] = useState('');
   const [attachPart, setAttachPart] = useState<LoanPart>('principal');
@@ -1068,7 +1069,27 @@ function TransactionDetail({
   const personNameOf = (id: number) => peopleRows.find((item) => item.id === id)?.name ?? 'Someone';
   const loanLabel = (loan: LoanRow) => `${personNameOf(loan.personId)}${loan.name ? ` · ${loan.name}` : ''} · ${loan.kind === 'borrowed' ? 'borrowed' : 'lent'}`;
   const loanName = (id: number | null) => { const loan = loans.find((item) => item.id === id); return loan ? loanLabel(loan) : `Loan #${id}`; };
-  const openLoans = loans.filter((loan) => !loan.closed || loan.id === txn.loanId);
+  const allocations = db.select().from(loanAllocations).where(eq(loanAllocations.txnId, txn.id)).all();
+  const openLoans = loans.filter((loan) => !loan.closed || loan.id === txn.loanId || allocations.some((item) => item.loanId === loan.id));
+  const toggleLending = () => {
+    if (lent) {
+      setLoanActionsOpen((value) => !value);
+      setLendOpen(false);
+    } else setLendOpen((value) => !value);
+    setCardOpen(false);
+  };
+  const editLoanAttachment = () => {
+    setAttachLoanId(txn.loanId == null ? '' : String(txn.loanId));
+    setAttachPart(loanPartOf(txn.transferRole) ?? 'principal');
+    setCreatingLoan(false);
+    setSplitRows(allocations.length ? allocations.map((item) => ({
+      loanId: String(item.loanId),
+      part: LOAN_PARTS.find(({ part }) => part === item.part)?.part ?? loanPartOf(txn.transferRole) ?? 'principal',
+      amount: String(item.paise / 100),
+    })) : [{ loanId: '', part: 'principal', amount: '' }]);
+    setLoanActionsOpen(false);
+    setLendOpen(true);
+  };
   // Like the phone app: an imported row keeps its statement direction, so the loan part must move money the same way.
   const attachKind: LoanKind | null = creatingLoan ? newLoanKind : (loans.find((loan) => loan.id === Number(attachLoanId))?.kind as LoanKind | undefined) ?? null;
   const attachDirection = attachKind ? roleDirection(roleForLoanPart(attachKind, attachPart)) : null;
@@ -1081,6 +1102,8 @@ function TransactionDetail({
     setAttachLoanId('');
     setCreatingLoan(false);
     setNewLoanName('');
+    setLendOpen(false);
+    setLoanActionsOpen(false);
   });
   const addNewPerson = () => {
     const name = newPersonName.trim();
@@ -1117,13 +1140,13 @@ function TransactionDetail({
   const chips: { key: string; icon: string; label: string; on: boolean; disabled?: boolean; toggle: () => void }[] = out
     ? [
       { key: 'self', icon: 'swap_horiz', label: 'Self-transfer', on: isSelf, disabled: !isSelf && selfLocked, toggle: () => run(() => setTransactionSelfTransfer(txn.id, !isSelf)) },
-      { key: 'lent', icon: 'group', label: 'Money lent', on: lent, toggle: () => { setLendOpen((value) => !value); setCardOpen(false); } },
-      { key: 'card', icon: 'credit_card', label: 'Card bill', on: card, disabled: isSelf, toggle: () => { setCardOpen((value) => !value); setLendOpen(false); } },
+      { key: 'lent', icon: 'group', label: 'Money lent', on: lent, toggle: toggleLending },
+      { key: 'card', icon: 'credit_card', label: 'Card bill', on: card, disabled: isSelf, toggle: () => { setCardOpen((value) => !value); setLendOpen(false); setLoanActionsOpen(false); } },
     ]
     : [
       { key: 'refund', icon: 'undo', label: 'Refund', on: txn.isRefund, disabled: isSelf, toggle: () => run(() => setTransactionRefund(txn.id, !txn.isRefund)) },
       { key: 'self', icon: 'swap_horiz', label: 'Self-transfer', on: isSelf, disabled: !isSelf && selfLocked, toggle: () => run(() => setTransactionSelfTransfer(txn.id, !isSelf)) },
-      { key: 'lent', icon: 'group', label: 'Money lent', on: lent, toggle: () => setLendOpen((value) => !value) },
+      { key: 'lent', icon: 'group', label: 'Money lent', on: lent, toggle: toggleLending },
     ];
 
   const personName = txn.personId == null ? 'Not set' : peopleRows.find((item) => item.id === txn.personId)?.name ?? 'Not set';
@@ -1178,13 +1201,32 @@ function TransactionDetail({
               ))}
             </div>
             {isSelf && <span className="t-caption muted">Self-transfers move money between your own accounts, so they aren’t counted as spending.</span>}
+            {lent && (
+              <div className="card card--subtle col gap-2">
+                <button type="button" className="lrow lrow--click act-loan-item" aria-label="Attached loan" aria-expanded={loanActionsOpen || lendOpen} onClick={toggleLending}>
+                  <Icon name="group" />
+                  <span className="grow col gap-1">
+                    <span className="t-caption muted">{allocations.length ? 'Split across loans' : 'Attached to'}</span>
+                    {txn.loanId != null ? <b className="t-small">{loanName(txn.loanId)}{isTransferRole(txn.transferRole) ? ` · ${ROLE_META[txn.transferRole].label}` : ''}</b>
+                      : allocations.length ? allocations.map((item) => <span className="t-small" key={item.id}>{loanName(item.loanId)} · {LOAN_PARTS.find(({ part }) => part === item.part)?.label ?? 'Principal'} · {inr(item.paise)}</span>)
+                        : <span className="t-small">{isTransferRole(txn.transferRole) ? ROLE_META[txn.transferRole].label : 'Money lent'}</span>}
+                  </span>
+                  <Icon name={loanActionsOpen || lendOpen ? 'expand_less' : 'chevron_right'} />
+                </button>
+                {loanActionsOpen && (
+                  <div className="row gap-2">
+                    <button type="button" className="btn btn--sm" onClick={editLoanAttachment}><Icon name="edit" />Edit loan attachment</button>
+                    <button type="button" className="btn btn--sm" onClick={() => run(() => { detachTransactionFromLoan(txn.id); setLoanActionsOpen(false); setLendOpen(false); })}><Icon name="link_off" />Remove from transaction</button>
+                  </div>
+                )}
+              </div>
+            )}
             {lendOpen && (
               <div className="card card--subtle col gap-2">
-                {txn.loanId != null && (
-                  <div className="row row--between gap-2"><span className="t-small">Attached to <b>{loanName(txn.loanId)}</b>{isTransferRole(txn.transferRole) ? ` · ${ROLE_META[txn.transferRole].label}` : ''}</span>
-                    <button type="button" className="btn btn--sm" onClick={() => run(() => detachTransactionFromLoan(txn.id))}>Detach from loan</button></div>
-                )}
-                <span className="t-small-em">{txn.loanId != null ? 'Move to another loan' : 'Add to Money Lent'}</span>
+                <div className="row row--between gap-2">
+                  <span className="t-small-em">{lent ? 'Edit loan attachment' : 'Add to Money Lent'}</span>
+                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => setLendOpen(false)}>Cancel</button>
+                </div>
                 <div className="seg" role="radiogroup" aria-label="Loan">
                   <button type="button" role="radio" aria-checked={!creatingLoan} className={`seg__item${creatingLoan ? '' : ' is-selected'}`} onClick={() => setCreatingLoan(false)}>Existing loan</button>
                   <button type="button" role="radio" aria-checked={creatingLoan} className={`seg__item${creatingLoan ? ' is-selected' : ''}`} onClick={() => setCreatingLoan(true)}><Icon name="add" />New loan</button>
@@ -1216,7 +1258,7 @@ function TransactionDetail({
                   {LOAN_PARTS.map((item) => <option key={item.part} value={item.part}>{item.label}</option>)}
                 </SelectBox>
                 {directionMismatch && <span className="t-small c-spend" role="alert">This choice moves money {attachDirection}, but the imported transaction is money {txn.direction}. Choose a matching loan part.</span>}
-                <button type="button" className="btn btn--sm btn--primary" style={{ alignSelf: 'flex-start' }} disabled={!canAttach} onClick={submitAttach}>{creatingLoan ? 'Create loan and add' : 'Add to Money Lent'}</button>
+                <button type="button" className="btn btn--sm btn--primary" style={{ alignSelf: 'flex-start' }} disabled={!canAttach} onClick={submitAttach}>{creatingLoan ? 'Create loan and add' : lent ? 'Save loan attachment' : 'Add to Money Lent'}</button>
                 <span className="t-small-em">Split across loans</span>
                 {splitRows.map((row, index) => (
                   <div className="row gap-1" key={index}>
@@ -1232,7 +1274,11 @@ function TransactionDetail({
                 ))}
                 <div className="row gap-2">
                   <button type="button" className="btn btn--sm btn--ghost" onClick={() => setSplitRows((current) => [...current, { loanId: '', part: 'principal', amount: '' }])}><Icon name="add" />Add slice</button>
-                  <button type="button" className="btn btn--sm btn--primary" onClick={() => run(() => splitTransactionAcrossLoans(txn.id, splitRows.map((row) => ({ loanId: Number(row.loanId), part: row.part, paise: Math.round(Number(row.amount) * 100) }))))}>Save split</button>
+                  <button type="button" className="btn btn--sm btn--primary" onClick={() => run(() => {
+                    splitTransactionAcrossLoans(txn.id, splitRows.map((row) => ({ loanId: Number(row.loanId), part: row.part, paise: Math.round(Number(row.amount) * 100) })));
+                    setLendOpen(false);
+                    setLoanActionsOpen(false);
+                  })}>Save split</button>
                 </div>
               </div>
             )}

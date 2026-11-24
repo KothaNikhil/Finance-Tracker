@@ -23,6 +23,8 @@
 .act .tbl tbody tr.t-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .act .mrow { cursor: pointer; }
 .act .tbl tr.act-spacer td { padding: 0; border: 0; }
+.act .act-loan-item { border: 0; background: none; font: inherit; text-align: left; }
+.act .act-loan-item > .grow { min-width: 0; overflow-wrap: anywhere; }
 
 /* Inputs living inside .field__box (the mocks draw them as plain text) */
 .act .field__box:focus-within { border-color: var(--focus); }
