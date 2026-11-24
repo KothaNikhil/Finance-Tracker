@@ -85,7 +85,7 @@ const props: AddToMoneyLentSheetProps = {
 };
 
 describe('AddToMoneyLentSheet direction guard', () => {
-  it('blocks a split slice that contradicts an imported transaction direction', async () => {
+  it('blocks a split slice that contradicts the credit/debit of the transaction', async () => {
     const screen = await render(<AddToMoneyLentSheet {...props} />);
     await screen.rerender(<AddToMoneyLentSheet {...props} visible />);
 
@@ -97,13 +97,40 @@ describe('AddToMoneyLentSheet direction guard', () => {
       busy: false,
     });
 
-    await fireEvent.press(screen.getByRole('tab', { name: 'Principal' }));
+    await fireEvent.press(screen.getByRole('tab', { name: 'Paid' }));
 
-    expect(screen.getByText('Slices must be money in to match this transaction.')).toBeTruthy();
+    expect(screen.getByText('This is a credit (money in). Choose Received or Interest.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Save split' })).toHaveProp('accessibilityState', {
       disabled: true,
       busy: false,
     });
+  });
+
+  it('offers Paid / Received / Interest and blocks Paid on a manual credit', async () => {
+    const onAttach = jest.fn();
+    const manual = { ...txn, source: 'manual', direction: 'out' } as TransactionRow;
+    const loans: AddToMoneyLentSheetProps['loans'] = [
+      { id: 8, name: 'Laptop', personName: 'Meera', kind: 'borrowed' },
+    ];
+    const screen = await render(
+      <AddToMoneyLentSheet {...props} txn={manual} loans={loans} onAttach={onAttach} />,
+    );
+    await screen.rerender(
+      <AddToMoneyLentSheet {...props} txn={manual} loans={loans} onAttach={onAttach} visible />,
+    );
+
+    await fireEvent.press(screen.getByRole('radio', { name: 'Meera · Laptop · borrowed' }));
+    await fireEvent.press(screen.getByRole('tab', { name: 'Received' }));
+    expect(screen.getByText('This is a debit (money out). Choose Paid or Interest.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add to Money Lent' })).toHaveProp('accessibilityState', {
+      disabled: true,
+      busy: false,
+    });
+
+    await fireEvent.press(screen.getByRole('tab', { name: 'Paid' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add to Money Lent' }));
+    // Paying money on a loan you borrowed is a repayment.
+    expect(onAttach).toHaveBeenCalledWith(8, 'repayment');
   });
 
   it('allocates one transaction across several loans and allows a partial remainder', async () => {

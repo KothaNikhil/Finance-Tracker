@@ -16,7 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { TextRole } from '@/constants/typography';
 import { formatINR } from '@/core/domain/money';
-import { isTransferRole, loanPartOf, ROLE_META, type LoanKind, type LoanPart } from '@/core/lending/roles';
+import { isTransferRole, loanFlowLabel, loanFlowOf, loanPartOf, ROLE_META, type LoanKind, type LoanPart } from '@/core/lending/roles';
 import type { LoanView } from '@/hooks/use-lending';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -243,8 +243,7 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
 }
 
 function historyTitle(part: LoanPart | null, kind: LoanKind): string {
-  if (part === 'principal') return 'Principal';
-  if (part === 'repayment') return 'Repayment';
+  if (part === 'principal' || part === 'repayment') return loanFlowLabel(loanFlowOf(kind, part));
   if (part === 'interest') return kind === 'lent' ? 'Interest received' : 'Interest paid';
   return 'Loan transaction';
 }

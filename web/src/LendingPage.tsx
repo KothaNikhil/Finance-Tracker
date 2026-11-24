@@ -28,11 +28,18 @@ import { loanAllocationsQuery, loansQuery, loanTxnsQuery, unattachedTxnsQuery } 
 import { getDb } from '@finance-tracker/core/db/runtime';
 import { people as peopleTable, transactions as transactionsTable } from '@finance-tracker/core/db/schema';
 import {
+  defaultLoanFlow,
+  LOAN_FLOWS,
   loanBalanceFromParts,
+  loanFlowError,
+  loanFlowLabel,
+  loanFlowOf,
+  loanPartForFlow,
   loanPartOf,
   roleDirection,
   roleForLoanPart,
   type LoanBalance,
+  type LoanFlow,
   type LoanKind,
   type LoanPart,
 } from '@finance-tracker/core/lending/roles';
@@ -46,11 +53,7 @@ type StatusFilter = 'open' | 'closed' | 'all';
 type KindFilter = 'all' | 'lent' | 'borrowed';
 type SortKey = 'outstanding' | 'recent' | 'name';
 
-const PARTS: { part: LoanPart; label: string }[] = [
-  { part: 'principal', label: 'Principal' },
-  { part: 'repayment', label: 'Repayment' },
-  { part: 'interest', label: 'Interest' },
-];
+const FLOW_OPTIONS = LOAN_FLOWS.map((item) => ({ value: item.flow, label: item.label }));
 
 interface Entry {
   key: string;
@@ -83,7 +86,7 @@ interface LoanView {
 interface Slice {
   key: number;
   loanId: number;
-  part: LoanPart;
+  flow: LoanFlow;
   amount: string;
 }
 
@@ -112,9 +115,7 @@ const activateOnKey = (fn: () => void) => (event: ReactKeyboardEvent) => {
 
 function partLabel(kind: LoanKind, part: LoanPart | null): string {
   if (part === 'interest') return kind === 'lent' ? 'Interest received' : 'Interest paid';
-  if (part === 'repayment') return 'Repayment';
-  if (part === 'principal') return 'Principal';
-  return 'Entry';
+  return part == null ? 'Entry' : loanFlowLabel(loanFlowOf(kind, part));
 }
 
 function partIcon(kind: LoanKind, part: LoanPart | null): { name: string; tone: string } {
@@ -155,11 +156,6 @@ function describeTxn(txn: TxnRow): string {
   return [`${signedTxn(txn)} ${preposition} ${txnName(txn)}`, shortDate(txn.isoDate), txn.accountName].filter(Boolean).join(' · ');
 }
 
-/** Which part a picked transaction most likely is for a loan, from the way its money moved. */
-function defaultPartFor(kind: LoanKind, direction: string): LoanPart {
-  const principalDirection = kind === 'lent' ? 'out' : 'in';
-  return direction === principalDirection ? 'principal' : 'repayment';
-}
 
 function useLendingData(revision: number) {
   return useMemo(() => {
@@ -1130,7 +1126,8 @@ function EntryDialog({
   onDelete: (txnId: number) => void;
 }) {
   const existing = useMemo(() => (txnId != null ? getEditableLoanTransaction(txnId) : null), [txnId]);
-  const [part, setPart] = useState<LoanPart>(existing?.part ?? 'repayment');
+  const [flow, setFlow] = useState<LoanFlow>(loanFlowOf(loan.kind, existing?.part) ?? (loan.kind === 'lent' ? 'received' : 'paid'));
+  const part = loanPartForFlow(loan.kind, flow);
   const [amount, setAmount] = useState(existing ? (existing.paise / 100).toFixed(2).replace(/\.00$/, '') : '');
   const [date, setDate] = useState(existing?.isoDate ?? today());
   const [note, setNote] = useState(existing?.remarks ?? '');
@@ -1157,7 +1154,7 @@ function EntryDialog({
       id="le"
       icon={editing ? 'edit' : 'add'}
       title={editing ? 'Edit entry' : 'Add entry'}
-      subtitle={`A repayment, interest or more principal on ${loan.kind === 'lent' ? 'money you lent to' : 'money you borrowed from'} ${loan.personName}.`}
+      subtitle={`Money you paid, received or interest on ${loan.kind === 'lent' ? 'money you lent to' : 'money you borrowed from'} ${loan.personName}.`}
       onClose={onClose}
       onSubmit={submit}
       actions={(
@@ -1169,7 +1166,7 @@ function EntryDialog({
         </>
       )}
     >
-      <Seg label="Part" value={part} options={PARTS.map((item) => ({ value: item.part, label: item.label }))} onChange={setPart} />
+      <Seg label="Type" value={flow} options={FLOW_OPTIONS} onChange={setFlow} />
       <div className="grid grid-2" style={{ gap: 'var(--sp-3)' }}>
         <Field id="le-amount" label="Amount">
           <span className="muted">₹</span>
@@ -1214,39 +1211,44 @@ function AttachDialog({
   const [pickedId, setPickedId] = useState<number | null>(null);
   const txn = existing ?? candidates.find((row) => row.id === pickedId) ?? null;
   const [mode, setMode] = useState<'single' | 'split'>(existingSlices.length ? 'split' : 'single');
-  const [part, setPart] = useState<LoanPart>(existing ? loanPartOf(existing.transferRole) ?? 'repayment' : 'repayment');
+  const [flow, setFlow] = useState<LoanFlow>(existing ? loanFlowOf(loan.kind, loanPartOf(existing.transferRole)) ?? defaultLoanFlow(existing.direction) : 'paid');
+  const kindOf = (id: number) => loans.find((item) => item.id === id)?.kind ?? loan.kind;
   const [slices, setSlices] = useState<Slice[]>(() => existingSlices.map((slice) => ({
     key: nextKey(),
     loanId: slice.loanId,
-    part: (slice.part as LoanPart | null) ?? loanPartOf(slice.transferRole) ?? 'repayment',
+    flow: loanFlowOf(kindOf(slice.loanId), (slice.part as LoanPart | null) ?? loanPartOf(slice.transferRole)) ?? defaultLoanFlow(existing?.direction),
     amount: (slice.paise / 100).toFixed(2).replace(/\.00$/, ''),
   })));
   const [error, setError] = useState('');
 
   const loanOptions = loans.filter((item) => !item.closed || item.id === loan.id || slices.some((slice) => slice.loanId === item.id));
   const allocated = slices.reduce((sum, slice) => sum + (parseAmount(slice.amount) || 0), 0);
+  const singleError = txn ? loanFlowError(loan.kind, flow, txn.direction) : null;
+  const sliceErrors = slices.map((slice) => (txn ? loanFlowError(kindOf(slice.loanId), slice.flow, txn.direction) : null));
 
   const pick = (row: TxnRow) => {
     setPickedId(row.id);
-    const nextPart = defaultPartFor(loan.kind, row.direction);
-    setPart(nextPart);
-    setSlices([{ key: nextKey(), loanId: loan.id, part: nextPart, amount: (row.paise / 100).toFixed(2).replace(/\.00$/, '') }]);
+    const nextFlow = defaultLoanFlow(row.direction);
+    setFlow(nextFlow);
+    setSlices([{ key: nextKey(), loanId: loan.id, flow: nextFlow, amount: (row.paise / 100).toFixed(2).replace(/\.00$/, '') }]);
   };
   const switchMode = (next: 'single' | 'split') => {
     setMode(next);
     if (next === 'split' && !slices.length && txn) {
-      setSlices([{ key: nextKey(), loanId: loan.id, part, amount: (txn.paise / 100).toFixed(2).replace(/\.00$/, '') }]);
+      setSlices([{ key: nextKey(), loanId: loan.id, flow, amount: (txn.paise / 100).toFixed(2).replace(/\.00$/, '') }]);
     }
   };
   const updateSlice = (key: number, patch: Partial<Slice>) => setSlices((current) => current.map((slice) => (slice.key === key ? { ...slice, ...patch } : slice)));
 
   const submit = () => {
     if (!txn) { setError('Choose a transaction to attach.'); return; }
+    const flowError = mode === 'single' ? singleError : sliceErrors.find(Boolean);
+    if (flowError) { setError(flowError); return; }
     try {
       if (mode === 'single') {
-        attachTransactionToLoan(txn.id, loan.id, part);
+        attachTransactionToLoan(txn.id, loan.id, loanPartForFlow(loan.kind, flow));
       } else {
-        const allocations = slices.map((slice) => ({ loanId: slice.loanId, part: slice.part, paise: parseAmount(slice.amount) }));
+        const allocations = slices.map((slice) => ({ loanId: slice.loanId, part: loanPartForFlow(kindOf(slice.loanId), slice.flow), paise: parseAmount(slice.amount) }));
         if (allocations.some((allocation) => !Number.isSafeInteger(allocation.paise) || allocation.paise <= 0)) {
           setError('Every slice needs an amount greater than zero.');
           return;
@@ -1304,7 +1306,8 @@ function AttachDialog({
           {mode === 'single' ? (
             <div className="field">
               <span className="field__label" id="la-part">What it is for {loan.personName}</span>
-              <Seg label="Part" value={part} options={PARTS.map((item) => ({ value: item.part, label: item.label }))} onChange={setPart} />
+              <Seg label="Part" value={flow} options={FLOW_OPTIONS} onChange={setFlow} />
+              {singleError && <span className="t-small c-spend" role="alert">{singleError}</span>}
             </div>
           ) : (
             <div className="col gap-2">
@@ -1317,8 +1320,8 @@ function AttachDialog({
                     <Icon name="expand_more" className="muted" />
                   </div>
                   <div className="field__box field__box--sm">
-                    <select aria-label={`Slice ${index + 1} part`} value={slice.part} onChange={(event) => updateSlice(slice.key, { part: event.target.value as LoanPart })}>
-                      {PARTS.map((item) => <option key={item.part} value={item.part}>{item.label}</option>)}
+                    <select aria-label={`Slice ${index + 1} part`} value={slice.flow} onChange={(event) => updateSlice(slice.key, { flow: event.target.value as LoanFlow })}>
+                      {LOAN_FLOWS.map((item) => <option key={item.flow} value={item.flow}>{item.label}</option>)}
                     </select>
                     <Icon name="expand_more" className="muted" />
                   </div>
@@ -1329,10 +1332,11 @@ function AttachDialog({
                   <button type="button" className="icon-btn icon-btn--sm icon-btn--plain" aria-label={`Remove slice ${index + 1}`} disabled={slices.length === 1} onClick={() => setSlices((current) => current.filter((item) => item.key !== slice.key))}>
                     <Icon name="close" />
                   </button>
+                  {sliceErrors[index] && <span className="t-small c-spend" role="alert" style={{ gridColumn: '1 / -1' }}>{sliceErrors[index]}</span>}
                 </div>
               ))}
               <div className="row row--between">
-                <button type="button" className="btn btn--sm" onClick={() => setSlices((current) => [...current, { key: nextKey(), loanId: loan.id, part, amount: '' }])}><Icon name="add" />Add slice</button>
+                <button type="button" className="btn btn--sm" onClick={() => setSlices((current) => [...current, { key: nextKey(), loanId: loan.id, flow, amount: '' }])}><Icon name="add" />Add slice</button>
                 <span className={`t-caption ${allocated > txn.paise ? 'c-spend' : 'muted'}`}>{formatInr(allocated)} of {formatInr(txn.paise)} allocated</span>
               </div>
             </div>

@@ -100,6 +100,7 @@ describe('Editing a hand-entered loan entry', () => {
         visible
         mode="edit"
         initial={{ part: 'repayment', paise: 75_050, isoDate: '2026-08-14', remarks: 'Cash back' }}
+        loanKind="lent"
         onSubmit={onSubmit}
         onDelete={onDelete}
         onClose={jest.fn()}
@@ -110,7 +111,7 @@ describe('Editing a hand-entered loan entry', () => {
     expect(screen.getByLabelText('Entry amount in rupees')).toHaveProp('value', '750.50');
     expect(screen.getByText('14 Aug 2026')).toBeTruthy();
     expect(screen.getByDisplayValue('Cash back')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Repayment' })).toHaveProp('accessibilityState', {
+    expect(screen.getByRole('button', { name: 'Received' })).toHaveProp('accessibilityState', {
       selected: true,
       disabled: false,
     });

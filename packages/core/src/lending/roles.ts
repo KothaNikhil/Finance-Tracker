@@ -187,6 +187,69 @@ export function roleForLoanPart(kind: LoanKind, part: LoanPart): TransferRole {
   return part === 'principal' ? 'borrowed' : part === 'repayment' ? 'repaid_by_me' : 'interest_paid';
 }
 
+/**
+ * How a loan entry is shown to the user: money Paid, money Received, or Interest. Storage keeps
+ * the {@link LoanPart}; the loan's kind converts between the two:
+ *  - I lent:     Paid = principal, Received = repayment, Interest is received (money in).
+ *  - I borrowed: Paid = repayment, Received = principal, Interest is paid (money out).
+ */
+export type LoanFlow = 'paid' | 'received' | 'interest';
+
+export const LOAN_FLOWS: { flow: LoanFlow; label: string }[] = [
+  { flow: 'paid', label: 'Paid' },
+  { flow: 'received', label: 'Received' },
+  { flow: 'interest', label: 'Interest' },
+];
+
+export function loanPartForFlow(kind: LoanKind, flow: LoanFlow): LoanPart {
+  if (flow === 'interest') return 'interest';
+  return flow === (kind === 'lent' ? 'paid' : 'received') ? 'principal' : 'repayment';
+}
+
+export function loanFlowOf(kind: LoanKind, part: LoanPart | null | undefined): LoanFlow | null {
+  if (part == null) return null;
+  if (part === 'interest') return 'interest';
+  return roleDirection(roleForLoanPart(kind, part)) === 'out' ? 'paid' : 'received';
+}
+
+export function loanFlowDirection(kind: LoanKind, flow: LoanFlow): 'in' | 'out' {
+  if (flow === 'paid') return 'out';
+  if (flow === 'received') return 'in';
+  return kind === 'lent' ? 'in' : 'out';
+}
+
+export function loanFlowLabel(flow: LoanFlow | null | undefined): string {
+  return LOAN_FLOWS.find((item) => item.flow === flow)?.label ?? 'Loan entry';
+}
+
+/** The natural first choice for a transaction: a debit was Paid, a credit was Received. */
+export function defaultLoanFlow(direction: string | null | undefined): LoanFlow {
+  return direction === 'in' ? 'received' : 'paid';
+}
+
+/**
+ * Why a {@link LoanFlow} can't describe a debit/credit transaction, or null when it can. A
+ * self-transfer never belongs to a loan; other non-debit/credit directions aren't checked.
+ */
+export function loanFlowError(
+  kind: LoanKind,
+  flow: LoanFlow,
+  direction: string | null | undefined,
+): string | null {
+  if (direction === 'self') return 'A self-transfer can’t be added to a loan. Turn off Self-transfer first.';
+  if (direction !== 'in' && direction !== 'out') return null;
+  if (loanFlowDirection(kind, flow) === direction) return null;
+  const what = direction === 'out' ? 'a debit (money out)' : 'a credit (money in)';
+  const valid = LOAN_FLOWS.filter((item) => loanFlowDirection(kind, item.flow) === direction)
+    .map((item) => item.label)
+    .join(' or ');
+  const why =
+    flow === 'interest'
+      ? ` Interest on money you ${kind === 'lent' ? 'lent is always received' : 'borrowed is always paid'}.`
+      : '';
+  return `This is ${what}.${why} Choose ${valid}.`;
+}
+
 /** Which loan part a role represents (or null for gift/donation/none). */
 export function loanPartOf(role: string | null | undefined): LoanPart | null {
   switch (role) {

@@ -40,7 +40,7 @@ import {
 import { cardStatementsQuery, matchingCardStatementsQuery } from '@finance-tracker/core/db/queries/cards';
 import { loansQuery } from '@finance-tracker/core/db/queries/lending';
 import { categories, imports, loanAllocations, paymentModes, people, subcategories, type TransactionRow } from '@finance-tracker/core/db/schema';
-import { isTransferRole, loanPartOf, LOAN_PARTS, ROLE_META, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@finance-tracker/core/lending/roles';
+import { defaultLoanFlow, isTransferRole, LOAN_FLOWS, loanFlowError, loanFlowLabel, loanFlowOf, loanPartForFlow, loanPartOf, ROLE_META, type LoanFlow, type LoanKind, type LoanPart } from '@finance-tracker/core/lending/roles';
 import { monthKeyOf, type TxnFilter } from '@finance-tracker/core/analytics/filter';
 import { getDb } from '@finance-tracker/core/db/runtime';
 import { inr, useDatabaseRevision } from './feature-utils';
@@ -56,7 +56,7 @@ type Subcategory = typeof subcategories.$inferSelect;
 
 interface SplitDraft {
   loanId: string;
-  part: LoanPart;
+  flow: LoanFlow;
   amount: string;
 }
 
@@ -1034,13 +1034,13 @@ function TransactionDetail({
   const [loanActionsOpen, setLoanActionsOpen] = useState(false);
   const [cardOpen, setCardOpen] = useState(false);
   const [attachLoanId, setAttachLoanId] = useState('');
-  const [attachPart, setAttachPart] = useState<LoanPart>('principal');
+  const [attachFlow, setAttachFlow] = useState<LoanFlow>(defaultLoanFlow(txn.direction));
   const [creatingLoan, setCreatingLoan] = useState(false);
   const [newLoanKind, setNewLoanKind] = useState<LoanKind>(txn.direction === 'in' ? 'borrowed' : 'lent');
   const [newLoanPersonId, setNewLoanPersonId] = useState('');
   const [newPersonName, setNewPersonName] = useState('');
   const [newLoanName, setNewLoanName] = useState('');
-  const [splitRows, setSplitRows] = useState<SplitDraft[]>([{ loanId: '', part: 'principal', amount: '' }]);
+  const [splitRows, setSplitRows] = useState<SplitDraft[]>([{ loanId: '', flow: defaultLoanFlow(txn.direction), amount: '' }]);
   const [linkStatementId, setLinkStatementId] = useState('');
   const catRef = useRef<HTMLDivElement>(null);
   const [panelEl, setPanelEl] = useState<HTMLElement | null>(null);
@@ -1070,6 +1070,8 @@ function TransactionDetail({
   const loanLabel = (loan: LoanRow) => `${personNameOf(loan.personId)}${loan.name ? ` · ${loan.name}` : ''} · ${loan.kind === 'borrowed' ? 'borrowed' : 'lent'}`;
   const loanName = (id: number | null) => { const loan = loans.find((item) => item.id === id); return loan ? loanLabel(loan) : `Loan #${id}`; };
   const allocations = db.select().from(loanAllocations).where(eq(loanAllocations.txnId, txn.id)).all();
+  const kindOf = (id: number) => loans.find((loan) => loan.id === id)?.kind as LoanKind | undefined;
+  const partOf = (part: string | null): LoanPart | null => part === 'principal' || part === 'repayment' || part === 'interest' ? part : null;
   const openLoans = loans.filter((loan) => !loan.closed || loan.id === txn.loanId || allocations.some((item) => item.loanId === loan.id));
   const toggleLending = () => {
     if (lent) {
@@ -1080,25 +1082,28 @@ function TransactionDetail({
   };
   const editLoanAttachment = () => {
     setAttachLoanId(txn.loanId == null ? '' : String(txn.loanId));
-    setAttachPart(loanPartOf(txn.transferRole) ?? 'principal');
+    setAttachFlow((txn.loanId != null && loanFlowOf(kindOf(txn.loanId) ?? 'lent', loanPartOf(txn.transferRole))) || defaultLoanFlow(txn.direction));
     setCreatingLoan(false);
     setSplitRows(allocations.length ? allocations.map((item) => ({
       loanId: String(item.loanId),
-      part: LOAN_PARTS.find(({ part }) => part === item.part)?.part ?? loanPartOf(txn.transferRole) ?? 'principal',
+      flow: loanFlowOf(kindOf(item.loanId) ?? 'lent', partOf(item.part) ?? loanPartOf(txn.transferRole)) ?? defaultLoanFlow(txn.direction),
       amount: String(item.paise / 100),
-    })) : [{ loanId: '', part: 'principal', amount: '' }]);
+    })) : [{ loanId: '', flow: defaultLoanFlow(txn.direction), amount: '' }]);
     setLoanActionsOpen(false);
     setLendOpen(true);
   };
-  // Like the phone app: an imported row keeps its statement direction, so the loan part must move money the same way.
-  const attachKind: LoanKind | null = creatingLoan ? newLoanKind : (loans.find((loan) => loan.id === Number(attachLoanId))?.kind as LoanKind | undefined) ?? null;
-  const attachDirection = attachKind ? roleDirection(roleForLoanPart(attachKind, attachPart)) : null;
-  const directionMismatch = txn.source !== 'manual' && attachDirection != null && attachDirection !== txn.direction;
-  const canAttach = !directionMismatch && (creatingLoan ? newLoanPersonId !== '' : attachLoanId !== '');
+  // Paid must be a debit and Received a credit; interest follows the loan's kind.
+  const attachKind: LoanKind | null = creatingLoan ? newLoanKind : kindOf(Number(attachLoanId)) ?? null;
+  const attachError = attachKind ? loanFlowError(attachKind, attachFlow, txn.direction) : null;
+  const canAttach = attachError == null && (creatingLoan ? newLoanPersonId !== '' : attachLoanId !== '');
+  const splitErrors = splitRows.map((row) => {
+    const kind = row.loanId ? kindOf(Number(row.loanId)) : undefined;
+    return kind ? loanFlowError(kind, row.flow, txn.direction) : null;
+  });
   const submitAttach = () => run(() => {
     let loanId = Number(attachLoanId);
     if (creatingLoan) loanId = createLoan({ name: newLoanName.trim(), personId: Number(newLoanPersonId), kind: newLoanKind });
-    attachTransactionToLoan(txn.id, loanId, attachPart);
+    attachTransactionToLoan(txn.id, loanId, loanPartForFlow(attachKind ?? 'lent', attachFlow));
     setAttachLoanId('');
     setCreatingLoan(false);
     setNewLoanName('');
@@ -1208,7 +1213,7 @@ function TransactionDetail({
                   <span className="grow col gap-1">
                     <span className="t-caption muted">{allocations.length ? 'Split across loans' : 'Attached to'}</span>
                     {txn.loanId != null ? <b className="t-small">{loanName(txn.loanId)}{isTransferRole(txn.transferRole) ? ` · ${ROLE_META[txn.transferRole].label}` : ''}</b>
-                      : allocations.length ? allocations.map((item) => <span className="t-small" key={item.id}>{loanName(item.loanId)} · {LOAN_PARTS.find(({ part }) => part === item.part)?.label ?? 'Principal'} · {inr(item.paise)}</span>)
+                      : allocations.length ? allocations.map((item) => <span className="t-small" key={item.id}>{loanName(item.loanId)} · {loanFlowLabel(loanFlowOf(kindOf(item.loanId) ?? 'lent', partOf(item.part) ?? loanPartOf(txn.transferRole)))} · {inr(item.paise)}</span>)
                         : <span className="t-small">{isTransferRole(txn.transferRole) ? ROLE_META[txn.transferRole].label : 'Money lent'}</span>}
                   </span>
                   <Icon name={loanActionsOpen || lendOpen ? 'expand_less' : 'chevron_right'} />
@@ -1254,28 +1259,28 @@ function TransactionDetail({
                 ) : (
                   <span className="t-small muted">No open loans yet. Choose <b>New loan</b> to create one.</span>
                 )}
-                <SelectBox label="Loan part" value={attachPart} display={LOAN_PARTS.find((item) => item.part === attachPart)?.label ?? attachPart} onChange={(value) => setAttachPart(value as LoanPart)}>
-                  {LOAN_PARTS.map((item) => <option key={item.part} value={item.part}>{item.label}</option>)}
+                <SelectBox label="Loan part" value={attachFlow} display={loanFlowLabel(attachFlow)} onChange={(value) => setAttachFlow(value as LoanFlow)}>
+                  {LOAN_FLOWS.map((item) => <option key={item.flow} value={item.flow}>{item.label}</option>)}
                 </SelectBox>
-                {directionMismatch && <span className="t-small c-spend" role="alert">This choice moves money {attachDirection}, but the imported transaction is money {txn.direction}. Choose a matching loan part.</span>}
+                {attachError && <span className="t-small c-spend" role="alert">{attachError}</span>}
                 <button type="button" className="btn btn--sm btn--primary" style={{ alignSelf: 'flex-start' }} disabled={!canAttach} onClick={submitAttach}>{creatingLoan ? 'Create loan and add' : lent ? 'Save loan attachment' : 'Add to Money Lent'}</button>
                 <span className="t-small-em">Split across loans</span>
                 {splitRows.map((row, index) => (
-                  <div className="row gap-1" key={index}>
+                  <div className="col gap-1" key={index}><div className="row gap-1">
                     <div className="grow"><SelectBox label="Loan" value={row.loanId} display={row.loanId ? loanName(Number(row.loanId)) : 'Choose loan…'} onChange={(value) => setSplitRows((current) => current.map((item, i) => i === index ? { ...item, loanId: value } : item))}>
                       <option value="">Choose loan…</option>{openLoans.map((loan) => <option key={loan.id} value={loan.id}>{loanLabel(loan)}</option>)}
                     </SelectBox></div>
-                    <SelectBox label="Split part" value={row.part} display={LOAN_PARTS.find((item) => item.part === row.part)?.label ?? row.part} onChange={(value) => setSplitRows((current) => current.map((item, i) => i === index ? { ...item, part: value as LoanPart } : item))}>
-                      {LOAN_PARTS.map((item) => <option key={item.part} value={item.part}>{item.label}</option>)}
+                    <SelectBox label="Split part" value={row.flow} display={loanFlowLabel(row.flow)} onChange={(value) => setSplitRows((current) => current.map((item, i) => i === index ? { ...item, flow: value as LoanFlow } : item))}>
+                      {LOAN_FLOWS.map((item) => <option key={item.flow} value={item.flow}>{item.label}</option>)}
                     </SelectBox>
                     <label className="field__box field__box--sm" style={{ width: 96 }}><input className="act-input" inputMode="decimal" aria-label="Split amount in rupees" placeholder="₹" value={row.amount} onChange={(event) => setSplitRows((current) => current.map((item, i) => i === index ? { ...item, amount: event.target.value } : item))} /></label>
                     <button type="button" className="icon-btn icon-btn--sm icon-btn--plain" aria-label="Remove split row" onClick={() => setSplitRows((current) => current.filter((_, i) => i !== index))}><Icon name="close" /></button>
-                  </div>
+                  </div>{splitErrors[index] && <span className="t-small c-spend" role="alert">{splitErrors[index]}</span>}</div>
                 ))}
                 <div className="row gap-2">
-                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => setSplitRows((current) => [...current, { loanId: '', part: 'principal', amount: '' }])}><Icon name="add" />Add slice</button>
-                  <button type="button" className="btn btn--sm btn--primary" onClick={() => run(() => {
-                    splitTransactionAcrossLoans(txn.id, splitRows.map((row) => ({ loanId: Number(row.loanId), part: row.part, paise: Math.round(Number(row.amount) * 100) })));
+                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => setSplitRows((current) => [...current, { loanId: '', flow: defaultLoanFlow(txn.direction), amount: '' }])}><Icon name="add" />Add slice</button>
+                  <button type="button" className="btn btn--sm btn--primary" disabled={splitErrors.some(Boolean)} onClick={() => run(() => {
+                    splitTransactionAcrossLoans(txn.id, splitRows.map((row) => ({ loanId: Number(row.loanId), part: loanPartForFlow(kindOf(Number(row.loanId)) ?? 'lent', row.flow), paise: Math.round(Number(row.amount) * 100) })));
                     setLendOpen(false);
                     setLoanActionsOpen(false);
                   })}>Save split</button>

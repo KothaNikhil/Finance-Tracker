@@ -255,6 +255,7 @@ export default function LendingScreen() {
 
       <LoanTxnForm
         visible={addTxnFor != null}
+        loanKind={byId(addTxnFor)?.kind}
         onSubmit={(v) => {
           if (addTxnFor != null) addLoanTransaction({ loanId: addTxnFor, part: v.part, paise: v.paise, isoDate: v.isoDate, remarks: v.remarks });
           setAddTxnFor(null);
@@ -266,6 +267,7 @@ export default function LendingScreen() {
         visible={editTxnId != null && editTxnInitial != null}
         mode="edit"
         initial={editTxnInitial ?? undefined}
+        loanKind={byId(editTxnInitial?.loanId ?? null)?.kind}
         onSubmit={(v) => {
           if (editTxnId != null) {
             updateLoanTransaction(editTxnId, {

@@ -6,6 +6,9 @@ import {
   isTransferRole,
   loanBalanceFromParts,
   loanBalanceFromTxns,
+  loanFlowError,
+  loanFlowOf,
+  loanPartForFlow,
   loanPartOf,
   perPersonBalances,
   PRINCIPAL_ROLES,
@@ -201,5 +204,30 @@ describe('loan grouping helpers', () => {
       outstandingPaise: 0,
       interestPaise: 0,
     });
+  });
+});
+
+describe('loan flows (Paid / Received / Interest)', () => {
+  it('maps flows to stored parts by loan kind and back', () => {
+    expect(loanPartForFlow('lent', 'paid')).toBe('principal');
+    expect(loanPartForFlow('lent', 'received')).toBe('repayment');
+    expect(loanPartForFlow('borrowed', 'paid')).toBe('repayment');
+    expect(loanPartForFlow('borrowed', 'received')).toBe('principal');
+    for (const kind of ['lent', 'borrowed'] as const) {
+      for (const flow of ['paid', 'received', 'interest'] as const) {
+        expect(loanFlowOf(kind, loanPartForFlow(kind, flow))).toBe(flow);
+      }
+    }
+  });
+
+  it('explains debit/credit mismatches', () => {
+    expect(loanFlowError('lent', 'paid', 'out')).toBeNull();
+    expect(loanFlowError('lent', 'received', 'out')).toBe('This is a debit (money out). Choose Paid.');
+    expect(loanFlowError('borrowed', 'paid', 'in')).toBe('This is a credit (money in). Choose Received.');
+    expect(loanFlowError('lent', 'interest', 'out')).toContain('Interest on money you lent is always received');
+    expect(loanFlowError('borrowed', 'interest', 'out')).toBeNull();
+    expect(loanFlowError('borrowed', 'received', 'out')).toBe('This is a debit (money out). Choose Paid or Interest.');
+    expect(loanFlowError('lent', 'paid', 'self')).toContain('self-transfer');
+    expect(loanFlowError('lent', 'paid', null)).toBeNull();
   });
 });

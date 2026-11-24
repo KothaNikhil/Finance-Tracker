@@ -45,13 +45,19 @@ test('money lent can create a loan from a transaction', async ({ page }) => {
   const loanSelect = panel.getByRole('combobox', { name: 'Loan', exact: true }).first();
   await expect(loanSelect.locator('option:checked')).toHaveText('Rahul Verma · Rent help · lent');
   await loanSelect.selectOption({ label: 'Meera Nair · Laptop · borrowed' });
-  await panel.getByRole('combobox', { name: 'Loan part', exact: true }).selectOption('repayment');
+  const partSelect = panel.getByRole('combobox', { name: 'Loan part', exact: true });
+  await expect(partSelect).toHaveValue('paid');
+  await expect(partSelect.locator('option')).toHaveText(['Paid', 'Received', 'Interest']);
+  await partSelect.selectOption('received');
+  await expect(panel.getByRole('alert')).toHaveText('This is a debit (money out). Choose Paid or Interest.');
+  await expect(panel.getByRole('button', { name: 'Save loan attachment' })).toBeDisabled();
+  await partSelect.selectOption('paid');
   await panel.getByRole('button', { name: 'Save loan attachment' }).click();
   await expect(attached).toContainText('Meera Nair · Laptop · borrowed · Repaid by me');
   await expect(attached).toHaveAttribute('aria-expanded', 'false');
   await attached.click();
   await panel.getByRole('button', { name: 'Edit loan attachment' }).click();
-  await expect(panel.getByRole('combobox', { name: 'Loan part', exact: true })).toHaveValue('repayment');
+  await expect(panel.getByRole('combobox', { name: 'Loan part', exact: true })).toHaveValue('paid');
   await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(attached).toHaveAttribute('aria-expanded', 'false');
 
@@ -83,7 +89,10 @@ test('money lent can create a loan from a transaction', async ({ page }) => {
   await page.getByRole('button', { name: 'Money lent', exact: true }).click();
   await page.getByRole('radio', { name: 'New loan' }).click();
   await page.getByRole('radio', { name: 'I borrowed' }).click();
-  await expect(page.getByText(/moves money in, but the imported transaction is money out/)).toBeVisible();
+  await page.getByRole('combobox', { name: 'Loan part', exact: true }).selectOption('interest');
+  await expect(page.getByText('This is a debit (money out). Choose Paid or Interest.')).toHaveCount(0);
+  await page.getByRole('radio', { name: 'I lent' }).click();
+  await expect(page.getByRole('alert')).toHaveText(/Interest on money you lent is always received\. Choose Paid\./);
 
   await page.keyboard.press('Escape');
   await page.locator('.w-side').getByRole('link', { name: 'Lending' }).click();
@@ -153,4 +162,26 @@ test('import rows open transaction details', async ({ page }) => {
     await page.locator('.tbl tbody tr.t-row', { hasText: 'Anil' }).first().getByText('Anil', { exact: true }).click();
     await expect(page.locator('.w-panel.is-open').getByRole('tab', { name: 'Details' })).toBeVisible();
   }
+});
+
+test('lending dialogs use Paid, Received and Interest with debit/credit checks', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await seedFakeSession(page);
+  await mockDrive(page, await createSampleDatabase());
+  await page.goto('/lending');
+  await page.getByText('Meera Nair', { exact: true }).first().click();
+  await page.getByRole('button', { name: 'Add entry' }).first().click();
+  const entry = page.getByRole('dialog', { name: 'Add entry' });
+  await expect(entry.getByRole('radiogroup', { name: 'Type' }).getByRole('radio')).toHaveText(['Paid', 'Received', 'Interest']);
+  await expect(entry.getByRole('radio', { name: 'Paid' })).toHaveAttribute('aria-checked', 'true');
+  await entry.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.getByRole('button', { name: 'Attach existing' }).click();
+  const attach = page.getByRole('dialog', { name: 'Attach existing' });
+  await attach.getByRole('option', { name: /Swiggy Instamart/ }).first().click();
+  await expect(attach.getByRole('radio', { name: 'Paid' })).toHaveAttribute('aria-checked', 'true');
+  await attach.getByRole('radio', { name: 'Received' }).click();
+  await expect(attach.getByRole('alert')).toHaveText('This is a debit (money out). Choose Paid or Interest.');
+  await attach.getByRole('radio', { name: 'Interest' }).click();
+  await expect(attach.getByRole('alert')).toHaveCount(0);
 });

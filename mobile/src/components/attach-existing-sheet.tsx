@@ -21,7 +21,7 @@ import { TextRole } from '@/constants/typography';
 import type { TxnFilter } from '@/core/analytics';
 import type { Direction } from '@/core/domain/money';
 import { formatINR } from '@/core/domain/money';
-import { LOAN_PARTS, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@/core/lending/roles';
+import { LOAN_FLOWS, loanFlowDirection, loanFlowLabel, loanPartForFlow, type LoanFlow, type LoanKind, type LoanPart } from '@/core/lending/roles';
 import { useUnattachedTxnsState } from '@/hooks/use-lending';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -50,7 +50,7 @@ const DIRECTIONS: { label: string; value: Direction | undefined }[] = [
 
 export function AttachExistingSheet({ visible, loanKind, onAttach, onClose }: AttachExistingSheetProps) {
   const theme = useTheme();
-  const [part, setPart] = useState<LoanPart>('principal');
+  const [flow, setFlow] = useState<LoanFlow>('paid');
   const [selected, setSelected] = useState<
     Map<number, { direction: Direction; manual: boolean }>
   >(new Map());
@@ -63,7 +63,7 @@ export function AttachExistingSheet({ visible, loanKind, onAttach, onClose }: At
   if (visible !== prevVisible) {
     setPrevVisible(visible);
     if (visible) {
-      setPart('principal');
+      setFlow('paid');
       setSelected(new Map());
       setMinText('');
       setMaxText('');
@@ -87,13 +87,10 @@ export function AttachExistingSheet({ visible, loanKind, onAttach, onClose }: At
     direction,
   };
   const { data: candidates, loading, error } = useUnattachedTxnsState(filter);
-  const expectedDirection =
-    loanKind != null ? roleDirection(roleForLoanPart(loanKind, part)) : undefined;
+  const expectedDirection = loanFlowDirection(loanKind ?? 'lent', flow);
+  const expectedLabel = expectedDirection === 'out' ? 'debit (money out)' : 'credit (money in)';
   const invalidSelected = [...selected.values()].filter(
-    (selection) =>
-      !selection.manual &&
-      expectedDirection != null &&
-      selection.direction !== expectedDirection,
+    (selection) => selection.direction !== expectedDirection,
   ).length;
 
   const toggle = (id: number, rowDirection: Direction, manual: boolean) => {
@@ -107,7 +104,7 @@ export function AttachExistingSheet({ visible, loanKind, onAttach, onClose }: At
 
   const attach = () => {
     if (selected.size === 0 || invalidSelected > 0 || amountError != null) return;
-    onAttach([...selected.keys()], part);
+    onAttach([...selected.keys()], loanPartForFlow(loanKind ?? 'lent', flow));
   };
 
   return (
@@ -178,21 +175,20 @@ export function AttachExistingSheet({ visible, loanKind, onAttach, onClose }: At
             </ThemedText>
             <SegmentedControl
               accessibilityLabel="Loan part"
-              options={LOAN_PARTS.map((option) => ({ value: option.part, label: option.label }))}
-              value={part}
-              onChange={setPart}
+              options={LOAN_FLOWS.map((option) => ({ value: option.flow, label: option.label }))}
+              value={flow}
+              onChange={setFlow}
             />
           </View>
-          {expectedDirection ? (
-            <ThemedText type="small" themeColor="textSecondary">
-              {LOAN_PARTS.find((option) => option.part === part)?.label} for this{' '}
-              {loanKind === 'lent' ? 'lent' : 'borrowed'} loan must be money {expectedDirection}.
-            </ThemedText>
-          ) : null}
+          <ThemedText type="small" themeColor="textSecondary">
+            {loanFlowLabel(flow)}
+            {flow === 'interest' ? ` on money you ${loanKind === 'borrowed' ? 'borrowed' : 'lent'}` : ''} must be a{' '}
+            {expectedLabel}.
+          </ThemedText>
           {invalidSelected > 0 ? (
             <ThemedText type="small" style={{ color: theme.spend }} accessibilityLiveRegion="polite">
-              {invalidSelected} selected {invalidSelected === 1 ? 'transaction moves' : 'transactions move'} the
-              wrong way for this loan part. Deselect {invalidSelected === 1 ? 'it' : 'them'} or choose another part.
+              {invalidSelected} selected {invalidSelected === 1 ? 'transaction isn’t a' : 'transactions aren’t a'}{' '}
+              {expectedLabel}. Deselect {invalidSelected === 1 ? 'it' : 'them'} or choose another option.
             </ThemedText>
           ) : null}
 
@@ -225,10 +221,7 @@ export function AttachExistingSheet({ visible, loanKind, onAttach, onClose }: At
                   const incoming = c.direction === 'in';
                   const rowDirection: Direction =
                     c.direction === 'in' || c.direction === 'out' ? c.direction : 'self';
-                  const compatible =
-                    c.source === 'manual' ||
-                    expectedDirection == null ||
-                    rowDirection === expectedDirection;
+                  const compatible = rowDirection === expectedDirection;
                   return (
                     <Pressable
                       key={c.id}
@@ -269,7 +262,7 @@ export function AttachExistingSheet({ visible, loanKind, onAttach, onClose }: At
                           numberOfLines={1}
                         >
                           {c.isoDate}
-                          {!compatible ? ` · Requires money ${expectedDirection}` : ''}
+                          {!compatible ? ` · Needs a ${expectedLabel}` : ''}
                         </ThemedText>
                       </View>
                       <ThemedText
