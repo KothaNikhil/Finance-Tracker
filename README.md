@@ -24,7 +24,7 @@ A local-first Android and iPhone app (Expo / React Native) that replaces a yearl
 </p>
 
 > [!NOTE]
-> Amounts are **Indian Rupees (₹)**. Data lives in an on-device SQLite database (one file per Google account). Google is used for sign-in and optional Drive backup — not as the system of record.
+> Amounts are **Indian Rupees (₹)**. The phone keeps an on-device SQLite database and syncs it with one live file (`finance-live.db`) in your Google Drive. A companion website ([`web/`](web/)) opens the same file. Only one device edits at a time: a second device asks **Take over** or **View only**.
 
 ## Features
 
@@ -34,7 +34,7 @@ A local-first Android and iPhone app (Expo / React Native) that replaces a yearl
 - **Honest totals** — self-transfers are excluded from spend and income; refunds offset spending; a linked credit-card bill is counted once.
 - **Home and Activity** — month/year net spent, category breakdown, search and filters, and a filtered Excel export.
 - **Lending** — informal loans with people, principal / repayment / interest, split allocations across loans, and close / reopen.
-- **Settings** — categories, payment modes, people, light / dark / system appearance, biometric app lock, local backup, and Google Drive backup / restore.
+- **Settings** — categories, payment modes, people, light / dark / system appearance, biometric app lock, local backup, Google Drive sync / restore, and the edit lock status (Take over / View only).
 
 ## Supported statements
 
@@ -103,7 +103,7 @@ The [iOS unsigned build](https://github.com/KothaNikhil/Finance-Tracker/actions/
 
 ## Architecture
 
-Business logic lives in **plain TypeScript** with no React Native imports, so it can be unit-tested in Node and reused by a future website.
+Business logic lives in **plain TypeScript** with no React Native imports, so it can be unit-tested in Node and shared by the phone app and the website.
 
 ```mermaid
 flowchart LR
@@ -118,13 +118,14 @@ flowchart LR
 | Path | Role |
 | --- | --- |
 | [`mobile/`](mobile/) | Expo app (SDK 57, React Native 0.86) |
-| [`mobile/src/core/`](mobile/src/core/) | Pure-TS “brain”: money in paise, adapters, categorizer, aggregates, Excel model, backup checks |
-| [`mobile/src/services/`](mobile/src/services/) | Phone/web implementations of ports: SQLite, Drive, auth, file I/O |
+| [`packages/core/`](packages/core/) | Pure-TS “brain” shared by both apps: money in paise, adapters, categorizer, aggregates, Excel model, schema + migrations, Drive sync engine and edit lock |
+| [`mobile/src/services/`](mobile/src/services/) | Phone implementations of ports: SQLite, Drive, auth, file I/O |
+| [`web/`](web/) | Website (Vite + React + sql.js); see [`web/README.md`](web/README.md) and [`docs/WEB_PLAN.md`](docs/WEB_PLAN.md) |
 | [`mobile/src/app/`](mobile/src/app/) | Tabs: Home, Activity, Import, Lending, Settings |
 | [`docs/Requirements.md`](docs/Requirements.md) | Product requirements |
 | [`docs/design/mockups/`](docs/design/mockups/) | Approved UI mockups |
 
-Adding a statement source means a new adapter in `mobile/src/core/import/adapters/` registered in `formats.ts` — the pipeline, preview UI, and dedupe stay the same.
+Adding a statement source means a new adapter in `packages/core/src/import/adapters/` registered in `formats.ts` — the pipeline, preview UI, and dedupe stay the same.
 
 ## Troubleshooting
 
@@ -144,9 +145,13 @@ Self-transfers never count as spend or income. A bank payment linked to a credit
 
 Statements with zero usable rows are not stored. Overlapping files should show duplicates on the preview — those rows are reconciled, not inserted again. Use **Revert last import** on the Import tab if a save should be undone.
 
-### Drive backup missing on web
+### “View only” — changes aren’t saved
 
-Drive upload and restore run on native. On web, use local backup / share from Settings, or run the Android / iOS app.
+Another device (phone or browser tab) is editing. Tap **Take over** in the banner to edit here; the other device switches to view only. A device that stops responding releases the lock after about 3 minutes.
+
+### Phone says offline changes were discarded
+
+The phone was edited offline while another device took over. Drive’s copy wins; the phone’s offline changes are kept in a `-discarded-offline.db` snapshot so nothing is silently lost.
 
 ### Tests fail on a clean clone
 

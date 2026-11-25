@@ -36,6 +36,9 @@ confirmation is not shown on the main overview board.
 - [ ] Biometric/device-credential lock still gates the app at launch and resume.
 - [ ] Splash, database warm-up, loading gates, and light/dark/system appearance remain supported.
 - [ ] The last-edited transaction pill remains available above the tab bar.
+- [ ] The single-editor lock keeps working: the In-use prompt (Take over / View only), the
+      View-only banner under every screen title, every editing control disabled with
+      “View only. Take over to edit.”, and the offline-changes warning / discard alert.
 
 Primary sources: [mobile/src/app/_layout.tsx](../../mobile/src/app/_layout.tsx),
 [mobile/src/components/app-tabs.tsx](../../mobile/src/components/app-tabs.tsx),
@@ -110,8 +113,8 @@ Primary sources: [mobile/src/app/import.tsx](../../mobile/src/app/import.tsx),
 [mobile/src/components/import-preview.tsx](../../mobile/src/components/import-preview.tsx),
 [mobile/src/components/import-result.tsx](../../mobile/src/components/import-result.tsx),
 [mobile/src/components/import-row-detail.tsx](../../mobile/src/components/import-row-detail.tsx),
-[mobile/src/core/import/pipeline.ts](../../mobile/src/core/import/pipeline.ts), and
-[mobile/src/core/import/formats.ts](../../mobile/src/core/import/formats.ts).
+[packages/core/src/import/pipeline.ts](../../packages/core/src/import/pipeline.ts), and
+[packages/core/src/import/formats.ts](../../packages/core/src/import/formats.ts).
 
 ## Activity
 

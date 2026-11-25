@@ -875,7 +875,7 @@ function SignInScreen({
         <span className="t-display" style={{ maxWidth: 460 }}>Your spending, on the big screen.</span>
         <div className="si__pts">
           <div className="si__pt"><Icon name="file_download" /><div className="col gap-0"><span className="t-label">Import many statements at once</span><span className="t-small muted">Drop a quarter’s worth of bank, UPI and card files and review them in one table.</span></div></div>
-          <div className="si__pt"><Icon name="sync" /><div className="col gap-0"><span className="t-label">Same data as your phone</span><span className="t-small muted">Both read and write one file on your Google Drive. Use one at a time.</span></div></div>
+          <div className="si__pt"><Icon name="sync" /><div className="col gap-0"><span className="t-label">Same data as your phone</span><span className="t-small muted">Both use one file on your Google Drive. One device edits at a time; you can take over or just view.</span></div></div>
           <div className="si__pt"><Icon name="shield" /><div className="col gap-0"><span className="t-label">Nothing kept in this browser</span><span className="t-small muted">Data loads into this tab from Drive and is gone when you close it.</span></div></div>
         </div>
       </section>
@@ -981,7 +981,7 @@ function LoadingCard({ profile, info, onRetry, onSignOut }: { profile: Profile; 
           <div className="row gap-2"><button type="button" className="btn btn--primary" onClick={onRetry}><Icon name="refresh" />Try again</button><button type="button" className="btn btn--ghost" onClick={onSignOut}>Sign out</button></div>
         </>
       ) : (
-        <div className="banner banner--review banner--wrap"><Icon name="phone_android" /><div className="banner__copy t-small">Close the phone app while you use the website, so only one of them saves changes.</div></div>
+        <div className="banner banner--review banner--wrap"><Icon name="phone_android" /><div className="banner__copy t-small">If your phone is editing, you'll be asked to take over or view only.</div></div>
       )}
     </div>
   );

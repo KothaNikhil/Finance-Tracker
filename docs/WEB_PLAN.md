@@ -1,6 +1,6 @@
 # Finance Tracker — Website plan
 
-Status: **planned** (Phase 0, design, in progress). Written 2026-11-23.
+Status: **in progress** — Phases 0–4 built on `feat/web-platform`, including the single-editor lock (§2.1a). Written 2026-11-23, updated 2026-11-25.
 
 A browser version of the Finance Tracker app with the same features as the phone app, built for
 large imports and big screens, and still usable at tablet and phone widths.
@@ -14,7 +14,7 @@ large imports and big screens, and still usable at tablet and phone widths.
 | Where data lives | **Google Drive is the single source of truth.** One SQLite file in the user's "Finance Tracker" Drive folder. |
 | Website storage | **Nothing stored in the browser.** The file is downloaded into memory on sign-in and written back to Drive. Closing the tab leaves no financial data behind. |
 | Phone storage | The phone **keeps its local copy** (offline use, speed) but treats Drive as the boss: pull on open if Drive is newer, push after edits. |
-| Concurrency | **One device at a time**, enforced by a Drive revision check before every upload. No live multi-device sync. |
+| Concurrency | **One device edits at a time**, enforced by an edit lock on Drive (`finance-session.json`) with **Take over** / **View only**. A Drive revision check before every upload stays as a backstop. No live multi-device sync. |
 | Saving | **Autosave** a few seconds after each change, with a visible save status. |
 | Login on the website | **Google only.** Drive needs a Google account; email-OTP accounts can't use the website. |
 | Offline website | Not supported. The website needs internet. |
@@ -70,12 +70,37 @@ newest one. With two devices editing, that model can't detect conflicts. The pla
 - **One live file**, `finance-live.db`, updated in place (Drive `files.update` media upload). Every
   device reads and writes this file.
 - Each device remembers the Drive **`headRevisionId`** (plus `modifiedTime`) of the version it loaded.
-- **Before uploading**, fetch the file's current metadata. If the revision changed since load,
-  **stop and ask**: *Reload Drive's version* (discards local changes) or *Overwrite with mine*.
+- **Before uploading**, fetch the file's current metadata. If the revision changed since load, the
+  upload stops. With the edit lock (§2.1a) this should only happen if the lock was bypassed, so it
+  is a backstop, not the normal way to resolve two editors.
 - **Timestamped snapshots** keep working as history/safety (e.g. first save of each day, before an
   overwrite, before a revert-import, and on manual "Back up now"). Prune old snapshots (keep e.g. last 30).
 - Migration: on first run of the new versions, if `finance-live.db` doesn't exist, seed it from
   the newest existing snapshot.
+
+### 2.1a The edit lock (one device edits at a time)
+
+Whole-file sync can't merge two sets of edits, so only one device may edit at a time.
+
+- A small lock file, **`finance-session.json`**, sits next to `finance-live.db`. It names the
+  device holding it (phone or browser), when it took it, and a heartbeat time.
+- The holder refreshes the heartbeat every **60 s**. A lock with no heartbeat for **3 min** is stale
+  and can be taken without asking. Lock writes use the file's ETag (`If-Match`) so two devices
+  can't both win.
+- Opening the app while another device holds a fresh lock asks: **Take over** (this device edits;
+  the other one becomes view only on its next heartbeat or sync) or **View only**.
+- **View only** means nothing is editable on any page: edit controls are disabled and show
+  *"View only. Take over to edit."* Import preview still works but Save is disabled; the transaction
+  detail opens with its fields disabled. The database layer also refuses writes (`ReadOnlyError`).
+  A banner offers **Take over** at any time.
+- Every Drive upload checks the lock first (`beforeWrite`). A device that has lost the lock never uploads.
+- **Website:** editing needs the lock *and* a connection. Offline or after a failed token renew the
+  site is read-only (*"You're offline · editing paused"*). The lock is released when the tab closes
+  (`pagehide`, keepalive request). If another device takes over, unsaved edits are saved to a
+  snapshot and the page reloads Drive's copy.
+- **Phone:** offline editing stays allowed, with a banner warning that the changes are lost if
+  another device edits before the phone reconnects. On reconnect, if the lock was taken meanwhile,
+  the phone keeps a `-discarded-offline.db` snapshot of its changes, pulls Drive's copy, and says so.
 
 ### 2.2 Website session lifecycle
 
@@ -84,21 +109,28 @@ newest one. With two devices editing, that model can't detect conflicts. The pla
 2. Find the Drive folder and `finance-live.db`. Download it into memory, run schema migrations, open with sql.js.
    - No file found: offer **Start fresh** (seeded lists) or explain that the phone app's backup will
      appear once the phone app is updated.
-3. Work. Every write marks the session **dirty** and schedules an autosave (debounce ~3 s, max wait ~30 s).
-4. Autosave: export the DB bytes, run the revision check, upload, store the new revision.
-5. Close tab with unsaved changes: browser "Leave site?" warning. Sign out: flush, then wipe memory.
-6. Access token expiry (~1 h): renew silently. If that fails, show a "Reconnect Google Drive" banner;
+3. Claim the edit lock (§2.1a). If another device holds it, ask **Take over** or **View only**.
+   Keep the heartbeat running while editing.
+4. Work. Every write marks the session **dirty** and schedules an autosave (debounce ~3 s, max wait ~30 s).
+5. Autosave: confirm the lock is still held, export the DB bytes, run the revision check, upload,
+   store the new revision.
+6. Close tab with unsaved changes: browser "Leave site?" warning. Closing the tab releases the lock.
+   Sign out: flush, release the lock, then wipe memory.
+7. Access token expiry (~1 h): renew silently. If that fails, show a "Reconnect Google Drive" banner;
    changes stay in memory and the save status shows **Not saved**.
 
 Save status (top bar, always visible): **Saved · 2 min ago** / **Saving…** / **Unsaved changes** /
-**Offline — will retry** / **Conflict — action needed** / **Reconnect Drive**.
+**Offline — will retry** / **Conflict — action needed** / **Reconnect Drive** / **In use on phone** /
+**View only**.
 
 ### 2.3 Phone changes
 
-- Use the same sync engine: on app open/foreground, check Drive's revision. If Drive is newer and the
-  phone has no unsaved changes, pull. If both changed, show the same conflict choice.
-- After edits, push in the background (debounced), on app background, and on "Back up now".
-- If offline, keep working locally. Push when back online, with the revision check.
+- Use the same sync engine: on app open/foreground, resolve the edit lock first (§2.1a), then check
+  Drive's revision. If Drive is newer and the phone has no unsaved changes, pull.
+- After edits, push in the background (debounced), on app background, and on "Back up now" — only
+  while the phone holds the lock.
+- If offline, keep working locally and warn that the changes are lost if another device edits first.
+  Push when back online; if the lock was taken meanwhile, snapshot and discard the offline changes.
 
 ### 2.4 Schema compatibility
 
@@ -174,7 +206,7 @@ expo-sqlite and the web passes sql.js. Metro needs `watchFolders` + `nodeModules
 
 ## 5. Phases
 
-### Phase 0 — Design (current)
+### Phase 0 — Design (done)
 Website mocks in `ui-mocks/web/`, reviewed at desktop, tablet and phone widths, in light and dark.
 Screens: sign-in and Drive loading, app shell with save status, dashboard, transactions table with
 detail panel and bulk actions, multi-file import, lending, settings, and the sync/conflict dialogs.
@@ -196,8 +228,10 @@ detail panel and bulk actions, multi-file import, lending, settings, and the syn
 ### Phase 3 — Phone moves to the live file
 - The phone uses the core sync engine: pull-if-newer on open, debounced push, conflict prompt.
 - One-time migration from timestamped backups to `finance-live.db`.
+- Edit lock in both apps: Take over / View only, heartbeat, view-only screens, offline discard.
 - **Exit:** edit on the phone → reload the website and see it; edit on the website → reopen the phone
-  and see it; editing both at once produces the conflict prompt.
+  and see it; opening the second device asks Take over / View only, and the device that loses the
+  lock becomes view only.
 
 ### Phase 4 — Feature parity on the website
 In order of value:
@@ -224,7 +258,8 @@ In order of value:
 | Risk | Mitigation |
 |---|---|
 | Tab closed before autosave finishes | Short debounce, "Leave site?" guard, visible **Unsaved** status |
-| Both devices edited | Revision check before upload, explicit choice, snapshot taken before any overwrite |
+| Both devices edited | Edit lock: only one device edits; the other is view only. Revision check before upload as a backstop; snapshot before discarding offline phone edits or reloading a tab that lost the lock |
+| Device crashes holding the lock | 3 min heartbeat timeout; the next device takes it without asking |
 | Older app opens a newer schema | `user_version` gate → read-only + "update the app" message |
 | Drive token expires mid-session | Silent renew; on failure keep changes in memory and show **Reconnect Drive** |
 | DB grows large | It's a few MB today; full download/upload stays fast for years. Revisit only past ~50 MB. |
