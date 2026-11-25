@@ -29,6 +29,7 @@ import {
   type SettingsRowDefinition,
 } from '@/components/settings-landing';
 import { SubcategoryManager } from '@/components/subcategory-manager';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -39,7 +40,14 @@ import { useCategoryIndex, useLists } from '@/hooks/use-reference-data';
 import { useThemePreference, type ThemeMode } from '@/hooks/use-theme-preference';
 import { signOut } from '@/services/auth/auth';
 import { restoreFromPickedFile, saveBackupToFolder, shareBackup } from '@/services/backup';
-import { backupToDrive, driveAvailable, restoreLatestFromDrive } from '@/services/drive';
+import { isReadOnly } from '@/core/db/runtime';
+import {
+  backupToDrive,
+  driveAvailable,
+  releaseEditLock,
+  restoreLatestFromDrive,
+} from '@/services/drive';
+import { useViewOnly } from '@/services/drive/edit-session';
 import {
   addCategory,
   addPaymentMode,
@@ -346,6 +354,9 @@ function AppearanceSettings({
 
 function BackupSettings({ driveEnabled }: { driveEnabled: boolean }) {
   const { busy, run } = useBusyAction();
+  // View only: saving or sharing a local copy still works; Drive backup and both restores are
+  // disabled (the editing device owns Drive's copy, and a restore rewrites this phone's data).
+  const viewOnly = useViewOnly();
 
   const onSaveToFolder = useCallback(() => {
     void run(async () => {
@@ -393,7 +404,7 @@ function BackupSettings({ driveEnabled }: { driveEnabled: boolean }) {
   const onRestoreDrive = useCallback(() => {
     Alert.alert(
       'Restore latest from Drive?',
-      'This finds your most recent Google Drive backup and replaces ALL current data with it. This can’t be undone.',
+      'This loads the latest data from your Google Drive and replaces ALL data on this phone with it. Changes not yet synced are kept as a Drive snapshot first.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -443,7 +454,7 @@ function BackupSettings({ driveEnabled }: { driveEnabled: boolean }) {
                   description: 'Save a complete backup to your Finance Tracker Drive folder.',
                   icon: ACTION_ICONS.drive,
                   onPress: onBackupDrive,
-                  disabled: busy,
+                  disabled: busy || viewOnly,
                 } satisfies SettingsRowDefinition,
               ]
             : []),
@@ -459,7 +470,7 @@ function BackupSettings({ driveEnabled }: { driveEnabled: boolean }) {
             description: 'Pick a Finance Tracker backup from this device.',
             icon: ACTION_ICONS.restoreFile,
             onPress: onRestore,
-            disabled: busy,
+            disabled: busy || viewOnly,
             destructive: true,
           },
           ...(driveEnabled
@@ -470,13 +481,15 @@ function BackupSettings({ driveEnabled }: { driveEnabled: boolean }) {
                   description: 'Use the most recent backup in your Drive folder.',
                   icon: ACTION_ICONS.restoreDrive,
                   onPress: onRestoreDrive,
-                  disabled: busy,
+                  disabled: busy || viewOnly,
                   destructive: true,
                 } satisfies SettingsRowDefinition,
               ]
             : []),
         ]}
       />
+
+      {viewOnly ? <ViewOnlyHint align="start" /> : null}
 
       {busy ? (
         <View style={styles.busyRow} accessibilityLiveRegion="polite">
@@ -500,7 +513,8 @@ function AccountSettings({ email, driveEnabled }: { email: string; driveEnabled:
           // Back up to Drive first so data isn't stranded when this device signs out. If it fails
           // (offline, Drive error, sign-in cancelled), block the sign-out and tell the user to back
           // up manually — never sign out with unsaved data on a device that may then be wiped.
-          if (driveEnabled) {
+          // View only has nothing of its own to save: the editing device holds the data.
+          if (driveEnabled && !isReadOnly()) {
             let backedUp = false;
             try {
               backedUp = (await backupToDrive()).done;
@@ -516,6 +530,8 @@ function AccountSettings({ email, driveEnabled }: { email: string; driveEnabled:
               return; // stay signed in
             }
           }
+          // Give the edit lock up so another device can edit straight away.
+          await releaseEditLock();
           await signOut();
         },
         { errorTitle: 'Could not sign out' },

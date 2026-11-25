@@ -1,0 +1,46 @@
+/* App shell + sign-in screens. Ported from ui-mocks/web/signin.html and web.js (shell); keep in sync. */
+
+/* ---------- Sign in & loading (signin.html) ---------- */
+.si { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); background: var(--background); }
+.si__hero { background: var(--accent-muted); border-right: var(--hairline) solid var(--border); padding: 56px; display: flex; flex-direction: column; gap: var(--sp-5); justify-content: center; }
+.si__main { display: flex; align-items: center; justify-content: center; padding: var(--sp-5); }
+.si__card { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: var(--sp-4); }
+.si__pts { display: flex; flex-direction: column; gap: var(--sp-3); max-width: 460px; }
+.si__pt { display: flex; gap: var(--sp-3); align-items: flex-start; }
+.si__pt .ms { color: var(--accent); font-size: 22px; }
+.gbtn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 44px; border-radius: var(--r-md); border: var(--hairline) solid var(--border-strong); background: var(--background-element); font-weight: 500; cursor: pointer; width: 100%; }
+.gbtn[disabled] { opacity: 0.45; cursor: default; }
+.gbtn__g { width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(#ea4335 0 25%, #fbbc05 0 50%, #34a853 0 75%, #4285f4 0); position: relative; }
+.gbtn__g::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--background-element); }
+.steps { display: flex; flex-direction: column; gap: var(--sp-2); }
+.step { display: flex; align-items: center; gap: var(--sp-2); }
+.step .ms { font-size: 18px; }
+.step--done .ms { color: var(--income); }
+.step--now .ms { color: var(--accent); animation: spin 1s linear infinite; }
+.step--todo { color: var(--text-secondary); }
+@media (prefers-reduced-motion: reduce) { .step--now .ms { animation: none; } }
+.choice { display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-3); border: var(--hairline) solid var(--border); border-radius: var(--r-lg); background: var(--background-element); cursor: pointer; text-align: left; width: 100%; }
+.choice:hover { border-color: var(--accent); }
+.choice .em-box { width: 36px; height: 36px; border-radius: var(--r-sm); background: var(--accent-muted); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+div.choice { cursor: default; }
+div.choice:hover { border-color: var(--border); }
+.si__brand { display: none !important; }
+@media (max-width: 1023px) { .si__brand { display: flex !important; } .si { grid-template-columns: minmax(0, 1fr); } .si__hero { display: none; } .si__main { align-items: flex-start; padding-top: 64px; } }
+@media (max-width: 719px) { .si__main { padding: 40px var(--sp-4) var(--sp-5); } }
+
+/* ---------- Shell details that the static mock drew as plain text ---------- */
+.w-search { cursor: text; }
+.w-search:focus-within { border-color: var(--focus); }
+.w-search input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0;
+  font: inherit; font-size: 13px; line-height: 17px; color: var(--text);
+}
+.w-search input::placeholder { color: var(--text-secondary); opacity: 1; }
+button.w-nav__item, button.w-account { border: 0; background: none; cursor: pointer; text-align: left; font: inherit; width: 100%; }
+button.banner__action { border: 0; background: none; cursor: pointer; font-family: inherit; }
+button.btn, button.icon-btn, button.chip, button.seg__item, button.tchip, button.dp-tab, button.pop__item { font-family: inherit; }
+.w-fallback { flex: 1; display: flex; align-items: center; justify-content: center; padding: var(--sp-6); }
+.shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: var(--hairline) solid var(--border); }
+.shortcut-row:last-child { border-bottom: 0; }
+/* The panel body scrolls; its sections must keep their height instead of shrinking into each other. */
+.w-panel__body > * { flex-shrink: 0; }

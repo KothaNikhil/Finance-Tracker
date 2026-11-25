@@ -1,0 +1,75 @@
+/* Verbatim from ui-mocks/web/import.html */
+.drop {
+  border: 1.5px dashed var(--border-strong); border-radius: var(--r-lg); background: var(--background-element);
+  display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); cursor: pointer;
+}
+.drop--big { flex-direction: column; justify-content: center; text-align: center; padding: var(--sp-7, 48px) var(--sp-4); gap: var(--sp-2); }
+.drop.is-over { border-color: var(--accent); background: var(--accent-muted); }
+.drop__icon { width: 44px; height: 44px; border-radius: 50%; background: var(--accent-muted); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.drop--big .drop__icon { width: 64px; height: 64px; }
+.drop--big .drop__icon .ms { font-size: 30px; }
+.drop.is-over .drop__icon { background: var(--accent); color: var(--on-accent); }
+
+.fq { display: flex; flex-direction: column; }
+.fq__row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: var(--sp-3); align-items: center; padding: var(--sp-3) 0; }
+.fq__row + .fq__row { border-top: var(--hairline) solid var(--border); }
+.fq__ico { width: 36px; height: 36px; border-radius: var(--r-sm); background: var(--background-selected); display: flex; align-items: center; justify-content: center; }
+.fq__ico .ms { font-size: 20px; color: var(--text-secondary); }
+.fq__ico--ok .ms { color: var(--income); } .fq__ico--warn .ms { color: var(--review); } .fq__ico--bad .ms { color: var(--spend); }
+.fq__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fq__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fq__extra { grid-column: 2 / -1; display: flex; gap: var(--sp-2); align-items: flex-start; flex-wrap: wrap; }
+.fq__extra .field { flex: 1; min-width: 200px; max-width: 320px; }
+
+.sumcard { position: sticky; top: 80px; display: flex; flex-direction: column; gap: var(--sp-3); }
+.sum__row { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); }
+.sum__row .ms { font-size: 16px; vertical-align: -3px; margin-right: 4px; }
+.src-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-2); }
+.src { display: flex; gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-3); border: var(--hairline) solid var(--border); border-radius: var(--r-md); background: var(--background-element); }
+.src .ms { color: var(--text-secondary); font-size: 20px; }
+.dup td { opacity: 0.55; }
+.dup td.c-check { opacity: 1; }
+.tbl .c-src { width: 150px; }
+.tbl .c-st { width: 104px; }
+@media (max-width: 1199px) { .imp-side { order: -1; } .sumcard { position: static; } }
+@media (max-width: 719px) { .sumcard { position: static; } .drop--big { padding: var(--sp-6) var(--sp-3); } }
+
+/* Real controls drawn with the mock's classes */
+.drop:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.drop .t-link { pointer-events: none; }
+.fq__ico .ms.is-spinning { animation: spin 1.1s linear infinite; }
+.fq__right { display: flex; align-items: center; gap: var(--sp-1); }
+/* Remove control for files that are ready/locked: revealed on hover/focus (always on touch screens). */
+.fq__remove { opacity: 0; }
+.fq__row:hover .fq__remove, .fq__remove:focus-visible { opacity: 1; }
+@media (hover: none) { .fq__remove { opacity: 1; } }
+.fq__extra form { display: contents; }
+.fq__extra .field__box input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: none; padding: 0;
+  font: inherit; color: inherit;
+}
+.fq__extra .field__box input::placeholder { color: var(--text-secondary); }
+.fq__extra .field__box:focus-within { border-color: var(--focus); }
+.imp-preview .dp-tab { display: inline-flex; gap: 4px; }
+button.banner__action { border: 0; background: none; cursor: pointer; font-family: inherit; }
+button.cb { padding: 0; }
+button.cb:disabled { cursor: default; }
+button.cat-pill { cursor: pointer; font-family: inherit; }
+button.cat-pill:hover { border-color: var(--border-strong); }
+button.cat-pill--review:hover { border-color: var(--review); }
+.imp-preview .mrow { cursor: pointer; }
+.imp-pop { position: fixed; }
+.imp-pop .pop__search .field__box input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: none; padding: 0; font: inherit; color: inherit;
+}
+.imp-pop .pop__search .field__box:focus-within { border-color: var(--focus); }
+.imp-pop button.pop__item { width: 100%; border: 0; background: none; text-align: left; font-family: inherit; }
+.imp-pop .pop__list { max-height: 280px; }
+.imp-pop .pop__item > .grow { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.imp-pop .pop__foot { align-items: center; }
+.imp-pop .pop__foot label { cursor: pointer; }
+.imp-pop .pop__foot input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.imp-pop .pop__foot input:focus-visible + .cb { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* With the detail panel docked, stack the summary under the table so Payee and Amount keep their room. */
+@media (min-width: 1200px) and (max-width: 1679px) { body.has-panel .imp-grid { grid-template-columns: minmax(0, 1fr); } }

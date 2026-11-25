@@ -1,0 +1,203 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DriveAccessMissingError, DriveReconnectRequiredError, GoogleDriveSyncPort } from './drive';
+import { RevisionConflictError } from '@finance-tracker/core/sync/engine';
+
+function jsonResponse(data: unknown, headers: HeadersInit = {}): Response {
+  return new Response(JSON.stringify(data), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...headers },
+  });
+}
+
+describe('GoogleDriveSyncPort', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('finds the live file and retains its current revision and ETag', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'folder', name: 'Finance Tracker' }] }))
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'live', name: 'finance-live.db' }] }))
+      .mockResolvedValueOnce(jsonResponse(
+        { id: 'live', name: 'finance-live.db', headRevisionId: 'revision-4', modifiedTime: '2026-03-01T10:00:00Z' },
+        { ETag: '"etag-4"' },
+      ));
+
+    const live = await new GoogleDriveSyncPort('drive-token').findLiveFile();
+
+    expect(live).toEqual({
+      id: 'live',
+      name: 'finance-live.db',
+      revisionId: 'revision-4',
+      modifiedTime: '2026-03-01T10:00:00Z',
+      etag: '"etag-4"',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('finance-live.db');
+  });
+
+  it('requires a Drive reconnect after an expired access token', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('', { status: 401 }));
+
+    await expect(new GoogleDriveSyncPort('expired').listSnapshots()).rejects.toBeInstanceOf(
+      DriveReconnectRequiredError,
+    );
+  });
+
+  it('reports a missing Drive scope separately from an expired token', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      JSON.stringify({ error: { code: 403, errors: [{ reason: 'insufficientPermissions' }] } }),
+      { status: 403 },
+    ));
+
+    await expect(new GoogleDriveSyncPort('no-scope').listSnapshots()).rejects.toBeInstanceOf(
+      DriveAccessMissingError,
+    );
+  });
+
+  it('streams download progress for the loading screen', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(Uint8Array.from([1, 2, 3, 4]), {
+      headers: { 'Content-Length': '4' },
+    }));
+    const progress = vi.fn();
+
+    const bytes = await new GoogleDriveSyncPort('drive-token', { onDownloadProgress: progress }).download('live');
+
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4]);
+    expect(progress).toHaveBeenCalledWith(0, 4);
+    expect(progress).toHaveBeenLastCalledWith(4, 4);
+  });
+
+  it('uploads an export into the Finance Tracker Drive folder', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'folder', name: 'Finance Tracker' }] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'export', name: 'Finance-Tracker.xlsx' }));
+
+    await expect(
+      new GoogleDriveSyncPort('drive-token').uploadFile(
+        'Finance-Tracker.xlsx',
+        Uint8Array.from([1, 2, 3]),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ),
+    ).resolves.toEqual({ id: 'export', name: 'Finance-Tracker.xlsx' });
+    expect(String(fetchMock.mock.calls[1][0])).toContain('uploadType=multipart');
+    expect(fetchMock.mock.calls[1][1]?.method).toBe('POST');
+  });
+
+  it('snapshots duplicate live files before deleting them', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'folder', name: 'Finance Tracker' }] }))
+      .mockResolvedValueOnce(jsonResponse({
+        files: [
+          // The oldest file is canonical, so a device that raced to create a second one loses.
+          { id: 'older', name: 'finance-live.db', createdTime: '2026-03-01T10:00:00Z' },
+          { id: 'canonical', name: 'finance-live.db', createdTime: '2026-03-01T09:00:00Z' },
+        ],
+      }))
+      .mockResolvedValueOnce(new Response(Uint8Array.from([1, 2, 3])))
+      .mockResolvedValueOnce(jsonResponse({
+        id: 'snapshot',
+        name: 'Finance-Tracker-backup-duplicate-older.db',
+        modifiedTime: '2026-03-01T10:01:00Z',
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse(
+        { id: 'canonical', name: 'finance-live.db', headRevisionId: 'revision-4' },
+        { ETag: '"etag-4"' },
+      ));
+
+    await expect(new GoogleDriveSyncPort('drive-token').findLiveFile()).resolves.toMatchObject({
+      id: 'canonical',
+      revisionId: 'revision-4',
+    });
+
+    const calls = fetchMock.mock.calls;
+    expect(String(calls[2][0])).toContain('older?alt=media');
+    expect(String(calls[3][0])).toContain('uploadType=multipart');
+    expect(calls[3][1]?.method).toBe('POST');
+    expect(String(calls[4][0])).toContain('/older');
+    expect(calls[4][1]?.method).toBe('DELETE');
+  });
+
+  const editLock = {
+    deviceId: 'phone-1',
+    deviceLabel: 'your phone',
+    platform: 'phone',
+    acquiredAt: '2026-11-24T10:32:00.000Z',
+    refreshedAt: '2026-11-24T10:32:00.000Z',
+    expiresAt: '2026-11-24T10:35:00.000Z',
+  } as const;
+
+  it('reads the edit lock with its Drive version (v3 sends no ETag)', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'folder', name: 'Finance Tracker' }] }))
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'lock', name: 'finance-session.json' }] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '7' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(editLock)));
+
+    await expect(new GoogleDriveSyncPort('drive-token').readLock()).resolves.toEqual({
+      id: 'lock',
+      version: '7',
+      lock: editLock,
+    });
+  });
+
+  it('writes the edit lock when its version is unchanged, without If-Match', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '7' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '8' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(editLock)));
+
+    await expect(
+      new GoogleDriveSyncPort('drive-token').writeLock({ id: 'lock', version: '7', lock: null }, editLock),
+    ).resolves.toEqual({ id: 'lock', version: '8', lock: editLock });
+    expect(fetchMock.mock.calls[1][1]?.method).toBe('PATCH');
+    const headers = fetchMock.mock.calls[1][1]?.headers as Record<string, string>;
+    expect(headers['If-Match']).toBeUndefined();
+  });
+
+  it('rejects a lock write when another device changed the lock since it was read', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '8' }));
+
+    await expect(
+      new GoogleDriveSyncPort('drive-token').writeLock({ id: 'lock', version: '7', lock: null }, editLock),
+    ).rejects.toBeInstanceOf(RevisionConflictError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the lock on unload with one keepalive PATCH, sent synchronously', () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'lock' }));
+
+    new GoogleDriveSyncPort('drive-token').releaseLockNow({ id: 'lock', version: '7', lock: editLock });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/lock?uploadType=media');
+    expect(init?.method).toBe('PATCH');
+    expect(init?.keepalive).toBe(true);
+    expect(init?.body).toBe('null');
+  });
+
+  it('rejects a lock write when another device overwrote it in the same moment', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '7' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '8' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...editLock, deviceId: 'web-1' })));
+
+    await expect(
+      new GoogleDriveSyncPort('drive-token').writeLock({ id: 'lock', version: '7', lock: null }, editLock),
+    ).rejects.toBeInstanceOf(RevisionConflictError);
+  });
+});

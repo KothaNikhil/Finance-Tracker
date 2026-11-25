@@ -9,6 +9,7 @@ import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { IconButton } from '@/components/icon-button';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import {
   TransactionCountingActions,
   type MoneyLentSummary,
@@ -19,6 +20,7 @@ import type { ImportRow, TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
 import { firstText } from '@/core/domain/text';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 type SymbolName = ComponentProps<typeof SymbolView>['name'];
 type Tab = 'overview' | 'details';
@@ -126,6 +128,8 @@ export function TransactionDetail({
   onDelete,
 }: TransactionDetailProps) {
   const theme = useTheme();
+  // View only: the sheet stays readable but every edit is disabled (writes would be refused).
+  const viewOnly = useViewOnly();
   const [tab, setTab] = useState<Tab>('overview');
   const [editingNote, setEditingNote] = useState(false);
   const [noteText, setNoteText] = useState('');
@@ -148,6 +152,8 @@ export function TransactionDetail({
   }
 
   if (!txn) return null;
+  const noteEditorOpen = editingNote && !viewOnly;
+  const canEditNote = onSaveNote != null && !viewOnly;
 
   const dir = DIRECTION[txn.direction as keyof typeof DIRECTION] ?? DIRECTION.out;
   const title = transactionTitle(txn, lendingTitle);
@@ -212,10 +218,10 @@ export function TransactionDetail({
         key="note"
         label="Note"
         value={txn.note}
-        onEdit={onSaveNote ? startNoteEdit : undefined}
+        onEdit={canEditNote ? startNoteEdit : undefined}
       />,
     );
-  } else if (onSaveNote) {
+  } else if (canEditNote) {
     noteRows.push(<AddNoteRow key="add-note" onPress={startNoteEdit} />);
   }
   if (txn.remarks) {
@@ -359,12 +365,14 @@ export function TransactionDetail({
                   <View style={styles.categoryRow}>
                     <Pressable
                       onPress={onChangeCategory}
+                      disabled={viewOnly}
                       accessibilityRole="button"
                       accessibilityLabel={`Category: ${categoryText}`}
                       accessibilityHint="Choose a category or create a new category or subcategory"
+                      accessibilityState={{ disabled: viewOnly }}
                       style={({ pressed }) => [
                         styles.categoryTap,
-                        { opacity: pressed ? Opacity.pressed : 1 },
+                        { opacity: viewOnly ? Opacity.disabled : pressed ? Opacity.pressed : 1 },
                       ]}
                     >
                       <View style={[styles.rowBadge, { backgroundColor: theme.backgroundSelected }]}>
@@ -408,6 +416,7 @@ export function TransactionDetail({
                         accessibilityHint="Returns this transaction to uncategorized"
                         color={theme.spend}
                         onPress={onRemoveCategory}
+                        disabled={viewOnly}
                       />
                     ) : null}
                     {onRecategorize ? (
@@ -416,6 +425,7 @@ export function TransactionDetail({
                         label="Re-categorize"
                         accessibilityHint="Runs categorization again using learned rules and this note"
                         onPress={onRecategorize}
+                        disabled={viewOnly}
                       />
                     ) : null}
                   </View>
@@ -427,6 +437,7 @@ export function TransactionDetail({
                         variant="ghost"
                         size="small"
                         onPress={onAccept}
+                        disabled={viewOnly}
                         accessibilityHint="Accepts this category and clears its review status"
                         icon={{ ios: 'checkmark', android: 'check', web: 'check' }}
                       />
@@ -452,12 +463,13 @@ export function TransactionDetail({
                   onSetRefund={onSetRefund}
                   onManageMoneyLent={onManageMoneyLent}
                   onManageCardBill={onManageCardBill}
+                  disabled={viewOnly}
                 />
               </Section>
 
-              {editingNote || noteRows.length > 0 ? (
+              {noteEditorOpen || noteRows.length > 0 ? (
                 <Section title="Notes">
-                  {editingNote ? (
+                  {noteEditorOpen ? (
                     <View style={styles.noteEditor}>
                       <TextInput
                         value={noteText}
@@ -662,6 +674,7 @@ export function TransactionDetail({
                   variant="danger"
                   size="small"
                   onPress={confirmDelete}
+                  disabled={viewOnly}
                   accessibilityHint="Opens a permanent deletion confirmation"
                   icon={{ ios: 'trash', android: 'delete', web: 'delete' }}
                   style={styles.deleteButton}
@@ -670,16 +683,20 @@ export function TransactionDetail({
             </>
           )}
 
-          <View style={styles.autoSave}>
-            <SymbolView
-              name={{ ios: 'lock', android: 'lock', web: 'lock' }}
-              size={12}
-              tintColor={theme.textSecondary}
-            />
-            <ThemedText type="caption" themeColor="textSecondary">
-              Changes save automatically
-            </ThemedText>
-          </View>
+          {viewOnly ? (
+            <ViewOnlyHint style={styles.autoSave} />
+          ) : (
+            <View style={styles.autoSave}>
+              <SymbolView
+                name={{ ios: 'lock', android: 'lock', web: 'lock' }}
+                size={12}
+                tintColor={theme.textSecondary}
+              />
+              <ThemedText type="caption" themeColor="textSecondary">
+                Changes save automatically
+              </ThemedText>
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>
@@ -707,21 +724,28 @@ function TextAction({
   accessibilityHint,
   color,
   onPress,
+  disabled = false,
 }: {
   label: string;
   accessibilityLabel?: string;
   accessibilityHint: string;
   color: string;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled }}
       hitSlop={{ left: 6, right: 6 }}
-      style={({ pressed }) => [styles.textAction, { opacity: pressed ? Opacity.pressed : 1 }]}
+      style={({ pressed }) => [
+        styles.textAction,
+        { opacity: disabled ? Opacity.disabled : pressed ? Opacity.pressed : 1 },
+      ]}
     >
       <ThemedText type="smallEmphasis" style={{ color }}>
         {label}

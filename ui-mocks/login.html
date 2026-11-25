@@ -8,13 +8,9 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0" />
   <link rel="stylesheet" href="assets/mock.css" />
   <style>
-    /* AnimatedIcon (animated-icon.tsx): 112px tile, radius 28, hairline border, 88px brand mark. */
-    .brand-tile {
-      width: 112px; height: 112px; border-radius: 28px; flex-shrink: 0;
-      background: var(--background-element); border: var(--hairline) solid var(--border);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .brand-tile img { width: 88px; height: 88px; }
+    /* AnimatedIcon (animated-icon.tsx): 112px brand mark (the mark is its own rounded tile). */
+    .brand-tile { width: 112px; height: 112px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .brand-tile img { width: 112px; height: 112px; }
     /* Light/dark brand-mark swap (useColorScheme). */
     .mark-dark { display: none; }
     :root[data-theme='dark'] .mark-light { display: none; }

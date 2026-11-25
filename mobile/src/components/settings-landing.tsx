@@ -8,6 +8,7 @@ import { ScreenHeader } from '@/components/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { Opacity, Spacing, TouchTarget } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 type SymbolName = ComponentProps<typeof SymbolView>['name'];
 
@@ -138,6 +139,8 @@ export function SettingsLanding({
   onDeleteAll,
 }: SettingsLandingProps) {
   const theme = useTheme();
+  // View only: everything still opens for browsing; only the destructive delete-all is disabled.
+  const viewOnly = useViewOnly();
   const accountInitial = accountEmail?.trim().charAt(0).toUpperCase() || 'A';
 
   return (
@@ -258,6 +261,7 @@ export function SettingsLanding({
         variant="danger"
         icon={{ ios: 'trash', android: 'delete', web: 'delete' }}
         onPress={onDeleteAll}
+        disabled={viewOnly}
         accessibilityHint="Permanently remove all transactions after confirmation"
         style={styles.deleteButton}
       />

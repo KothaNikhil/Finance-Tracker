@@ -6,6 +6,8 @@ export interface LendingSplitDraft {
   part: LoanPart | null;
   paise: number | undefined;
   direction: 'in' | 'out' | undefined;
+  /** Why this row's Paid / Received / Interest choice doesn't fit the transaction's debit/credit. */
+  flowError?: string | null;
 }
 
 export interface ValidLendingAllocation {
@@ -37,11 +39,12 @@ export function validateLendingSplit(
   const allocations: ValidLendingAllocation[] = [];
   const rowErrors = rows.map((row) => {
     if (row.loanId == null) return 'Choose a loan.';
-    if (row.part == null) return 'Choose principal, repayment or interest.';
+    if (row.part == null) return 'Choose Paid, Received or Interest.';
     if (row.paise == null || !Number.isInteger(row.paise) || row.paise <= 0) {
       return 'Enter an amount greater than zero.';
     }
     if (row.direction == null) return 'Choose a valid loan and part.';
+    if (row.flowError) return row.flowError;
     allocations.push({ loanId: row.loanId, part: row.part, paise: row.paise });
     return null;
   });
@@ -57,12 +60,14 @@ export function validateLendingSplit(
     errors.push('All slices must move money in the same direction.');
   }
 
-  // Imported rows must retain the direction printed by their statement. A manual loan entry can be
-  // reclassified safely because the repository updates its direction to the chosen representative role.
+  // A debit can only hold Paid slices and a credit only Received ones (interest follows the loan).
   if (source.enforceDirection !== false) {
     if (source.direction === 'self') {
       errors.push('A self-transfer cannot be allocated to a loan.');
-    } else if (directions.some((direction) => direction !== source.direction)) {
+    } else if (
+      !rows.some((row) => row.flowError) &&
+      directions.some((direction) => direction !== source.direction)
+    ) {
       errors.push(
         `Slices must be money ${source.direction} to match this transaction.`,
       );

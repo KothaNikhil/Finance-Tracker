@@ -1,0 +1,248 @@
+/**
+ * SQL-backed spend aggregates — the scale replacement for iterating the whole table in JS. Each
+ * function returns an UNEXECUTED Drizzle builder over `transactions` so hooks can pass it to
+ * `useLiveQuery` (stays live: the entity is the `transactions` table) and one-shot callers can
+ * `.get()`/`.all()`.
+ *
+ * The two money rules are encoded ONCE here as reusable `sql` fragments and mirror the pure
+ * `core/analytics` functions (the tested spec) exactly:
+ *  - self-transfers (`direction = 'self'`) never contribute to any total or count,
+ *  - lending PRINCIPAL and the credit-card bill-payment legs (`transfer_role` in the excluded set) are
+ *    likewise excluded — they're transfers, not spend/income (interest + gifts/donations DO count), and
+ *  - refunds (`direction = 'in'` AND `is_refund = 1`) are tallied separately, never as income.
+ * `netSpentPaise = spentPaise − refundPaise` is computed in JS by the caller (keeps the SQL flat).
+ *
+ * Credit-card statement purchases carry NO transfer role, so they are ordinary expenses here and in
+ * the pure predicate; it is the bank bill payment that is excluded once linked to its statement.
+ */
+
+import { and, desc, eq, isNotNull, sql, type SQL } from 'drizzle-orm';
+import type { FinanceDatabase } from '../runtime';
+
+import { EXCLUDED_SLICE_PARTS, type MonthKey, type TxnFilter } from '../../analytics';
+import { loanAllocations as la, transactions as t } from '../schema';
+import { EXCLUDED_FROM_TOTALS_ROLES, PRINCIPAL_ROLES } from '../../lending/roles';
+import { buildTxnConditions } from './filter-sql';
+
+type DB = FinanceDatabase;
+
+/**
+ * Inline a set of our own closed-union string constants as a SQL literal list. Kept inline rather
+ * than bound so the fragments below stay reusable in a SELECT list without multiplying parameters;
+ * the values are compile-time members of `TransferRole` / `LoanPart`, never user input.
+ */
+function literals(values: Iterable<string>): SQL {
+  return sql.raw([...values].map((value) => `'${value}'`).join(', '));
+}
+
+// --- Money-rule fragments (single source of truth for the SQL side) ---------
+// Lending principal (lend/borrow/repay) AND the credit-card bill-payment legs are transfers, not
+// spend/income — excluded everywhere below. The lists are DERIVED from the same sets the pure
+// predicate uses (`core/lending/roles`, `core/analytics`) so the two can't drift. Interest +
+// gifts/donations are NOT excluded, so they count.
+const PRINCIPAL_ROLE = sql`${t.transferRole} in (${literals(PRINCIPAL_ROLES)})`;
+const NOT_EXCLUDED = sql`(${t.transferRole} is null or ${t.transferRole} not in (${literals(EXCLUDED_FROM_TOTALS_ROLES)}))`;
+const HAS_SPLIT = sql`exists (select 1 from ${la} where ${la.txnId} = ${t.id})`;
+// A split can mix principal with countable interest and can leave a valid unallocated remainder.
+// Legacy slices with no `part` inherit the source row's representative transfer role. A slice amount
+// is clamped at 0 so a corrupt negative slice can never inflate the countable total past the row.
+const SPLIT_EXCLUDED_PAISE = sql<number>`coalesce((
+  select sum(
+    case
+      when ${la.part} in (${literals(EXCLUDED_SLICE_PARTS)})
+        or (${la.part} is null and ${PRINCIPAL_ROLE})
+      then max(${la.paise}, 0)
+      else 0
+    end
+  )
+  from ${la}
+  where ${la.txnId} = ${t.id}
+), 0)`;
+const COUNTABLE_PAISE = sql<number>`case
+  when ${t.direction} = 'self' then 0
+  when ${HAS_SPLIT} then max(${t.paise} - ${SPLIT_EXCLUDED_PAISE}, 0)
+  when ${NOT_EXCLUDED} then ${t.paise}
+  else 0
+end`;
+const HAS_COUNTABLE_PAISE = sql`${COUNTABLE_PAISE} > 0`;
+const SPENT = sql<number>`coalesce(sum(case when ${t.direction} = 'out' then ${COUNTABLE_PAISE} else 0 end), 0)`;
+const RECEIVED = sql<number>`coalesce(sum(case when ${t.direction} = 'in' and ${t.isRefund} = 0 then ${COUNTABLE_PAISE} else 0 end), 0)`;
+const REFUND = sql<number>`coalesce(sum(case when ${t.direction} = 'in' and ${t.isRefund} = 1 then ${COUNTABLE_PAISE} else 0 end), 0)`;
+// self + fully excluded transfer rows do not count; a partially countable split counts once.
+const CNT = sql<number>`coalesce(sum(case when ${t.direction} in ('out', 'in') and ${HAS_COUNTABLE_PAISE} then 1 else 0 end), 0)`;
+
+/** Gross money-out for a "spend" grouping, and how many rows. */
+const OUT_SPENT = sql<number>`coalesce(sum(${COUNTABLE_PAISE}), 0)`;
+const OUT_CNT = sql<number>`count(*)`;
+
+/**
+ * Which money flow a breakdown groups: `spent` = money out (the default), `received` = income
+ * (money in, refunds excluded), `net` = money out minus refunds/cashback in the same group.
+ */
+export type BreakdownFlow = 'spent' | 'net' | 'received';
+
+const IS_OUT = sql`${t.direction} = 'out'`;
+const IS_INCOME = sql`(${t.direction} = 'in' and ${t.isRefund} = 0)`;
+const IS_REFUND_IN = sql`(${t.direction} = 'in' and ${t.isRefund} = 1)`;
+const NET_PAISE = sql<number>`coalesce(sum(case when ${IS_OUT} then ${COUNTABLE_PAISE} else -${COUNTABLE_PAISE} end), 0)`;
+
+function flowRows(flow: BreakdownFlow): SQL {
+  if (flow === 'received') return IS_INCOME;
+  if (flow === 'net') return sql`(${IS_OUT} or ${IS_REFUND_IN})`;
+  return IS_OUT;
+}
+
+function flowAmount(flow: BreakdownFlow) {
+  return flow === 'net' ? NET_PAISE : OUT_SPENT;
+}
+
+/** Net groups whose refunds exactly cancel their spend are dropped; other flows keep every group. */
+function flowHaving(flow: BreakdownFlow): SQL | undefined {
+  return flow === 'net' ? sql`${NET_PAISE} <> 0` : undefined;
+}
+
+// Grouping keys mirror the pure functions' fallbacks exactly.
+const MERCHANT_KEY = sql<string>`coalesce(nullif(trim(${t.counterpartyName}), ''), nullif(trim(${t.counterpartyVpa}), ''), '(unknown)')`;
+const ACCOUNT_KEY = sql<string>`coalesce(nullif(trim(${t.accountName}), ''), '(unknown)')`;
+
+// Year/month extracted from the fixed-width 'YYYY-MM-DD' iso_date.
+const YEAR_INT = sql<number>`cast(substr(${t.isoDate}, 1, 4) as integer)`;
+const MONTH_INT = sql<number>`cast(substr(${t.isoDate}, 6, 2) as integer)`;
+
+/**
+ * A one-row summary for the filtered set: canonical Spent/Received (self excluded, refunds NOT
+ * counted as income), plus the "needs review" count and the total row count. Used for the Import
+ * screen (scoped to this session via a `since` filter) and elsewhere. Live.
+ */
+export function summaryQuery(db: DB, filter: TxnFilter) {
+  return db
+    .select({
+      spentPaise: SPENT,
+      receivedPaise: RECEIVED,
+      reviewCount: sql<number>`coalesce(sum(case when ${t.needsReview} = 1 then 1 else 0 end), 0)`,
+      savedCount: sql<number>`count(*)`,
+    })
+    .from(t)
+    .where(buildTxnConditions(filter));
+}
+
+/** The four period totals in one row. Honours every filter dimension. Live. */
+export function periodTotalsQuery(db: DB, filter: TxnFilter) {
+  return db
+    .select({ spentPaise: SPENT, receivedPaise: RECEIVED, refundPaise: REFUND, txnCount: CNT })
+    .from(t)
+    .where(buildTxnConditions(filter));
+}
+
+/** Per-month totals for one calendar year (only months present come back; JS zero-fills to 12). Live. */
+export function monthlyForYearQuery(db: DB, year: number) {
+  const cond = buildTxnConditions({ from: { year, month: 1 }, to: { year, month: 12 } });
+  return db
+    .select({ month: MONTH_INT, spentPaise: SPENT, receivedPaise: RECEIVED, refundPaise: REFUND, txnCount: CNT })
+    .from(t)
+    .where(cond)
+    .groupBy(MONTH_INT);
+}
+
+/** Totals per year (one row per year present), most-recent first. Live. */
+export function yearlyTotalsQuery(db: DB) {
+  return db
+    .select({ year: YEAR_INT, spentPaise: SPENT, receivedPaise: RECEIVED, refundPaise: REFUND, txnCount: CNT })
+    .from(t)
+    .groupBy(YEAR_INT)
+    .orderBy(desc(YEAR_INT));
+}
+
+/**
+ * Per-category amount within the filter (uncategorized → categoryId null), biggest first. `flow`
+ * picks money out (default), income, or net of refunds; `spentPaise` holds that flow's amount. Live.
+ */
+export function categoryBreakdownQuery(db: DB, filter: TxnFilter, flow: BreakdownFlow = 'spent') {
+  const amount = flowAmount(flow);
+  return db
+    .select({ categoryId: t.categoryId, spentPaise: amount, txnCount: OUT_CNT })
+    .from(t)
+    .where(and(buildTxnConditions(filter), flowRows(flow), HAS_COUNTABLE_PAISE))
+    .groupBy(t.categoryId)
+    .having(flowHaving(flow))
+    .orderBy(desc(amount));
+}
+
+/** Per-sub-category amount within one category (no sub-category → subcategoryId null). See `flow` above. Live. */
+export function subcategoryBreakdownQuery(db: DB, categoryId: number, filter: TxnFilter, flow: BreakdownFlow = 'spent') {
+  const amount = flowAmount(flow);
+  return db
+    .select({ subcategoryId: t.subcategoryId, spentPaise: amount, txnCount: OUT_CNT })
+    .from(t)
+    .where(and(buildTxnConditions(filter), flowRows(flow), eq(t.categoryId, categoryId), HAS_COUNTABLE_PAISE))
+    .groupBy(t.subcategoryId)
+    .having(flowHaving(flow))
+    .orderBy(desc(amount));
+}
+
+/** Amount per merchant (name, falling back to VPA, then '(unknown)'), biggest first. See `flow` above. Live. */
+export function merchantSpendQuery(db: DB, filter: TxnFilter, flow: BreakdownFlow = 'spent') {
+  const amount = flowAmount(flow);
+  return db
+    .select({ key: MERCHANT_KEY, spentPaise: amount, txnCount: OUT_CNT })
+    .from(t)
+    .where(and(buildTxnConditions(filter), flowRows(flow), HAS_COUNTABLE_PAISE))
+    .groupBy(MERCHANT_KEY)
+    .having(flowHaving(flow))
+    .orderBy(desc(amount));
+}
+
+/** Amount per funding account, biggest first. See `flow` above. Live. */
+export function accountSpendQuery(db: DB, filter: TxnFilter, flow: BreakdownFlow = 'spent') {
+  const amount = flowAmount(flow);
+  return db
+    .select({ key: ACCOUNT_KEY, spentPaise: amount, txnCount: OUT_CNT })
+    .from(t)
+    .where(and(buildTxnConditions(filter), flowRows(flow), HAS_COUNTABLE_PAISE))
+    .groupBy(ACCOUNT_KEY)
+    .having(flowHaving(flow))
+    .orderBy(desc(amount));
+}
+
+/** Spend per "For" person (unassigned → personId null), biggest first. Live. */
+export function personSpendQuery(db: DB, filter: TxnFilter) {
+  return db
+    .select({ personId: t.personId, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
+    .from(t)
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), HAS_COUNTABLE_PAISE))
+    .groupBy(t.personId)
+    .orderBy(desc(OUT_SPENT));
+}
+
+/** Total cashback/refunds (money in flagged is_refund) and how many, within the filter. Live. */
+export function cashbackQuery(db: DB, filter: TxnFilter) {
+  return db
+    .select({ totalPaise: OUT_SPENT, count: OUT_CNT })
+    .from(t)
+    .where(and(buildTxnConditions(filter), eq(t.direction, 'in'), eq(t.isRefund, true), HAS_COUNTABLE_PAISE));
+}
+
+/** Distinct calendar years present in the filtered set, most-recent first. Live. */
+export function distinctYearsQuery(db: DB, filter: TxnFilter = {}) {
+  return db.selectDistinct({ year: YEAR_INT }).from(t).where(buildTxnConditions(filter)).orderBy(desc(YEAR_INT));
+}
+
+/** Distinct 'YYYY-MM' months present in the filtered set, most-recent first. Live. */
+export function distinctMonthsQuery(db: DB, filter: TxnFilter = {}) {
+  const ym = sql<string>`substr(${t.isoDate}, 1, 7)`;
+  return db.selectDistinct({ ym }).from(t).where(buildTxnConditions(filter)).orderBy(desc(ym));
+}
+
+/** Distinct non-null funding account names in the filtered set, alphabetical. Live. */
+export function distinctAccountsQuery(db: DB, filter: TxnFilter = {}) {
+  return db
+    .selectDistinct({ accountName: t.accountName })
+    .from(t)
+    .where(and(buildTxnConditions(filter), isNotNull(t.accountName)))
+    .orderBy(t.accountName);
+}
+
+/** Convert a `MonthKey` string 'YYYY-MM' pair — helper re-exported for the months dimension. */
+export function ymToMonthKey(ym: string): MonthKey {
+  return { year: parseInt(ym.slice(0, 4), 10), month: parseInt(ym.slice(5, 7), 10) };
+}

@@ -10,6 +10,13 @@ const MESSAGE = 'Google Drive backup is available in the mobile app, not the web
 
 export type { DriveBackup, DriveBackupResult, DriveRestoreResult, DriveSyncResult };
 
+export { useEditSession, useViewOnly, useSyncHealth } from './edit-session';
+
+/** No Drive on web, so no edit lock to take or give up. */
+export async function takeOverEditing(): Promise<void> {}
+export async function stayViewOnly(): Promise<void> {}
+export async function releaseEditLock(): Promise<void> {}
+
 export function driveAvailable(): boolean {
   return false;
 }
@@ -29,4 +36,8 @@ export async function restoreLatestFromDrive(): Promise<DriveRestoreResult> {
 /** No Drive on web, so nothing to sync down (web Google login is profile-only). */
 export async function syncDownFromDrive(): Promise<DriveSyncResult> {
   return { restored: false, found: false };
+}
+
+export function startDriveSync(_onError: (error: Error) => void): () => void {
+  return () => {};
 }

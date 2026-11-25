@@ -4,8 +4,8 @@ import type { ReactNode } from 'react';
 import { ImportPreview } from '../import-preview';
 import { ImportResultHeader } from '../import-result';
 import { ImportStepIndicator } from '../import-step-indicator';
-import type { ImportDryRun, ImportPreview as ImportPreviewData } from '../../core/import/pipeline';
-import type { NormalizedTxn } from '../../core/import/types';
+import type { ImportDryRun, ImportPreview as ImportPreviewData } from '@/core/import/pipeline';
+import type { NormalizedTxn } from '@/core/import/types';
 
 jest.mock('expo-symbols', () => ({
   SymbolView: () => null,

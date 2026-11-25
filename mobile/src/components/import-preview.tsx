@@ -7,6 +7,7 @@ import { ImportRowDetail } from '@/components/import-row-detail';
 import { ImportStepIndicator } from '@/components/import-step-indicator';
 import { InfoDisclosure } from '@/components/info-disclosure';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Radius, Spacing } from '@/constants/theme';
 import { TextRole } from '@/constants/typography';
 import { formatINR } from '@/core/domain/money';
@@ -16,6 +17,7 @@ import type {
   ImportPreviewRow,
 } from '@/core/import/pipeline';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 const DRY_RUN_NOTE =
   'Categories and review labels are a dry-run preview. Nothing is written until you tap Save and review.';
@@ -49,6 +51,8 @@ export function ImportPreview({
   onSave,
 }: ImportPreviewProps) {
   const theme = useTheme();
+  // View only: the preview stays fully browsable; only the final save is disabled.
+  const viewOnly = useViewOnly();
   const [openRow, setOpenRow] = useState<ImportPreviewRow | null>(null);
   const salvagedKeys = new Set(preview.salvaged.map((txn) => txn.dedupeKey));
   const hasWork = preview.newTxns.length > 0 || preview.duplicates.length > 0;
@@ -227,6 +231,8 @@ export function ImportPreview({
               Rechecking duplicates and saving securely on this device…
             </ThemedText>
           </View>
+        ) : viewOnly ? (
+          <ViewOnlyHint />
         ) : (
           <ThemedText type="caption" themeColor="textSecondary" style={styles.confirmNote}>
             Cancel leaves your history untouched.
@@ -236,7 +242,7 @@ export function ImportPreview({
           label={saveLabel}
           variant="primary"
           onPress={onSave}
-          disabled={!hasWork}
+          disabled={!hasWork || viewOnly}
           loading={saving}
           accessibilityHint="Rechecks duplicates, categorizes, saves, and opens the review step"
         />

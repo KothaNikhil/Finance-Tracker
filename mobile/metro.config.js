@@ -1,9 +1,17 @@
 // Learn more: https://docs.expo.dev/guides/customizing-metro/
 // Start from Expo's default config (imported from `expo/metro-config`, not
 // `@expo/metro-config`, so it tracks the installed SDK).
+const path = require('node:path');
 const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
+const workspaceRoot = path.resolve(__dirname, '..');
+
+config.watchFolders = [path.join(workspaceRoot, 'packages')];
+config.resolver.nodeModulesPaths = [
+  path.join(__dirname, 'node_modules'),
+  path.join(workspaceRoot, 'node_modules'),
+];
 
 // --- Web support for expo-sqlite ---------------------------------------------
 // On web, expo-sqlite runs a WebAssembly build of SQLite (wa-sqlite) shipped at

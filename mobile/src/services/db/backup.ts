@@ -24,7 +24,10 @@ export function serializeDatabase(): Uint8Array {
  * Replace ALL data in the live database with the contents of a backup. Validates that the backup
  * has our tables before touching anything, then wipes and re-inserts inside a transaction.
  */
-export async function restoreFromBytes(bytes: Uint8Array): Promise<void> {
+export async function restoreFromBytes(
+  bytes: Uint8Array,
+  isCurrent?: () => boolean,
+): Promise<void> {
   const src = await deserializeDatabaseAsync(bytes);
   try {
     const tables = src
@@ -41,6 +44,10 @@ export async function restoreFromBytes(bytes: Uint8Array): Promise<void> {
     const snapshot = new Map<string, any[]>();
     for (const t of present) {
       snapshot.set(t, src.getAllSync<any>(`SELECT * FROM "${t}"`));
+    }
+
+    if (isCurrent && !isCurrent()) {
+      throw new Error('Database restore was cancelled because the active account changed.');
     }
 
     const live = getSqlite();

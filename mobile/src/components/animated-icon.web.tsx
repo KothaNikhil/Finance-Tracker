@@ -2,7 +2,6 @@ import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useTheme } from '@/hooks/use-theme';
 
 export function AnimatedSplashOverlay() {
   return null;
@@ -10,10 +9,9 @@ export function AnimatedSplashOverlay() {
 
 export function AnimatedIcon() {
   const scheme = useColorScheme();
-  const theme = useTheme();
 
   return (
-    <View style={[styles.iconContainer, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+    <View style={styles.iconContainer}>
       <Image
         style={styles.iconMark}
         contentFit="contain"
@@ -28,13 +26,7 @@ export function AnimatedIcon() {
 }
 
 const styles = StyleSheet.create({
-  iconContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 112,
-    height: 112,
-    borderRadius: 28,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  iconMark: { width: 88, height: 88 },
+  // The mark is its own rounded teal tile, so no extra container chrome.
+  iconContainer: { justifyContent: 'center', alignItems: 'center', width: 112, height: 112 },
+  iconMark: { width: 112, height: 112 },
 });

@@ -1,10 +1,10 @@
 /**
  * The single "Add to Money Lent" flow, opened from a transaction. Two modes:
  *  - One loan: pick an existing loan (or create one inline — person + direction + name), choose what
- *    this transaction is (principal / repayment / interest), and attach it.
+ *    this transaction is (Paid / Received / Interest), and attach it.
  *  - Split across loans: divide this one payment across active loans — e.g. a lump repayment that
- *    clears two loans, or principal + interest slices on the same loan. Every slice keeps one cash
- *    direction and imported transactions retain their statement direction.
+ *    clears two loans, or principal + interest slices on the same loan. A debit can only be Paid and a
+ *    credit only Received; interest follows the loan (received on money lent, paid on money borrowed).
  * If the transaction is already attached/split, this lets you change it or remove it.
  */
 
@@ -21,12 +21,24 @@ import { Chip } from '@/components/chip';
 import { SegmentedControl } from '@/components/segmented-control';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { TextRole } from '@/constants/typography';
 import type { TransactionRow } from '@/core/db/schema';
 import { formatINR, type Direction } from '@/core/domain/money';
-import { LOAN_PARTS, roleDirection, roleForLoanPart, type LoanKind, type LoanPart } from '@/core/lending/roles';
+import {
+  defaultLoanFlow,
+  LOAN_FLOWS,
+  loanFlowDirection,
+  loanFlowError,
+  loanFlowOf,
+  loanPartForFlow,
+  type LoanFlow,
+  type LoanKind,
+  type LoanPart,
+} from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 export interface LoanChoice {
   id: number;
@@ -35,23 +47,20 @@ export interface LoanChoice {
   kind: LoanKind;
 }
 
-/** One editable split slice in the sheet: which loan, which part, and the rupee text entered. */
+/** One editable split slice in the sheet: which loan, Paid / Received / Interest, and the rupee text. */
 interface SplitRow {
   key: number;
   loanId: number | null;
-  part: LoanPart;
+  flow: LoanFlow;
   text: string;
 }
 
 let nextSplitRowKey = 1;
 
-const createSplitRow = (
-  loanId: number | null = null,
-  part: LoanPart = 'repayment',
-): SplitRow => ({
+const createSplitRow = (loanId: number | null, flow: LoanFlow): SplitRow => ({
   key: nextSplitRowKey++,
   loanId,
-  part,
+  flow,
   text: '',
 });
 
@@ -64,8 +73,10 @@ export interface AddToMoneyLentSheetProps {
   currentLoanId?: number | null;
   currentLoanName?: string;
   currentPart?: LoanPart | null;
+  /** Kind of the attached loan, which may be closed and therefore missing from `loans`. */
+  currentLoanKind?: LoanKind | null;
   /** Existing split slices for this transaction (empty when not split). */
-  currentAllocations?: { loanId: number; part: LoanPart | null; paise: number }[];
+  currentAllocations?: { loanId: number; part: LoanPart | null; paise: number; kind?: LoanKind }[];
   onAddPerson: (name: string) => number;
   onCreateLoan: (input: { name: string; personId: number; kind: LoanKind }) => number;
   onAttach: (loanId: number, part: LoanPart) => void;
@@ -97,6 +108,7 @@ export function AddToMoneyLentSheet({
   currentLoanId,
   currentLoanName,
   currentPart,
+  currentLoanKind,
   currentAllocations,
   onAddPerson,
   onCreateLoan,
@@ -106,6 +118,8 @@ export function AddToMoneyLentSheet({
   onClose,
 }: AddToMoneyLentSheetProps) {
   const theme = useTheme();
+  // View only: the current attachment stays readable; every control that would change it is disabled.
+  const viewOnly = useViewOnly();
   const [mode, setMode] = useState<'single' | 'split'>('single');
   const [selectedLoanId, setSelectedLoanId] = useState<number | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
@@ -113,7 +127,16 @@ export function AddToMoneyLentSheet({
   const [newPersonId, setNewPersonId] = useState<number | null>(null);
   const [newName, setNewName] = useState('');
   const [newPerson, setNewPerson] = useState('');
-  const [part, setPart] = useState<LoanPart>(currentPart ?? 'principal'); // single-mode part
+  const kindFor = (id: number | null): LoanKind | undefined => {
+    if (id == null) return undefined;
+    const active = loans.find((l) => l.id === id)?.kind;
+    if (active) return active;
+    if (id === currentLoanId && currentLoanKind) return currentLoanKind;
+    return currentAllocations?.find((a) => a.loanId === id)?.kind;
+  };
+  const initialFlow = (): LoanFlow =>
+    loanFlowOf(currentLoanKind ?? 'lent', currentPart) ?? defaultLoanFlow(txn?.direction);
+  const [flow, setFlow] = useState<LoanFlow>(initialFlow); // single-mode choice
   // One row per split slice: which loan, which part, and the rupee text. The same loan may appear in
   // more than one row (e.g. repayment + interest on one loan).
   const [splitRows, setSplitRows] = useState<SplitRow[]>([]);
@@ -133,14 +156,16 @@ export function AddToMoneyLentSheet({
       setNewPersonId(null);
       setNewName('');
       setNewPerson('');
-      setPart(currentPart ?? 'principal');
+      setFlow(initialFlow());
       setOpenLoanPicker(null);
       // Prefill split rows (and default to split mode) when editing an existing split; otherwise start
       // with one blank slice (pre-picking the loan when there's only one to choose).
       const seeded = (currentAllocations ?? []).map<SplitRow>((a) => ({
         key: nextSplitRowKey++,
         loanId: a.loanId,
-        part: a.part ?? 'repayment',
+        flow:
+          loanFlowOf(a.kind ?? kindFor(a.loanId) ?? 'lent', a.part ?? 'repayment') ??
+          defaultLoanFlow(txn?.direction),
         text: String(a.paise / 100),
       }));
       const currentActiveLoanId =
@@ -153,7 +178,7 @@ export function AddToMoneyLentSheet({
           : [
               createSplitRow(
                 currentActiveLoanId ?? (loans.length === 1 ? loans[0].id : null),
-                currentPart ?? 'repayment',
+                initialFlow(),
               ),
             ],
       );
@@ -170,30 +195,26 @@ export function AddToMoneyLentSheet({
   };
 
   // --- split-mode derived values ---
-  const loanKind = (id: number | null) => (id != null ? loans.find((l) => l.id === id)?.kind : undefined);
   const sourceDirection: Direction =
     txn?.direction === 'in' || txn?.direction === 'out' ? txn.direction : 'self';
   const splitValidation = validateLendingSplit(
-    {
-      direction: sourceDirection,
-      paise: total,
-      enforceDirection: txn?.source !== 'manual',
-    },
+    { direction: sourceDirection, paise: total },
     splitRows.map((r) => {
-      const kind = loanKind(r.loanId);
-      const paise = textToPaise(r.text);
+      const kind = kindFor(r.loanId);
       return {
         loanId: r.loanId,
-        part: r.part,
-        paise,
-        direction: kind != null ? roleDirection(roleForLoanPart(kind, r.part)) : undefined,
+        part: kind != null ? loanPartForFlow(kind, r.flow) : null,
+        paise: textToPaise(r.text),
+        direction: kind != null ? loanFlowDirection(kind, r.flow) : undefined,
+        flowError: kind != null && sourceDirection !== 'self' ? loanFlowError(kind, r.flow, sourceDirection) : null,
       };
     }),
   );
   const allocated = splitValidation.allocatedPaise;
   const canSplit = splitValidation.valid;
 
-  const newRow = (): SplitRow => createSplitRow(loans.length === 1 ? loans[0].id : null);
+  const newRow = (): SplitRow =>
+    createSplitRow(loans.length === 1 ? loans[0].id : null, defaultLoanFlow(txn?.direction));
   const updateRow = (i: number, patch: Partial<SplitRow>) =>
     setSplitRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addRow = () => setSplitRows((rows) => [...rows, newRow()]);
@@ -204,19 +225,14 @@ export function AddToMoneyLentSheet({
   };
 
   const singleKind = attached
-    ? loans.find((loan) => loan.id === currentLoanId)?.kind
+    ? kindFor(currentLoanId ?? null)
     : creatingNew
       ? newKind
       : loans.find((loan) => loan.id === selectedLoanId)?.kind;
-  const singleDirection =
-    singleKind != null ? roleDirection(roleForLoanPart(singleKind, part)) : undefined;
-  const singleDirectionMismatch =
-    txn != null &&
-    txn.source !== 'manual' &&
-    singleDirection != null &&
-    sourceDirection !== singleDirection;
+  const singleError = singleKind != null ? loanFlowError(singleKind, flow, sourceDirection) : null;
+  const part = loanPartForFlow(singleKind ?? 'lent', flow);
   const canSubmitSingle =
-    !singleDirectionMismatch &&
+    singleError == null &&
     (attached || selectedLoanId != null || (creatingNew && newPersonId != null));
 
   const submitSingle = () => {
@@ -324,14 +340,14 @@ export function AddToMoneyLentSheet({
               </ThemedText>
               <SegmentedControl
                 accessibilityLabel="Loan part"
-                options={LOAN_PARTS.map((option) => ({ value: option.part, label: option.label }))}
-                value={part ?? 'principal'}
-                onChange={setPart}
+                options={LOAN_FLOWS.map((option) => ({ value: option.flow, label: option.label }))}
+                value={flow}
+                onChange={setFlow}
+                disabled={viewOnly}
               />
-              {singleDirectionMismatch ? (
+              {singleError ? (
                 <ThemedText type="small" style={{ color: theme.spend }} accessibilityLiveRegion="polite">
-                  This choice moves money {singleDirection}, but the imported transaction is money{' '}
-                  {sourceDirection}. Choose a matching loan part.
+                  {singleError}
                 </ThemedText>
               ) : null}
             </>
@@ -356,10 +372,9 @@ export function AddToMoneyLentSheet({
               ) : null}
               {splitRows.map((row, i) => {
                 const selectedLoan = loans.find((loan) => loan.id === row.loanId);
+                const selectedKind = kindFor(row.loanId);
                 const selectedDirection =
-                  selectedLoan != null
-                    ? roleDirection(roleForLoanPart(selectedLoan.kind, row.part))
-                    : undefined;
+                  selectedKind != null ? loanFlowDirection(selectedKind, row.flow) : undefined;
                 const rowError = splitValidation.rowErrors[i];
                 const pickerOpen = openLoanPicker === row.key;
                 return (
@@ -377,10 +392,14 @@ export function AddToMoneyLentSheet({
                       )}
                       <Pressable
                         onPress={() => removeRow(i)}
+                        disabled={viewOnly}
                         hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
                         accessibilityRole="button"
                         accessibilityLabel={`Remove slice ${i + 1}`}
-                        style={({ pressed }) => ({ opacity: pressed ? Opacity.pressed : 1 })}
+                        accessibilityState={{ disabled: viewOnly }}
+                        style={({ pressed }) => ({
+                          opacity: viewOnly ? Opacity.disabled : pressed ? Opacity.pressed : 1,
+                        })}
                       >
                         <ThemedText type="smallEmphasis" style={{ color: theme.spend }}>
                           Remove
@@ -390,14 +409,15 @@ export function AddToMoneyLentSheet({
 
                     <Pressable
                       onPress={() => setOpenLoanPicker(pickerOpen ? null : row.key)}
+                      disabled={viewOnly}
                       accessibilityRole="button"
                       accessibilityLabel={`Choose loan for slice ${i + 1}`}
-                      accessibilityState={{ expanded: pickerOpen }}
+                      accessibilityState={{ expanded: pickerOpen, disabled: viewOnly }}
                       hitSlop={{ top: 3, bottom: 3 }}
                       style={({ pressed }) => [
                         styles.loanSelector,
                         { borderColor: row.loanId == null && rowError ? theme.spend : theme.borderStrong },
-                        { opacity: pressed ? Opacity.pressed : 1 },
+                        { opacity: viewOnly ? Opacity.disabled : pressed ? Opacity.pressed : 1 },
                       ]}
                     >
                       <ThemedText
@@ -417,7 +437,7 @@ export function AddToMoneyLentSheet({
                         tintColor={theme.textSecondary}
                       />
                     </Pressable>
-                    {pickerOpen ? (
+                    {pickerOpen && !viewOnly ? (
                       <View style={[styles.loanOptions, { borderColor: theme.border }]}>
                         {loans.length === 0 ? (
                           <ThemedText type="small" themeColor="textSecondary" style={styles.loanOptionEmpty}>
@@ -466,13 +486,15 @@ export function AddToMoneyLentSheet({
 
                     <SegmentedControl
                       accessibilityLabel={`Part for slice ${i + 1}`}
-                      options={LOAN_PARTS.map((option) => ({ value: option.part, label: option.label }))}
-                      value={row.part}
-                      onChange={(nextPart) => updateRow(i, { part: nextPart })}
+                      options={LOAN_FLOWS.map((option) => ({ value: option.flow, label: option.label }))}
+                      value={row.flow}
+                      onChange={(nextFlow) => updateRow(i, { flow: nextFlow })}
+                      disabled={viewOnly}
                     />
                     <TextField
                       value={row.text}
                       onChangeText={(value) => updateRow(i, { text: value })}
+                      editable={!viewOnly}
                       placeholder="0.00"
                       keyboardType="decimal-pad"
                       leading={
@@ -497,6 +519,7 @@ export function AddToMoneyLentSheet({
                 variant="secondary"
                 size="small"
                 onPress={addRow}
+                disabled={viewOnly}
               />
 
               <Card
@@ -544,10 +567,11 @@ export function AddToMoneyLentSheet({
                 </ThemedText>
               ))}
               <ThemedText type="caption" themeColor="textSecondary">
-                All slices must move one way. Imported transactions keep their original cash direction.
-                Principal and repayments stay excluded from spending and income; interest remains countable.
+                A debit can only be Paid and a credit only Received. Interest is received on money you lent
+                and paid on money you borrowed. Paid and Received stay out of spending and income; interest
+                still counts.
               </ThemedText>
-              <Button label="Save split" variant="primary" onPress={submitSplit} disabled={!canSplit} style={styles.saveBtn} />
+              <Button label="Save split" variant="primary" onPress={submitSplit} disabled={!canSplit || viewOnly} style={styles.saveBtn} />
             </>
           ) : attached ? (
             <>
@@ -563,7 +587,7 @@ export function AddToMoneyLentSheet({
                 label="Update Money Lent"
                 variant="primary"
                 onPress={submitSingle}
-                disabled={!canSubmitSingle}
+                disabled={!canSubmitSingle || viewOnly}
                 style={styles.saveBtn}
               />
             </>
@@ -583,9 +607,10 @@ export function AddToMoneyLentSheet({
                           setSelectedLoanId(loan.id);
                           setCreatingNew(false);
                         }}
+                        disabled={viewOnly}
                         accessibilityRole="radio"
                         accessibilityLabel={loanLabel(loan)}
-                        accessibilityState={{ checked: chosen }}
+                        accessibilityState={{ checked: chosen, disabled: viewOnly }}
                         style={({ pressed }) => [
                           styles.loanRow,
                           index > 0 && {
@@ -596,7 +621,7 @@ export function AddToMoneyLentSheet({
                             backgroundColor: chosen
                               ? theme.backgroundSelected
                               : theme.backgroundElement,
-                            opacity: pressed ? Opacity.pressed : 1,
+                            opacity: viewOnly ? Opacity.disabled : pressed ? Opacity.pressed : 1,
                           },
                         ]}
                       >
@@ -628,9 +653,10 @@ export function AddToMoneyLentSheet({
                   setCreatingNew(true);
                   setSelectedLoanId(null);
                 }}
+                disabled={viewOnly}
               />
 
-              {creatingNew && (
+              {creatingNew && !viewOnly && (
                 <Card tone="subtle" padding="small" style={styles.newLoan}>
                   <ThemedText type="overline" themeColor="textSecondary">
                     NEW LOAN
@@ -682,7 +708,7 @@ export function AddToMoneyLentSheet({
                 label="Add to Money Lent"
                 variant="primary"
                 onPress={submitSingle}
-                disabled={!canSubmitSingle}
+                disabled={!canSubmitSingle || viewOnly}
                 style={styles.saveBtn}
               />
             </>
@@ -691,16 +717,22 @@ export function AddToMoneyLentSheet({
           {(attached || isSplit) && (
             <Pressable
               onPress={onDetach}
+              disabled={viewOnly}
               accessibilityRole="button"
               accessibilityLabel="Remove this transaction from Money Lent"
+              accessibilityState={{ disabled: viewOnly }}
               hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-              style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? Opacity.pressed : 1 }]}
+              style={({ pressed }) => [
+                styles.removeBtn,
+                { opacity: viewOnly ? Opacity.disabled : pressed ? Opacity.pressed : 1 },
+              ]}
             >
               <ThemedText type="smallEmphasis" style={{ color: theme.spend }}>
                 Remove from Money Lent
               </ThemedText>
             </Pressable>
           )}
+          {viewOnly ? <ViewOnlyHint /> : null}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>

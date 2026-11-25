@@ -20,6 +20,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import type { CategoryRef } from '@/core/categorize';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 interface PickerRow {
   key: string;
@@ -57,6 +58,8 @@ export function CategoryPicker({
   onAddSubcategory,
 }: CategoryPickerProps) {
   const theme = useTheme();
+  // Every row here writes (pick or create), so the picker never shows in view only.
+  const viewOnly = useViewOnly();
   const [selected, setSelected] = useState<CategoryRef | null>(null);
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState('');
@@ -155,7 +158,7 @@ export function CategoryPicker({
       ];
 
   return (
-    <BottomSheet visible={visible} onClose={onClose}>
+    <BottomSheet visible={visible && !viewOnly} onClose={onClose}>
       <SafeAreaView edges={['bottom']} style={styles.safeArea}>
         <View style={styles.header}>
           <Pressable

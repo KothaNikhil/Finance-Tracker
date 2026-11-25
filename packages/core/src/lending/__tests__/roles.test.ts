@@ -1,0 +1,233 @@
+import {
+  ALL_ROLES,
+  EXCLUDED_FROM_TOTALS_ROLES,
+  isExcludedFromTotals,
+  isPrincipal,
+  isTransferRole,
+  loanBalanceFromParts,
+  loanBalanceFromTxns,
+  loanFlowError,
+  loanFlowOf,
+  loanPartForFlow,
+  loanPartOf,
+  perPersonBalances,
+  PRINCIPAL_ROLES,
+  roleDirection,
+  roleFavorable,
+  roleForLoanPart,
+  ROLE_META,
+  type LendingTxn,
+  type TransferRole,
+} from '../roles';
+
+describe('transfer roles', () => {
+  it('every role has direction + display metadata', () => {
+    for (const role of ALL_ROLES) {
+      expect(['in', 'out']).toContain(roleDirection(role));
+      expect(ROLE_META[role].label.length).toBeGreaterThan(0);
+      expect(ROLE_META[role].emoji.length).toBeGreaterThan(0);
+      expect(ROLE_META[role].group).toBe(roleDirection(role));
+    }
+  });
+
+  it('marks exactly the five principal roles as principal', () => {
+    expect([...PRINCIPAL_ROLES].sort()).toEqual(
+      ['borrowed', 'lent', 'lent_interest', 'repaid_by_me', 'repaid_to_me'].sort(),
+    );
+    expect(isPrincipal('lent')).toBe(true);
+    expect(isPrincipal('repaid_to_me')).toBe(true);
+    expect(isPrincipal('interest_received')).toBe(false);
+    expect(isPrincipal('gift_given')).toBe(false);
+    expect(isPrincipal(null)).toBe(false);
+    expect(isPrincipal(undefined)).toBe(false);
+  });
+
+  it('excludes principal AND both credit-card payment legs from totals', () => {
+    expect([...EXCLUDED_FROM_TOTALS_ROLES].sort()).toEqual(
+      ['borrowed', 'cc_payment', 'cc_payment_received', 'lent', 'lent_interest', 'repaid_by_me', 'repaid_to_me'].sort(),
+    );
+    expect(isExcludedFromTotals('cc_payment')).toBe(true);
+    expect(isExcludedFromTotals('cc_payment_received')).toBe(true);
+    expect(isExcludedFromTotals('lent')).toBe(true); // principal still excluded
+    expect(isExcludedFromTotals('interest_received')).toBe(false); // interest still counts
+    expect(isExcludedFromTotals('gift_given')).toBe(false);
+    expect(isExcludedFromTotals(null)).toBe(false);
+  });
+
+  it('treats the card-payment roles as system roles (recognised, not in the lending picker)', () => {
+    expect(isTransferRole('cc_payment')).toBe(true);
+    expect(isTransferRole('cc_payment_received')).toBe(true);
+    expect(ALL_ROLES).not.toContain('cc_payment'); // not offered as a pickable lending role
+    expect(ALL_ROLES).not.toContain('cc_payment_received');
+    expect(roleDirection('cc_payment')).toBe('out');
+    expect(roleDirection('cc_payment_received')).toBe('in');
+  });
+
+  it('directions match the taxonomy (out = money leaving)', () => {
+    expect(roleDirection('lent')).toBe('out');
+    expect(roleDirection('repaid_by_me')).toBe('out');
+    expect(roleDirection('interest_paid')).toBe('out');
+    expect(roleDirection('gift_given')).toBe('out');
+    expect(roleDirection('borrowed')).toBe('in');
+    expect(roleDirection('repaid_to_me')).toBe('in');
+    expect(roleDirection('interest_received')).toBe('in');
+  });
+
+  it('colours lending framing (favourable) not raw cash flow', () => {
+    expect(roleFavorable('lent')).toBe(true); // money out, but it's an asset owed to you → favourable
+    expect(roleFavorable('repaid_to_me')).toBe(true);
+    expect(roleFavorable('interest_received')).toBe(true);
+    expect(roleFavorable('borrowed')).toBe(false); // money in, but a liability → unfavourable
+    expect(roleFavorable('repaid_by_me')).toBe(false);
+    expect(roleFavorable('gift_given')).toBe(false);
+  });
+
+  it('guards unknown role strings', () => {
+    expect(isTransferRole('lent')).toBe(true);
+    expect(isTransferRole('nonsense')).toBe(false);
+    expect(isTransferRole(null)).toBe(false);
+  });
+});
+
+describe('perPersonBalances', () => {
+  const row = (personId: number | null, transferRole: TransferRole | null, paise: number): LendingTxn => ({
+    personId,
+    transferRole,
+    paise,
+  });
+
+  it('nets lending principal against repayment (they owe me)', () => {
+    const balances = perPersonBalances([
+      row(1, 'lent', 500000), // ₹5,000 lent
+      row(1, 'lent_interest', 300000), // ₹3,000 lent (interest-bearing)
+      row(1, 'repaid_to_me', 200000), // ₹2,000 back
+    ]);
+    const b = balances.get(1)!;
+    expect(b.theyOweMe).toBe(600000); // 5000 + 3000 − 2000
+    expect(b.iOweThem).toBe(0);
+    expect(b.net).toBe(600000); // positive → they owe me
+  });
+
+  it('nets borrowing against my repayments (I owe them)', () => {
+    const b = perPersonBalances([
+      row(2, 'borrowed', 1000000),
+      row(2, 'repaid_by_me', 400000),
+    ]).get(2)!;
+    expect(b.iOweThem).toBe(600000);
+    expect(b.theyOweMe).toBe(0);
+    expect(b.net).toBe(-600000); // negative → I owe them
+  });
+
+  it('keeps interest and gifts out of the principal balance', () => {
+    const b = perPersonBalances([
+      row(3, 'lent', 100000),
+      row(3, 'interest_received', 5000),
+      row(3, 'gift_given', 20000),
+      row(3, 'donation_given', 10000),
+      row(3, 'gift_received', 7000),
+    ]).get(3)!;
+    expect(b.theyOweMe).toBe(100000); // interest/gift do NOT change principal
+    expect(b.net).toBe(100000);
+    expect(b.interestIn).toBe(5000);
+    expect(b.giftsGiven).toBe(30000); // gift + donation given
+    expect(b.giftsReceived).toBe(7000);
+  });
+
+  it('ignores rows with no role or no person', () => {
+    const balances = perPersonBalances([
+      row(null, 'lent', 100000), // no person → skipped
+      row(4, null, 100000), // no role → skipped
+      row(5, 'lent', 100000), // counted
+    ]);
+    expect(balances.has(4)).toBe(false);
+    expect(balances.get(5)!.theyOweMe).toBe(100000);
+    expect(balances.size).toBe(1);
+  });
+});
+
+describe('loan grouping helpers', () => {
+  it('maps (kind, part) → role', () => {
+    expect(roleForLoanPart('lent', 'principal')).toBe('lent');
+    expect(roleForLoanPart('lent', 'repayment')).toBe('repaid_to_me');
+    expect(roleForLoanPart('lent', 'interest')).toBe('interest_received');
+    expect(roleForLoanPart('borrowed', 'principal')).toBe('borrowed');
+    expect(roleForLoanPart('borrowed', 'repayment')).toBe('repaid_by_me');
+    expect(roleForLoanPart('borrowed', 'interest')).toBe('interest_paid');
+  });
+
+  it('maps role → loan part', () => {
+    expect(loanPartOf('lent')).toBe('principal');
+    expect(loanPartOf('borrowed')).toBe('principal');
+    expect(loanPartOf('repaid_to_me')).toBe('repayment');
+    expect(loanPartOf('interest_paid')).toBe('interest');
+    expect(loanPartOf('gift_given')).toBeNull();
+    expect(loanPartOf(null)).toBeNull();
+  });
+
+  it('rolls up a loan spanning several principal + repayment + interest transactions', () => {
+    // The screenshot case: ₹6L lent across 3 txns; ₹8L back + ₹15,200 interest.
+    const bal = loanBalanceFromTxns([
+      { transferRole: 'lent', paise: 140000_00 },
+      { transferRole: 'lent', paise: 180000_00 },
+      { transferRole: 'lent', paise: 280000_00 },
+      { transferRole: 'repaid_to_me', paise: 500000_00 },
+      { transferRole: 'repaid_to_me', paise: 300000_00 },
+      { transferRole: 'interest_received', paise: 15200_00 },
+    ]);
+    expect(bal.principalPaise).toBe(600000_00); // 1.4L + 1.8L + 2.8L
+    expect(bal.repaidPaise).toBe(800000_00); // 5L + 3L
+    expect(bal.outstandingPaise).toBe(-200000_00); // over-repaid by the interest-ish surplus
+    expect(bal.interestPaise).toBe(15200_00);
+  });
+
+  it('loanBalanceFromParts rolls direct txns + split slices into one balance', () => {
+    // The two-reason case: SMR lent ₹6L (one loan) + ₹2L (donation loan); an ₹8L repayment split
+    // ₹6L→loan6 + ₹2L→donation. Loan6 then reads: principal 6L, repaid 6L → settled.
+    const loan6 = loanBalanceFromParts([
+      { part: 'principal', paise: 600000_00 }, // three lent txns collapsed for the test
+      { part: 'repayment', paise: 600000_00 }, // the ₹6L slice of the split repayment
+      { part: 'interest', paise: 15200_00 },
+    ]);
+    expect(loan6.outstandingPaise).toBe(0);
+    expect(loan6.interestPaise).toBe(15200_00);
+
+    const donation = loanBalanceFromParts([
+      { part: 'principal', paise: 200000_00 },
+      { part: 'repayment', paise: 200000_00 }, // the ₹2L slice of the same split repayment
+    ]);
+    expect(donation.outstandingPaise).toBe(0);
+
+    // A null part (gift/donation/untagged) contributes to nothing.
+    expect(loanBalanceFromParts([{ part: null, paise: 999 }])).toEqual({
+      principalPaise: 0,
+      repaidPaise: 0,
+      outstandingPaise: 0,
+      interestPaise: 0,
+    });
+  });
+});
+
+describe('loan flows (Paid / Received / Interest)', () => {
+  it('maps flows to stored parts by loan kind and back', () => {
+    expect(loanPartForFlow('lent', 'paid')).toBe('principal');
+    expect(loanPartForFlow('lent', 'received')).toBe('repayment');
+    expect(loanPartForFlow('borrowed', 'paid')).toBe('repayment');
+    expect(loanPartForFlow('borrowed', 'received')).toBe('principal');
+    for (const kind of ['lent', 'borrowed'] as const) {
+      for (const flow of ['paid', 'received', 'interest'] as const) {
+        expect(loanFlowOf(kind, loanPartForFlow(kind, flow))).toBe(flow);
+      }
+    }
+  });
+
+  it('explains debit/credit mismatches', () => {
+    expect(loanFlowError('lent', 'paid', 'out')).toBeNull();
+    expect(loanFlowError('lent', 'received', 'out')).toBe('This is a debit (money out). Choose Paid.');
+    expect(loanFlowError('borrowed', 'paid', 'in')).toBe('This is a credit (money in). Choose Received.');
+    expect(loanFlowError('lent', 'interest', 'out')).toContain('Interest on money you lent is always received');
+    expect(loanFlowError('borrowed', 'interest', 'out')).toBeNull();
+    expect(loanFlowError('borrowed', 'received', 'out')).toBe('This is a debit (money out). Choose Paid or Interest.');
+    expect(loanFlowError('lent', 'paid', 'self')).toContain('self-transfer');
+    expect(loanFlowError('lent', 'paid', null)).toBeNull();
+  });
+});

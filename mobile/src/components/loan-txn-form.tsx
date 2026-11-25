@@ -13,10 +13,12 @@ import { Chip } from '@/components/chip';
 import { DateField, todayIso } from '@/components/date-field';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Spacing } from '@/constants/theme';
 import { decimalStringToPaise, paiseToRupees } from '@/core/domain/money';
-import { LOAN_PARTS, type LoanPart } from '@/core/lending/roles';
+import { LOAN_FLOWS, loanFlowOf, loanPartForFlow, type LoanFlow, type LoanKind, type LoanPart } from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 export interface LoanTxnFormValues {
   part: LoanPart;
@@ -30,6 +32,8 @@ export interface LoanTxnFormProps {
   mode?: 'create' | 'edit';
   /** Seeds the form when correcting an existing hand-entered row. */
   initial?: { part: LoanPart; paise: number; isoDate: string; remarks: string | null };
+  /** The loan's kind turns Paid / Received into the stored principal or repayment part. */
+  loanKind?: LoanKind;
   onSubmit: (values: LoanTxnFormValues) => void;
   /** Offered only in edit mode; the caller confirms before removing the entry. */
   onDelete?: () => void;
@@ -40,14 +44,16 @@ export function LoanTxnForm({
   visible,
   mode = 'create',
   initial,
+  loanKind = 'lent',
   onSubmit,
   onDelete,
   onClose,
 }: LoanTxnFormProps) {
   const theme = useTheme();
+  const viewOnly = useViewOnly();
   const editing = mode === 'edit';
   const [amount, setAmount] = useState(() => (initial ? paiseToRupees(initial.paise).toFixed(2) : ''));
-  const [part, setPart] = useState<LoanPart | null>(initial?.part ?? null);
+  const [flow, setFlow] = useState<LoanFlow | null>(loanFlowOf(loanKind, initial?.part));
   const [date, setDate] = useState<string | null>(initial?.isoDate ?? todayIso());
   const [note, setNote] = useState(initial?.remarks ?? '');
 
@@ -56,7 +62,7 @@ export function LoanTxnForm({
     setPrevVisible(visible);
     if (visible) {
       setAmount(initial ? paiseToRupees(initial.paise).toFixed(2) : '');
-      setPart(initial?.part ?? null);
+      setFlow(loanFlowOf(loanKind, initial?.part));
       setDate(initial?.isoDate ?? todayIso());
       setNote(initial?.remarks ?? '');
     }
@@ -82,9 +88,9 @@ export function LoanTxnForm({
       return;
     }
     if (paise <= 0) return Alert.alert('Enter an amount', 'The amount must be more than zero.');
-    if (part == null) return Alert.alert('Pick a type', 'Choose principal, repayment or interest.');
+    if (flow == null) return Alert.alert('Pick a type', 'Choose Paid, Received or Interest.');
     if (date == null) return Alert.alert('Check the date', 'Choose the date for this entry.');
-    onSubmit({ part, paise, isoDate: date, remarks: note.trim() || null });
+    onSubmit({ part: loanPartForFlow(loanKind, flow), paise, isoDate: date, remarks: note.trim() || null });
   };
 
   return (
@@ -118,8 +124,8 @@ export function LoanTxnForm({
             TYPE
           </ThemedText>
           <View style={styles.chips}>
-            {LOAN_PARTS.map((p) => (
-              <Chip key={p.part} label={p.label} selected={p.part === part} onPress={() => setPart(p.part)} />
+            {LOAN_FLOWS.map((f) => (
+              <Chip key={f.flow} label={f.label} selected={f.flow === flow} onPress={() => setFlow(f.flow)} />
             ))}
           </View>
 
@@ -139,6 +145,7 @@ export function LoanTxnForm({
             label={editing ? 'Save changes' : 'Add entry'}
             variant="primary"
             onPress={submit}
+            disabled={viewOnly}
             style={styles.saveBtn}
           />
           {editing && onDelete ? (
@@ -147,10 +154,12 @@ export function LoanTxnForm({
               icon={{ ios: 'trash', android: 'delete', web: 'delete' }}
               variant="danger"
               onPress={confirmDelete}
+              disabled={viewOnly}
               accessibilityHint="Opens a confirmation before removing this entry"
               style={styles.deleteBtn}
             />
           ) : null}
+          {viewOnly ? <ViewOnlyHint /> : null}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>

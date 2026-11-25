@@ -1,0 +1,22 @@
+/* Home (ui-mocks/web/home.html) — page styles copied verbatim from the mock. */
+.period { display: flex; align-items: center; gap: var(--sp-2); }
+.period .seg { width: 210px; }
+.kpi-card--hero { background: var(--accent-muted); border-color: var(--accent); }
+.merch { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--sp-1) var(--sp-3); align-items: center; }
+.merch > span { padding: var(--sp-1) 0; }
+.merch .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acc-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0; }
+.acc-row + .acc-row { border-top: var(--hairline) solid var(--border); }
+.acc-ico { width: 32px; height: 32px; border-radius: var(--r-sm); background: var(--background-selected); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.mini-bars { height: 90px; }
+.review-card { background: var(--review-muted); border-color: var(--review); }
+.side-stack { display: flex; flex-direction: column; gap: var(--sp-4); }
+@media (max-width: 719px) { .period { width: 100%; justify-content: space-between; } .period .seg { width: auto; flex: 1; max-width: 220px; } .side-stack { gap: var(--sp-3); } }
+
+/* The mock renders these as spans/divs; the app uses real buttons, so drop the UA button chrome. */
+:where(.w-main) button.seg__item,
+:where(.w-main) button.bars__col,
+:where(.w-main) button.brk__row { border: 0; background: transparent; margin: 0; text-align: left; cursor: pointer; }
+:where(.w-main) button.bars__col { padding: 0; }
+:where(.w-main) button.brk__row { width: 100%; }
+:where(.w-main) button.icon-btn:disabled { cursor: default; }

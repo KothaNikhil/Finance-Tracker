@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
+import { EditSessionBanner } from '@/components/edit-session-banner';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 
@@ -55,6 +56,8 @@ export function ScreenHeader({
           {subtitle}
         </ThemedText>
       ) : null}
+      {/* View only / offline-with-changes, under every screen title. */}
+      <EditSessionBanner />
     </View>
   );
 }

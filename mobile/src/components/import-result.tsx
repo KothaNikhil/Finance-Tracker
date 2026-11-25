@@ -9,10 +9,11 @@ import { PeriodTabs } from '@/components/period-tabs';
 import { SegmentedControl } from '@/components/segmented-control';
 import { StatStrip, StatTile } from '@/components/stat-tile';
 import { ThemedText } from '@/components/themed-text';
-import { Radius, Spacing } from '@/constants/theme';
+import { Opacity, Radius, Spacing } from '@/constants/theme';
 import type { MonthKey } from '@/core/analytics';
 import { formatINR } from '@/core/domain/money';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 /** Which set of saved transactions the review list shows. */
 export type ImportResultScope = 'session' | 'flagged';
@@ -72,6 +73,8 @@ export function ImportResultHeader({
   onRevert,
 }: ImportResultHeaderProps) {
   const theme = useTheme();
+  // View only: browsing the result stays available; Accept all and Revert are disabled.
+  const viewOnly = useViewOnly();
 
   return (
     <View style={styles.header}>
@@ -137,6 +140,7 @@ export function ImportResultHeader({
             size="small"
             variant="secondary"
             onPress={onAcceptAll}
+            disabled={viewOnly}
             accessibilityHint="Keeps the suggestions and clears every review flag"
           />
         </Card>
@@ -146,10 +150,15 @@ export function ImportResultHeader({
         <ListSection>
           <Pressable
             onPress={onRevert}
+            disabled={viewOnly}
             accessibilityRole="button"
             accessibilityLabel={`Revert last import, ${lastImport.sourceLabel}, ${lastImport.addedCount} transactions`}
             accessibilityHint="Opens a destructive confirmation"
-            style={({ pressed }) => [styles.revertRow, { opacity: pressed ? 0.6 : 1 }]}
+            accessibilityState={{ disabled: viewOnly }}
+            style={({ pressed }) => [
+              styles.revertRow,
+              { opacity: viewOnly ? Opacity.disabled : pressed ? 0.6 : 1 },
+            ]}
           >
             <View style={[styles.revertIcon, { backgroundColor: theme.backgroundSelected }]}>
               <ThemedText type="caption" themeColor="textSecondary">

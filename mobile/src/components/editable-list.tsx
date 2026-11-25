@@ -16,8 +16,10 @@ import { IconButton } from '@/components/icon-button';
 import { ReorderSheet } from '@/components/reorder-sheet';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 export interface EditableItem {
   id: number;
@@ -54,6 +56,9 @@ export function EditableList({
   onOpen,
 }: EditableListProps) {
   const theme = useTheme();
+  // View only: the list stays readable (and categories still open), but add / rename / delete /
+  // reorder are disabled.
+  const viewOnly = useViewOnly();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
   const [reordering, setReordering] = useState(false);
@@ -67,6 +72,7 @@ export function EditableList({
           size="small"
           icon={{ ios: 'arrow.up.arrow.down', android: 'swap_vert', web: 'swap_vert' }}
           onPress={() => setReordering(true)}
+          disabled={viewOnly}
           accessibilityLabel={`Reorder ${reorderTitle ?? addLabel}`}
           style={styles.reorderButton}
         />
@@ -74,7 +80,7 @@ export function EditableList({
 
       <Card padding="none">
         {items.map((item, index) =>
-          editingId === item.id ? (
+          editingId === item.id && !viewOnly ? (
             <ItemEditor
               key={item.id}
               withEmoji={withEmoji}
@@ -99,6 +105,7 @@ export function EditableList({
               onStartEdit={() => setEditingId(item.id)}
               onDelete={() => onDelete(item)}
               onOpen={onOpen ? () => onOpen(item) : undefined}
+              disabled={viewOnly}
               theme={theme}
             />
           ),
@@ -110,7 +117,7 @@ export function EditableList({
           </ThemedText>
         ) : null}
 
-        {adding ? (
+        {adding && !viewOnly ? (
           <ItemEditor
             withEmoji={withEmoji}
             initialName=""
@@ -127,17 +134,19 @@ export function EditableList({
         ) : null}
       </Card>
 
-      {!adding ? (
+      {!adding || viewOnly ? (
         <Button
           label={addLabel}
           variant="secondary"
           icon={{ ios: 'plus', android: 'add', web: 'add' }}
           onPress={() => setAdding(true)}
+          disabled={viewOnly}
         />
       ) : null}
+      {viewOnly ? <ViewOnlyHint /> : null}
 
       <ReorderSheet
-        visible={reordering}
+        visible={reordering && !viewOnly}
         title={reorderTitle ?? addLabel}
         items={items}
         withEmoji={withEmoji}
@@ -156,6 +165,7 @@ function Row({
   onStartEdit,
   onDelete,
   onOpen,
+  disabled = false,
   theme,
 }: {
   item: EditableItem;
@@ -165,6 +175,7 @@ function Row({
   onStartEdit: () => void;
   onDelete: () => void;
   onOpen?: () => void;
+  disabled?: boolean;
   theme: ReturnType<typeof useTheme>;
 }) {
   return (
@@ -201,12 +212,14 @@ function Row({
           label={`Edit ${item.name}`}
           onPress={onStartEdit}
           variant="plain"
+          disabled={disabled}
         />
         <IconButton
           name={{ ios: 'trash', android: 'delete', web: 'delete' }}
           label={`Delete ${item.name}`}
           onPress={onDelete}
           variant="danger"
+          disabled={disabled}
         />
       </View>
     </View>

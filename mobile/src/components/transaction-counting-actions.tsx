@@ -56,6 +56,8 @@ export interface TransactionCountingActionsProps {
   onSetRefund: (isRefund: boolean) => void;
   onManageMoneyLent: () => void;
   onManageCardBill: () => void;
+  /** View only: the chips can't change how the row is counted (linked status rows still open). */
+  disabled?: boolean;
 }
 
 const ACTION_META: Record<CountingActionId, { label: string; icon: SymbolName }> = {
@@ -135,6 +137,7 @@ export function TransactionCountingActions({
   onSetRefund,
   onManageMoneyLent,
   onManageCardBill,
+  disabled = false,
 }: TransactionCountingActionsProps) {
   const isSelf = direction === 'self';
   const visible = visibleCountingActions({ direction, cardBillLinked, hasCardStatements });
@@ -164,6 +167,7 @@ export function TransactionCountingActions({
             label={ACTION_META[id].label}
             icon={ACTION_META[id].icon}
             selected={isSelected(id)}
+            disabled={disabled}
             onPress={() => onPress(id)}
             accessibilityHint={
               id === 'self'
@@ -237,12 +241,14 @@ function CountingChip({
   label,
   icon,
   selected,
+  disabled = false,
   onPress,
   accessibilityHint,
 }: {
   label: string;
   icon: SymbolName;
   selected: boolean;
+  disabled?: boolean;
   onPress: () => void;
   accessibilityHint: string;
 }) {
@@ -252,17 +258,19 @@ function CountingChip({
   return (
     <Pressable
       onPress={onPress}
+      // Only set when true: Pressable folds an explicit `disabled={false}` into accessibilityState.
+      disabled={disabled || undefined}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{ selected }}
+      accessibilityState={disabled ? { selected, disabled } : { selected }}
       hitSlop={CHIP_HIT_SLOP}
       style={({ pressed }) => [
         styles.chip,
         {
           backgroundColor: selected ? theme.accent : theme.backgroundElement,
           borderColor: selected ? theme.accent : theme.borderStrong,
-          opacity: pressed ? Opacity.pressed : 1,
+          opacity: disabled ? Opacity.disabled : pressed ? Opacity.pressed : 1,
         },
       ]}
     >

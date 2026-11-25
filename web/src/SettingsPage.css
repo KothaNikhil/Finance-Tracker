@@ -1,0 +1,47 @@
+/* Settings page. Rules ported verbatim from the inline <style> of ui-mocks/web/settings.html; keep in sync. */
+.sec { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.sec__head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+.two-pane { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+.pane { padding: 0; overflow: clip; }
+.pane__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-3) var(--sp-3) var(--sp-2); border-bottom: var(--hairline) solid var(--border); }
+.em-box { width: 32px; height: 32px; border-radius: var(--r-sm); background: var(--background-selected); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.lrow.is-editing { background: var(--background-selected); }
+.lrow .field__box { flex: 1; }
+.theme-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
+.theme-opt { border: 1.5px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); cursor: pointer; background: var(--background-element); }
+.theme-opt.is-selected { border-color: var(--accent); }
+.theme-prev { height: 84px; border-radius: var(--r-md); display: grid; grid-template-columns: 26% 1fr; overflow: hidden; border: var(--hairline) solid var(--border); }
+.theme-prev--light { background: #f4f6f6; } .theme-prev--light > span:first-child { background: #fff; }
+.theme-prev--dark { background: #0d1312; } .theme-prev--dark > span:first-child { background: #161d1c; }
+.theme-prev--sys { background: linear-gradient(135deg, #f4f6f6 50%, #0d1312 50%); }
+.file-card { display: flex; gap: var(--sp-3); align-items: center; }
+.file-card .em-box { width: 44px; height: 44px; background: var(--accent-muted); color: var(--accent); }
+.danger-card { border-color: var(--spend); }
+@media (max-width: 1199px) { .two-pane { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 719px) { .theme-opts { grid-template-columns: minmax(0, 1fr); } .theme-prev { height: 56px; } }
+
+/* ---------- Interactive details the static mock drew as plain text ---------- */
+/* In the mock the sub-nav <a>s pick up web.css's `body.w a { color: inherit }`, so unselected items (including "Delete all data") render in the text colour. */
+.subnav__item:not(.is-selected) { color: var(--text); }
+.sec .field__box:focus-within { border-color: var(--focus); }
+.sec .field__box input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0;
+  font: inherit; color: var(--text);
+}
+.sec .field__box input::placeholder { color: var(--text-secondary); opacity: 1; }
+.em-box input {
+  width: 100%; height: 100%; border: 0; outline: 0; background: transparent; padding: 0;
+  font: inherit; text-align: center; color: var(--text);
+}
+.em-box:focus-within { box-shadow: inset 0 0 0 1px var(--focus); }
+button.theme-opt { font: inherit; color: inherit; text-align: left; }
+.lrow[draggable='true'] { user-select: none; }
+.lrow.is-dragging { opacity: 0.5; }
+.lrow.is-drop-target { box-shadow: inset 0 2px 0 var(--accent); }
+.lrow:focus-visible { outline-offset: -2px; }
+.lrow:focus-within .row-actions { opacity: 1; }
+.import-log {
+  margin: 0; padding: var(--sp-3); max-height: 320px; overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; line-height: 17px;
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary);
+}

@@ -54,7 +54,7 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { TransactionList } from '@/components/transaction-list';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import { BottomTabInset, MaxContentWidth, Opacity, Radius, Spacing } from '@/constants/theme';
 import type { MonthKey, TxnFilter } from '@/core/analytics';
 import type { TransactionRow } from '@/core/db/schema';
 import { readCardStatementMeta } from '@/core/import/adapters/axis-cc';
@@ -74,6 +74,7 @@ import { parseXlsxBytes } from '@/core/import/xlsx';
 import { useBusyAction } from '@/hooks/use-busy-action';
 import { useTheme } from '@/hooks/use-theme';
 import { useTransactionDetail } from '@/hooks/use-transaction-detail';
+import { useViewOnly } from '@/services/drive/edit-session';
 import { useCategoryIndex } from '@/hooks/use-reference-data';
 import { useDimensions, useSummary } from '@/hooks/use-analytics';
 import { useLastImport, useTransactionList } from '@/hooks/use-transactions';
@@ -148,6 +149,8 @@ export default function ImportScreen() {
   const { busy: devBusy, run: runDevAction } = useBusyAction();
   // Tapping a row opens the app-wide transaction detail sheet (mounted at the root).
   const { openTxn } = useTransactionDetail();
+  // View only: picking and previewing still work; saving, reverting and dev seeding are disabled.
+  const viewOnly = useViewOnly();
   // Which month of the current import is shown; null = the whole import.
   const [selectedMonth, setSelectedMonth] = useState<MonthKey | null>(null);
   // Which step is on screen. `pick` is the screen's home and is never inferred from this session's
@@ -514,7 +517,7 @@ export default function ImportScreen() {
     const n = lastImport.addedCount;
     Alert.alert(
       'Revert this import?',
-      `Permanently deletes all ${n} transaction${n === 1 ? '' : 's'} added by “${label}” — including any you’ve since edited, categorized, split, or attached to a loan. This can’t be undone. (Duplicates it merely merged into earlier imports are kept.)`,
+      `Permanently deletes all ${n} transaction${n === 1 ? '' : 's'} added by ${lastImport.fileCount > 1 ? `${lastImport.fileCount} files imported together (${label})` : `“${label}”`} — including any you’ve since edited, categorized, split, or attached to a loan. This can’t be undone. (Duplicates it merely merged into earlier imports are kept.)`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -667,6 +670,7 @@ export default function ImportScreen() {
             title="Revert last import"
             detail={`${lastImport.sourceLabel || 'Last import'} · ${lastImport.addedCount} added · ${lastImport.importedAt.slice(0, 10)}`}
             onPress={onRevertLast}
+            disabled={viewOnly}
             accessibilityLabel={`Revert last import, ${lastImport.sourceLabel}, ${lastImport.addedCount} transactions`}
             accessibilityHint="Opens a destructive confirmation"
           />
@@ -693,13 +697,13 @@ export default function ImportScreen() {
             <Button
               label="Add sample"
               onPress={onAddSample}
-              disabled={actionsDisabled}
+              disabled={actionsDisabled || viewOnly}
               style={styles.grow}
             />
             <Button
               label="Seed 20k"
               onPress={onSeed}
-              disabled={actionsDisabled}
+              disabled={actionsDisabled || viewOnly}
               loading={devBusy}
               style={styles.grow}
             />
@@ -939,6 +943,7 @@ function SessionRow({
   title,
   detail,
   onPress,
+  disabled = false,
   accessibilityLabel,
   accessibilityHint,
 }: {
@@ -950,6 +955,7 @@ function SessionRow({
   title: string;
   detail: string;
   onPress?: () => void;
+  disabled?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
 }) {
@@ -990,10 +996,15 @@ function SessionRow({
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
-      style={({ pressed }) => [styles.sessionRow, { opacity: pressed ? 0.6 : 1 }]}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [
+        styles.sessionRow,
+        { opacity: disabled ? Opacity.disabled : pressed ? 0.6 : 1 },
+      ]}
     >
       {body}
     </Pressable>

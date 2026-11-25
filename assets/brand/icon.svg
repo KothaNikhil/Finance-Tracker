@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="ftBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16A08C"/>
+      <stop offset="1" stop-color="#0A564F"/>
+    </linearGradient>
+    <radialGradient id="ftGlow" cx="0.3" cy="0.22" r="0.8">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs><rect width="1024" height="1024" fill="url(#ftBg)"/><rect width="1024" height="1024" fill="url(#ftGlow)"/>
+  <g transform="rotate(-90 512 512)" fill="none" stroke-width="92">
+    <circle cx="512" cy="512" r="262" stroke="#FFFFFF" stroke-dasharray="823 823" stroke-dashoffset="-274"/>
+    <circle cx="512" cy="512" r="262" stroke="#7FE3B4" stroke-dasharray="398 1248" stroke-dashoffset="-1134"/>
+    <circle cx="512" cy="512" r="262" stroke="#FFFFFF" stroke-opacity=".38" stroke-dasharray="146 1500" stroke-dashoffset="-1569"/>
+  </g>
+  <g transform="translate(512 522) scale(0.84) translate(-495 -525)" fill="none" stroke-width="46" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M410 380 H580" stroke="#FFFFFF"/>
+    <path d="M410 460 H580" stroke="#FFFFFF"/>
+    <path d="M455 380 Q565 380 565 460 Q565 540 455 540 H415 L560 670" stroke="#FFFFFF"/>
+    <path d="M580 380 L708 252" stroke="#7FE3B4"/>
+    <path d="M624 252 H708 V336" stroke="#7FE3B4"/>
+  </g></svg>

@@ -12,12 +12,13 @@
 
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AttachExistingSheet } from '@/components/attach-existing-sheet';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
+import { DriveLoadingState, useFirstDriveDownload } from '@/components/drive-loading-state';
 import { EmptyState } from '@/components/empty-state';
 import { LoanDetail } from '@/components/loan-detail';
 import { ListSection } from '@/components/list-section';
@@ -36,6 +37,7 @@ import { useLoans, type LoanView, type PersonGroup } from '@/hooks/use-lending';
 import { useLists } from '@/hooks/use-reference-data';
 import { useTheme } from '@/hooks/use-theme';
 import { useTransactionDetail } from '@/hooks/use-transaction-detail';
+import { useViewOnly } from '@/services/drive/edit-session';
 import {
   addLoanTransaction,
   addPerson,
@@ -55,6 +57,9 @@ export default function LendingScreen() {
   const { people: peopleList } = useLists();
   // Tapping a transaction inside a loan opens the app-wide detail sheet (mounted at the root).
   const { openTxn, openId } = useTransactionDetail();
+  // View only: loans stay browsable, but creating one (or any loan write) is disabled.
+  const viewOnly = useViewOnly();
+  const firstDriveDownload = useFirstDriveDownload();
 
   const [mode, setMode] = useState<'people' | 'loans'>('people');
   const [showClosed, setShowClosed] = useState(false);
@@ -101,6 +106,7 @@ export default function LendingScreen() {
                 variant="primary"
                 size="small"
                 onPress={() => setLoanForm({ mode: 'create' })}
+                disabled={viewOnly}
               />
             }
           />
@@ -131,13 +137,15 @@ export default function LendingScreen() {
               message="Your lending data is still safe. Close and reopen this screen to try again."
               icon={{ ios: 'exclamationmark.triangle', android: 'error', web: 'error' }}
             />
+          ) : active.length === 0 && closed.length === 0 && firstDriveDownload ? (
+            <DriveLoadingState style={styles.empty} />
           ) : active.length === 0 && closed.length === 0 ? (
             <EmptyState
               style={styles.empty}
               title="No loans yet"
               message="Create a loan here, or open any Activity transaction and choose Money Lent."
-              actionLabel="Create a loan"
-              onAction={() => setLoanForm({ mode: 'create' })}
+              actionLabel={viewOnly ? undefined : 'Create a loan'}
+              onAction={viewOnly ? undefined : () => setLoanForm({ mode: 'create' })}
               icon={{ ios: 'person.2', android: 'group', web: 'group' }}
             />
           ) : (
@@ -225,7 +233,12 @@ export default function LendingScreen() {
         onAddPerson={(name) => addPerson(name)}
         onSubmit={(v) => {
           if (loanForm?.mode === 'edit' && loanForm.loanId != null) {
-            updateLoan(loanForm.loanId, v);
+            try {
+              updateLoan(loanForm.loanId, v);
+            } catch (error) {
+              Alert.alert('Can’t change this loan', error instanceof Error ? error.message : String(error));
+              return;
+            }
           } else {
             const id = createLoan(v);
             setOpenLoanId(id); // jump straight into the new loan
@@ -255,6 +268,7 @@ export default function LendingScreen() {
 
       <LoanTxnForm
         visible={addTxnFor != null}
+        loanKind={byId(addTxnFor)?.kind}
         onSubmit={(v) => {
           if (addTxnFor != null) addLoanTransaction({ loanId: addTxnFor, part: v.part, paise: v.paise, isoDate: v.isoDate, remarks: v.remarks });
           setAddTxnFor(null);
@@ -266,6 +280,7 @@ export default function LendingScreen() {
         visible={editTxnId != null && editTxnInitial != null}
         mode="edit"
         initial={editTxnInitial ?? undefined}
+        loanKind={byId(editTxnInitial?.loanId ?? null)?.kind}
         onSubmit={(v) => {
           if (editTxnId != null) {
             updateLoanTransaction(editTxnId, {

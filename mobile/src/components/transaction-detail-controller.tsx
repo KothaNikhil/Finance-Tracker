@@ -18,7 +18,7 @@ import { lendingRowLabel, type LendingLoanRef } from '@/components/lending-row-l
 import { TransactionDetail } from '@/components/transaction-detail';
 import type { MoneyLentSummary } from '@/components/transaction-counting-actions';
 import type { ImportRow, TransactionRow } from '@/core/db/schema';
-import { isTransferRole, LOAN_PARTS, loanPartOf, roleLabel, type LoanPart } from '@/core/lending/roles';
+import { isTransferRole, loanFlowLabel, loanFlowOf, loanPartOf, roleLabel, type LoanPart } from '@/core/lending/roles';
 import { formatINR } from '@/core/domain/money';
 import { firstText } from '@/core/domain/text';
 import { useLoans } from '@/hooks/use-lending';
@@ -117,8 +117,8 @@ export function TransactionDetailController() {
         isTransferRole(txn.transferRole) ? roleLabel(txn.transferRole) : null,
       ) ?? 'Transaction')
     : undefined;
-  const partLabel = (part: LoanPart | null) =>
-    LOAN_PARTS.find((candidate) => candidate.part === part)?.label ?? 'Loan entry';
+  const partLabel = (loanId: number | null | undefined, part: LoanPart | null) =>
+    loanFlowLabel(loanFlowOf(loanById(loanId ?? null)?.kind ?? 'lent', part));
   const uniqueAllocationLoans = new Set(allocations.map((allocation) => allocation.loanId)).size;
   const directPart = loanPartOf(txn?.transferRole);
   const splitExcludedPaise = allocations.reduce((sum, allocation) => {
@@ -131,7 +131,7 @@ export function TransactionDetailController() {
   const moneyLent: MoneyLentSummary | null = loan
     ? {
         label: `One loan · ${directLoanLabel}`,
-        detailLines: [`${partLabel(directPart)} · ${formatINR(txn?.paise ?? 0)}`],
+        detailLines: [`${partLabel(txn?.loanId, directPart)} · ${formatINR(txn?.paise ?? 0)}`],
         excluded: directPart !== 'interest',
         countablePaise: directPart === 'interest' ? (txn?.paise ?? 0) : 0,
       }
@@ -141,7 +141,7 @@ export function TransactionDetailController() {
           detailLines: allocations.map((allocation) => {
             const allocationLoan = loanById(allocation.loanId);
             const name = allocationLoan?.name || allocationLoan?.personName || `Loan #${allocation.loanId}`;
-            return `${name} · ${partLabel(allocation.part)} ${formatINR(allocation.paise)}`;
+            return `${name} · ${partLabel(allocation.loanId, allocation.part ?? directPart)} ${formatINR(allocation.paise)}`;
           }),
           excluded: splitExcludedPaise > 0,
           countablePaise: splitCountablePaise,
@@ -259,7 +259,11 @@ export function TransactionDetailController() {
         currentLoanId={txn?.loanId ?? null}
         currentLoanName={directLoanLabel ?? undefined}
         currentPart={txn ? loanPartOf(txn.transferRole) : null}
-        currentAllocations={allocations}
+        currentLoanKind={loan?.kind ?? null}
+        currentAllocations={allocations.map((allocation) => ({
+          ...allocation,
+          kind: loanById(allocation.loanId)?.kind,
+        }))}
         onAddPerson={(name) => addPerson(name)}
         onCreateLoan={(input) => createLoan(input)}
         onAttach={(loanId, part) => {

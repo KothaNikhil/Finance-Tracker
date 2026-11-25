@@ -185,7 +185,7 @@
                   </div>
                   <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
                   <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
-                  <div class="seg"><span class="seg__item is-selected">Principal</span><span class="seg__item">Repayment</span><span class="seg__item">Interest</span></div>
+                  <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                   <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
                   <div class="llist">
                     <div class="lopt"><span class="t-small">Arjun Mehta · Wedding · lent</span></div>
@@ -201,7 +201,7 @@
             </div>
           </div>
         </div>
-        <p class="frame-caption"><b>One loan · fresh</b>Opened from the transaction sheet’s “Money Lent” chip (the detail sheet hides while this is up, so Activity shows dimmed underneath). Part defaults to Principal; no loan is pre-chosen, so “Add to Money Lent” is disabled.</p>
+        <p class="frame-caption"><b>One loan · fresh</b>Opened from the transaction sheet’s “Money Lent” chip (the detail sheet hides while this is up, so Activity shows dimmed underneath). The choice defaults to Received for a credit (Paid for a debit); no loan is pre-chosen, so “Add to Money Lent” is disabled.</p>
       </section>
 
       <section class="frame">
@@ -263,7 +263,7 @@
                   </div>
                   <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
                   <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
-                  <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                  <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                   <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
                   <div class="llist">
                     <div class="lopt is-sel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="t-small-em tick">✓</span></div>
@@ -279,7 +279,7 @@
             </div>
           </div>
         </div>
-        <p class="frame-caption"><b>One loan · loan chosen</b>Tapping a loan row tints it and shows ✓. Repayment on a lent loan is money in, matching the imported credit, so the button enables.</p>
+        <p class="frame-caption"><b>One loan · loan chosen</b>Tapping a loan row tints it and shows ✓. Received on a lent loan is a credit (money in), matching this transaction, so the button enables.</p>
       </section>
 
       <section class="frame">
@@ -341,8 +341,8 @@
                   </div>
                   <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
                   <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
-                  <div class="seg"><span class="seg__item is-selected">Principal</span><span class="seg__item">Repayment</span><span class="seg__item">Interest</span></div>
-                  <span class="t-small c-spend">This choice moves money out, but the imported transaction is money in. Choose a matching loan part.</span>
+                  <div class="seg"><span class="seg__item is-selected">Paid</span><span class="seg__item">Received</span><span class="seg__item">Interest</span></div>
+                  <span class="t-small c-spend">This is a credit (money in). Choose Received or Interest.</span>
                   <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
                   <div class="llist">
                     <div class="lopt is-sel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="t-small-em tick">✓</span></div>
@@ -358,7 +358,86 @@
             </div>
           </div>
         </div>
-        <p class="frame-caption"><b>One loan · direction mismatch</b>Principal on a lent loan moves money out, but this imported transaction is money in. The red hint appears and the button stays disabled. Manual transactions skip this check.</p>
+        <p class="frame-caption"><b>One loan · credit marked Paid</b>Paid on a lent loan is a debit (money out), but this transaction is a credit (money in). The red hint names the valid choices and the button stays disabled. The check applies to every debit/credit transaction, imported or manual.</p>
+      </section>
+
+      <section class="frame">
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="screen act under">
+            <div class="hgroup">
+              <header class="screen-header">
+                <div class="screen-header__row">
+                  <h1 class="t-subtitle" style="margin:0">Activity</h1>
+                  <button class="icon-btn" aria-label="Export filtered transactions"><span class="ms">ios_share</span></button>
+                </div>
+              </header>
+              <div class="fbar">
+                <div class="fbar__actions">
+                  <div class="field"><div class="field__box search-box"><span class="ms ms-20 muted">search</span><span class="grow placeholder">Search merchant, note, or UPI ID</span></div></div>
+                  <button class="btn btn--sm"><span class="ms">tune</span>Filters · 1</button>
+                </div>
+              </div>
+              <div class="card card--sm">
+                <div class="stat-strip">
+                  <div class="stat-col"><span class="t-caption muted">Spent</span><span class="t-stat c-spend">₹6,84,312.50</span></div>
+                  <div class="stat-divider"></div>
+                  <div class="stat-col"><span class="t-caption muted">Received</span><span class="t-stat c-income">₹9,12,400.00</span></div>
+                </div>
+              </div>
+              <div class="lhead"><span class="t-heading">Transactions</span><span class="t-caption muted">1284 results</span></div>
+            </div>
+            <div class="ph"><span class="t-overline keep-case muted">Nov 2026</span></div>
+            <div class="ph ph--day"><span class="t-caption muted">8 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">P</span></div>
+              <div class="arow__left"><span class="t-label">Priya Nair</span><span class="t-caption muted">Uncategorized · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹10,000.00</span><span class="t-caption muted">7:18 PM</span></div>
+            </div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🛒</span></div>
+              <div class="arow__left"><span class="t-label">Zepto</span><span class="t-caption muted">🛒 Groceries · Quick commerce · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹386.50</span><span class="t-caption muted">9:02 PM</span></div>
+            </div>
+            <div class="ph ph--day"><span class="t-caption muted">7 Nov</span></div>
+            <div class="arow">
+              <div class="arow__glyph g-spend"><span class="t-caption">🍽️</span></div>
+              <div class="arow__left"><span class="t-label">Swiggy</span><span class="t-caption muted">🍽️ Food &amp; Dining · Restaurant · HDFC Bank - 42</span></div>
+              <div class="arow__right"><span class="t-label c-spend">−₹612.00</span><span class="t-caption muted">1:20 PM</span></div>
+            </div>
+          </div>
+          <nav class="tabbar" data-active="activity" data-badge="6"></nav>
+          <div class="overlay">
+            <div class="sheet rn-sheet">
+              <div class="sheet-handle"></div>
+              <div class="rn-safe">
+                <div class="rn-head rn-head--32"><span class="t-small-em">Money Lent</span><span class="t-link rn-close">Close</span></div>
+                <div class="rn-body rn-body--pb3">
+                  <div class="ml-sum">
+                    <span class="ml-badge"><span class="ms">sync_alt</span></span>
+                    <div class="ml-sum__left"><span class="t-label ell">Priya Nair</span><span class="t-caption muted ell">Money out · 2026-11-08</span></div>
+                    <span class="t-label tabular c-spend nowrap">−₹10,000.00</span>
+                  </div>
+                  <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
+                  <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
+                  <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
+                  <span class="t-small c-spend">This is a debit (money out). Choose Paid or Interest.</span>
+                  <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
+                  <div class="llist">
+                    <div class="lopt"><span class="t-small">Arjun Mehta · Wedding · lent</span></div>
+                    <div class="lopt"><span class="t-small">Arjun Mehta · Bike · lent</span></div>
+                    <div class="lopt is-sel"><span class="t-small">Priya Nair · borrowed</span><span class="t-small-em tick">✓</span></div>
+                    <div class="lopt"><span class="t-small">Rahul Verma · Emergency · lent</span></div>
+                    <div class="lopt"><span class="t-small">Sneha Iyer · Rent deposit · lent</span></div>
+                  </div>
+                  <button class="btn btn--sm"><span class="ms">add</span>Create a new loan</button>
+                  <button class="btn btn--primary mt-1" disabled>Add to Money Lent</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-caption"><b>One loan · debit marked Received</b>A debit to Priya Nair (−₹10,000.00) against her borrowed loan. Received would be a credit (money in), so the hint reads “This is a debit (money out). Choose Paid or Interest.” (interest on money you borrowed is paid) and the button stays disabled.</p>
       </section>
 
       <section class="frame">
@@ -420,7 +499,7 @@
                   </div>
                   <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
                   <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
-                  <div class="seg"><span class="seg__item is-selected">Principal</span><span class="seg__item">Repayment</span><span class="seg__item">Interest</span></div>
+                  <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                   <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
                   <div class="llist">
                     <div class="lopt"><span class="t-small">Arjun Mehta · Wedding · lent</span></div>
@@ -447,7 +526,7 @@
             </div>
           </div>
         </div>
-        <p class="frame-caption"><b>One loan · create a new loan inline</b>“Create a new loan” turns primary and opens the subtle card; any chosen list row is cleared. Borrowed principal is money in, so it matches. Enabled once a person is chosen; the loan is created and attached in one step.</p>
+        <p class="frame-caption"><b>One loan · create a new loan inline</b>“Create a new loan” turns primary and opens the subtle card; any chosen list row is cleared. On a borrowed loan, Received is a credit (money in), so it matches. Enabled once a person is chosen; the loan is created and attached in one step.</p>
       </section>
 
       <section class="frame">
@@ -508,7 +587,7 @@
                     <span class="t-label tabular c-income nowrap">+₹50,000.00</span>
                   </div>
                   <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
-                  <div class="seg"><span class="seg__item is-selected">Principal</span><span class="seg__item">Repayment</span><span class="seg__item">Interest</span></div>
+                  <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                   <span class="t-overline muted mt-1">CHOOSE A LOAN</span>
                   <div class="card card--sm"><span class="t-small muted">No active loans. Create one below.</span></div>
                   <button class="btn btn--sm"><span class="ms">add</span>Create a new loan</button>
@@ -583,7 +662,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="grow"></span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel is-error"><span class="t-small muted">Choose an active loan</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="placeholder">0.00</span></div>
                     </div>
@@ -595,14 +674,14 @@
                     <div class="alloc__track"><div class="alloc__fill" style="width:0%"></div></div>
                     <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹50,000.00 left</span></div>
                   </div>
-                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <span class="t-caption muted">A debit can only be Paid and a credit only Received. Interest is received on money you lent and paid on money you borrowed. Paid and Received stay out of spending and income; interest still counts.</span>
                   <button class="btn btn--primary mt-1" disabled>Save split</button>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <p class="frame-caption"><b>Split · default</b>Switching to “Split across loans” starts with one blank slice: part Repayment, no loan (more than one loan is active). Row errors show right away: the selector turns red with “Choose a loan.”. The bar is empty in review colour; Save is disabled.</p>
+        <p class="frame-caption"><b>Split · default</b>Switching to “Split across loans” starts with one blank slice: Received (Paid for a debit), no loan (more than one loan is active). Row errors show right away: the selector turns red with “Choose a loan.”. The bar is empty in review colour; Save is disabled.</p>
       </section>
 
       <section class="frame">
@@ -674,7 +753,7 @@
                       <div class="lopt"><span class="t-small">Rahul Verma · Emergency · lent</span></div>
                       <div class="lopt"><span class="t-small">Sneha Iyer · Rent deposit · lent</span></div>
                     </div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box is-error"><span class="t-small muted lead-r">₹</span><span class="placeholder">0.00</span></div>
                       <span class="field__error">Enter an amount greater than zero.</span>
@@ -686,7 +765,7 @@
                     <div class="alloc__track"><div class="alloc__fill" style="width:0%"></div></div>
                     <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹50,000.00 left</span></div>
                   </div>
-                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <span class="t-caption muted">A debit can only be Paid and a credit only Received. Interest is received on money you lent and paid on money you borrowed. Paid and Received stay out of spending and income; interest still counts.</span>
                   <button class="btn btn--primary mt-1" disabled>Save split</button>
                 </div>
               </div>
@@ -758,7 +837,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">30000</span></div>
                     </div>
@@ -766,7 +845,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 2</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item">Repayment</span><span class="seg__item is-selected">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item">Received</span><span class="seg__item is-selected">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">2000</span></div>
                     </div>
@@ -774,7 +853,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 3</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Rahul Verma · Emergency · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">15000</span></div>
                     </div>
@@ -785,14 +864,14 @@
                     <div class="alloc__track"><div class="alloc__fill is-ok" style="width:94%"></div></div>
                     <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹3,000.00 left</span></div>
                   </div>
-                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <span class="t-caption muted">A debit can only be Paid and a credit only Received. Interest is received on money you lent and paid on money you borrowed. Paid and Received stay out of spending and income; interest still counts.</span>
                   <button class="btn btn--primary mt-1">Save split</button>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <p class="frame-caption"><b>Split · valid (top)</b>The same loan may appear twice (repayment + interest). Each slice header shows the direction it moves. The sheet grows to its 90% cap and the body scrolls.</p>
+        <p class="frame-caption"><b>Split · valid (top)</b>The same loan may appear twice (Received + Interest). Each slice header shows the direction it moves; interest on a lent loan is money in. The sheet grows to its 90% cap and the body scrolls.</p>
       </section>
 
       <section class="frame">
@@ -857,7 +936,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">30000</span></div>
                     </div>
@@ -865,7 +944,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 2</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item">Repayment</span><span class="seg__item is-selected">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item">Received</span><span class="seg__item is-selected">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">2000</span></div>
                     </div>
@@ -873,7 +952,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 3</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Rahul Verma · Emergency · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">15000</span></div>
                     </div>
@@ -884,7 +963,7 @@
                     <div class="alloc__track"><div class="alloc__fill is-ok" style="width:94%"></div></div>
                     <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹3,000.00 left</span></div>
                   </div>
-                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <span class="t-caption muted">A debit can only be Paid and a credit only Received. Interest is received on money you lent and paid on money you borrowed. Paid and Received stay out of spending and income; interest still counts.</span>
                   <button class="btn btn--primary mt-1">Save split</button>
                 </div>
               </div>
@@ -956,7 +1035,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">40000</span></div>
                     </div>
@@ -964,15 +1043,16 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 2</span><span class="t-caption muted grow">· Money out</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Priya Nair · borrowed</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item is-selected">Paid</span><span class="seg__item">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">15000</span></div>
                     </div>
+                    <span class="t-small c-spend">This is a credit (money in). Choose Received.</span>
                   </div>
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 3</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Rahul Verma · Emergency · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box is-error"><span class="t-small muted lead-r">₹</span><span class="placeholder">0.00</span></div>
                       <span class="field__error">Enter an amount greater than zero.</span>
@@ -985,16 +1065,15 @@
                     <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹0.00 left</span></div>
                   </div>
                   <span class="t-small c-spend">All slices must move money in the same direction.</span>
-                  <span class="t-small c-spend">Slices must be money in to match this transaction.</span>
                   <span class="t-small c-spend">Allocated total cannot exceed the source transaction.</span>
-                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <span class="t-caption muted">A debit can only be Paid and a credit only Received. Interest is received on money you lent and paid on money you borrowed. Paid and Received stay out of spending and income; interest still counts.</span>
                   <button class="btn btn--primary mt-1" disabled>Save split</button>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <p class="frame-caption"><b>Split · errors</b>Repaying a borrowed loan is money out, so it conflicts with the other slices and with the source. The total (₹55,000.00) is over the amount: the card turns danger, the fill goes red at 100%, and every global error is listed in order.</p>
+        <p class="frame-caption"><b>Split · errors</b>Paid on a borrowed loan is a debit (money out), so it conflicts with the other slices and with this credit; the slice says “This is a credit (money in). Choose Received.”. The total (₹55,000.00) is over the amount: the card turns danger, the fill goes red at 100%, and every global error is listed in order.</p>
       </section>
 
       <section class="frame">
@@ -1064,7 +1143,7 @@
                     <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹50,000.00 left</span></div>
                   </div>
                   <span class="t-small c-spend">Add at least one slice.</span>
-                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <span class="t-caption muted">A debit can only be Paid and a credit only Received. Interest is received on money you lent and paid on money you borrowed. Paid and Received stay out of spending and income; interest still counts.</span>
                   <button class="btn btn--primary mt-1" disabled>Save split</button>
                 </div>
               </div>
@@ -1133,7 +1212,7 @@
                   </div>
                   <div class="seg"><span class="seg__item is-selected">One loan</span><span class="seg__item">Split across loans</span></div>
                   <span class="t-overline muted mt-1">THIS TRANSACTION IS</span>
-                  <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                  <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                   <div class="cur-loan"><span class="t-caption muted">CURRENT LOAN</span><span class="t-small-em ell">Arjun Mehta · Wedding</span></div>
                   <button class="btn btn--primary mt-1">Update Money Lent</button>
                   <span class="ml-remove t-small-em">Remove from Money Lent</span>
@@ -1142,7 +1221,7 @@
             </div>
           </div>
         </div>
-        <p class="frame-caption"><b>Already attached to one loan</b>Re-opened on a linked transaction: the current loan replaces the list. “Update Money Lent” saves a new part; “Remove from Money Lent” unlinks it. The toggle can still convert it into a split.</p>
+        <p class="frame-caption"><b>Already attached to one loan</b>Re-opened on a linked transaction: the current loan replaces the list. “Update Money Lent” saves a new Paid / Received / Interest choice; “Remove from Money Lent” unlinks it. The toggle can still convert it into a split.</p>
       </section>
 
       <section class="frame">
@@ -1207,7 +1286,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 1</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Arjun Mehta · Wedding · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">30000</span></div>
                     </div>
@@ -1215,7 +1294,7 @@
                   <div class="card card--sm slice">
                     <div class="slice__head"><span class="t-overline muted">SLICE 2</span><span class="t-caption muted grow">· Money in</span><span class="t-small-em slice__remove">Remove</span></div>
                     <div class="lsel"><span class="t-small">Rahul Verma · Emergency · lent</span><span class="ms">expand_more</span></div>
-                    <div class="seg"><span class="seg__item">Principal</span><span class="seg__item is-selected">Repayment</span><span class="seg__item">Interest</span></div>
+                    <div class="seg"><span class="seg__item">Paid</span><span class="seg__item is-selected">Received</span><span class="seg__item">Interest</span></div>
                     <div class="field">
                       <div class="field__box"><span class="t-small muted lead-r">₹</span><span class="val tabular">20000</span></div>
                     </div>
@@ -1226,7 +1305,7 @@
                     <div class="alloc__track"><div class="alloc__fill is-ok" style="width:100%"></div></div>
                     <div class="alloc__line"><span class="t-caption muted">Partial allocation is allowed</span><span class="t-caption muted tabular">₹0.00 left</span></div>
                   </div>
-                  <span class="t-caption muted">All slices must move one way. Imported transactions keep their original cash direction. Principal and repayments stay excluded from spending and income; interest remains countable.</span>
+                  <span class="t-caption muted">A debit can only be Paid and a credit only Received. Interest is received on money you lent and paid on money you borrowed. Paid and Received stay out of spending and income; interest still counts.</span>
                   <button class="btn btn--primary mt-1">Save split</button>
                   <span class="ml-remove t-small-em">Remove from Money Lent</span>
                 </div>
