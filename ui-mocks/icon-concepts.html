@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App Icon Concepts</title>
+<style>
+  :root { --bg:#f5f7f6; --card:#fff; --text:#0f1a18; --muted:#5b6b67; --border:#dde5e2; --home:#e9efed; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0c1211; --card:#141c1b; --text:#e6efec; --muted:#93a5a0; --border:#24302e; --home:#1b2523; } }
+  :root[data-theme="dark"] { --bg:#0c1211; --card:#141c1b; --text:#e6efec; --muted:#93a5a0; --border:#24302e; --home:#1b2523; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding:24px 16px 48px; }
+  h1 { font-size:22px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 24px; max-width:760px; }
+  .grid { display:grid; gap:20px; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); max-width:1200px; }
+  .concept { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; }
+  .concept h2 { font-size:17px; font-weight:600; margin:0; }
+  .concept .tag { color:var(--muted); font-size:13px; margin:2px 0 16px; }
+  .hero { display:flex; justify-content:center; padding:8px 0 18px; }
+  .hero svg { width:200px; height:200px; border-radius:22.4%; box-shadow:0 10px 30px rgba(6,40,36,.25); }
+  .sizes { display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; padding:14px; background:var(--home); border-radius:12px; }
+  .sizes figure { margin:0; text-align:center; font-size:11px; color:var(--muted); }
+  .sizes svg { display:block; margin:0 auto 4px; }
+  .sq { border-radius:22.4%; } .circ { border-radius:50%; }
+  .why { margin:16px 0 0; padding-left:18px; color:var(--muted); font-size:13px; }
+  .why li { margin:3px 0; }
+  .tab { display:flex; align-items:center; gap:8px; margin-top:14px; background:var(--home); border-radius:10px 10px 0 0; padding:8px 12px; width:max-content; max-width:100%; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>Finance Tracker — app icon concepts</h1>
+<p class="sub">Each concept is one mark used everywhere: the iOS/Android app icon, the Android adaptive (circle) icon, the web favicon and the PWA icon. All of them use the app's teal accent and the mint "income" colour.</p>
+
+<!-- Shared defs -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="bgTeal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16A08C"/>
+      <stop offset="1" stop-color="#0A564F"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.22" r="0.8">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- A: Spend Ring -->
+    <symbol id="A" viewBox="0 0 1024 1024">
+      <rect width="1024" height="1024" fill="url(#bgTeal)"/>
+      <rect width="1024" height="1024" fill="url(#glow)"/>
+      <g transform="rotate(-90 512 512)" fill="none" stroke-width="104">
+        <!-- circumference 2π·250 ≈ 1571 ; gaps of 34 -->
+        <circle cx="512" cy="512" r="250" stroke="#ffffff" stroke-dasharray="820 751"/>
+        <circle cx="512" cy="512" r="250" stroke="#7FE3B4" stroke-dasharray="420 1151" stroke-dashoffset="-854"/>
+        <circle cx="512" cy="512" r="250" stroke="#ffffff" stroke-opacity=".38" stroke-dasharray="229 1342" stroke-dashoffset="-1308"/>
+      </g>
+      <g fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M446 418 H578"/>
+        <path d="M446 466 H578"/>
+        <path d="M486 418 Q548 418 548 466 Q548 514 486 514 H452 L560 618"/>
+      </g>
+    </symbol>
+
+    <!-- B: Rupee Rising -->
+    <symbol id="B" viewBox="0 0 1024 1024">
+      <rect width="1024" height="1024" fill="url(#bgTeal)"/>
+      <rect width="1024" height="1024" fill="url(#glow)"/>
+      <g transform="translate(-14 0)" fill="none" stroke-width="68" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M300 390 H592" stroke="#ffffff"/>
+        <path d="M300 492 H632" stroke="#ffffff"/>
+        <path d="M410 390 C560 390 624 430 624 492 C624 556 560 594 470 594 H330 L600 806" stroke="#ffffff"/>
+        <path d="M592 390 L742 240" stroke="#7FE3B4"/>
+        <path d="M640 240 H742 V342" stroke="#7FE3B4"/>
+      </g>
+    </symbol>
+
+    <!-- C: Ledger Stack -->
+    <symbol id="C" viewBox="0 0 1024 1024">
+      <rect width="1024" height="1024" fill="url(#bgTeal)"/>
+      <rect width="1024" height="1024" fill="url(#glow)"/>
+      <rect x="322" y="254" width="380" height="300" rx="44" fill="#ffffff" fill-opacity=".22"/>
+      <rect x="282" y="314" width="460" height="330" rx="50" fill="#ffffff" fill-opacity=".42"/>
+      <rect x="242" y="384" width="540" height="390" rx="58" fill="#ffffff"/>
+      <g fill="#0F766E">
+        <rect x="312" y="604" width="64" height="104" rx="18"/>
+        <rect x="402" y="544" width="64" height="164" rx="18"/>
+        <rect x="492" y="474" width="64" height="234" rx="18" fill="#2FB989"/>
+      </g>
+      <circle cx="660" cy="500" r="66" fill="#7FE3B4"/>
+      <g fill="none" stroke="#0A564F" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M636 470 H684"/>
+        <path d="M636 494 H684"/>
+        <path d="M652 470 Q676 470 676 494 Q676 518 652 518 H638 L680 548"/>
+      </g>
+    </symbol>
+    <!-- D: Hybrid — spend ring + rising rupee breaking out through a gap -->
+    <symbol id="D" viewBox="0 0 1024 1024">
+      <rect width="1024" height="1024" fill="url(#bgTeal)"/>
+      <rect width="1024" height="1024" fill="url(#glow)"/>
+      <!-- C = 2π·262 ≈ 1646 ; 1° ≈ 4.573 ; gap 15°–60° for the arrow -->
+      <g transform="rotate(-90 512 512)" fill="none" stroke-width="92">
+        <circle cx="512" cy="512" r="262" stroke="#ffffff" stroke-dasharray="823 823" stroke-dashoffset="-274"/>
+        <circle cx="512" cy="512" r="262" stroke="#7FE3B4" stroke-dasharray="398 1248" stroke-dashoffset="-1134"/>
+        <circle cx="512" cy="512" r="262" stroke="#ffffff" stroke-opacity=".38" stroke-dasharray="146 1500" stroke-dashoffset="-1569"/>
+      </g>
+      <g transform="translate(512 522) scale(0.84) translate(-495 -525)" fill="none" stroke-width="46" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M410 380 H580" stroke="#ffffff"/>
+        <path d="M410 460 H580" stroke="#ffffff"/>
+        <path d="M455 380 Q565 380 565 460 Q565 540 455 540 H415 L560 670" stroke="#ffffff"/>
+        <path d="M580 380 L708 252" stroke="#7FE3B4"/>
+        <path d="M624 252 H708 V336" stroke="#7FE3B4"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="grid" id="grid"></div>
+
+<template id="tpl">
+  <section class="concept">
+    <h2></h2>
+    <p class="tag"></p>
+    <div class="hero"><svg viewBox="0 0 1024 1024"><use/></svg></div>
+    <div class="sizes">
+      <figure><svg class="sq" width="76" height="76"><use/></svg>iOS 76</figure>
+      <figure><svg class="circ" width="64" height="64"><use/></svg>Android</figure>
+      <figure><svg class="sq" width="48" height="48"><use/></svg>48</figure>
+      <figure><svg class="sq" width="32" height="32" style="border-radius:6px"><use/></svg>32</figure>
+      <figure><svg width="16" height="16" style="border-radius:3px"><use/></svg>16</figure>
+    </div>
+    <div class="tab"><svg width="16" height="16" style="border-radius:3px"><use/></svg>Finance Tracker</div>
+    <ul class="why"></ul>
+  </section>
+</template>
+
+<script>
+const concepts = [
+  { id:'D', name:'D · Spend Ring + Rising ₹ (hybrid)', tag:'The category ring from A, with B\'s rising ₹ inside. Its arrow breaks out through a gap in the ring.',
+    why:['Ring = where the money went; arrow = your money moving up','The arrow breaking through the ring makes the mark distinctive','Mint is used for both the income slice and the arrow, so the colours read as one story'] },
+  { id:'A', name:'A · Spend Ring', tag:'A category donut chart with the ₹ symbol in the middle.',
+    why:['Shows the app\'s main view: where your money went, by category','The ring is easy to recognise, even as a 16px favicon','Mint slice = income colour; faded slice = "other"'] },
+  { id:'B', name:'B · Rupee Rising', tag:'The top stroke of the ₹ turns into an upward trend arrow.',
+    why:['The most distinctive of the three: a single bold glyph','Reads as "rupee + growth" at a glance','Has the strongest silhouette for the Android monochrome icon'] },
+  { id:'C', name:'C · Ledger Stack', tag:'Stacked statements with a bar chart and a ₹ coin.',
+    why:['Tells the import story: bank and card statements, combined','Friendly, illustrative style','Most detail, so it gets busier below 32px'] },
+];
+const grid = document.getElementById('grid'), tpl = document.getElementById('tpl');
+for (const c of concepts) {
+  const n = tpl.content.cloneNode(true);
+  n.querySelector('h2').textContent = c.name;
+  n.querySelector('.tag').textContent = c.tag;
+  n.querySelectorAll('use').forEach(u => u.setAttribute('href', '#' + c.id));
+  n.querySelectorAll('svg:not([viewBox])').forEach(s => s.setAttribute('viewBox','0 0 1024 1024'));
+  const ul = n.querySelector('.why'); c.why.forEach(w => { const li = document.createElement('li'); li.textContent = w; ul.appendChild(li); });
+  grid.appendChild(n);
+}
+</script>
+</body>
+</html>

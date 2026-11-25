@@ -839,7 +839,7 @@ function App() {
 function Brand({ className = '' }: { className?: string }) {
   return (
     <div className={`w-brand ${className}`.trim()} style={{ padding: 0 }}>
-      <span className="w-brand__mark"><Icon name="account_balance_wallet" /></span>
+      <span className="w-brand__mark w-brand__mark--logo"><img src="/favicon.svg" alt="" /></span>
       <span className="t-heading">Finance Tracker</span>
     </div>
   );
@@ -1154,7 +1154,7 @@ function AppShell({
     <TopActionsContext.Provider value={topActions}>
       <div className="w-app" inert={databaseReplacementInProgress} aria-busy={databaseReplacementInProgress}>
         <aside className="w-side">
-          <div className="w-brand"><span className="w-brand__mark"><Icon name="account_balance_wallet" /></span><span className="w-brand__name t-heading">Finance Tracker</span></div>
+          <div className="w-brand"><span className="w-brand__mark w-brand__mark--logo"><img src="/favicon.svg" alt="" /></span><span className="w-brand__name t-heading">Finance Tracker</span></div>
           <nav className="w-nav" aria-label="Main">
             {NAV_ITEMS.map((item) => (
               <NavLink key={item.to} to={item.to} end={item.end} title={item.label} aria-label={item.label} className={({ isActive }) => `w-nav__item${isActive || (item.to === '/transactions' && location.pathname === '/activity') ? ' is-active' : ''}`}>

@@ -138,7 +138,7 @@
         (n.count ? '<span class="pill-count w-nav__count" title="' + n.count + ' need review">' + n.count + '</span>' : '') + '</a>';
     }).join('');
     side.innerHTML =
-      '<div class="w-brand"><span class="w-brand__mark"><span class="ms">account_balance_wallet</span></span>' +
+      '<div class="w-brand"><span class="w-brand__mark w-brand__mark--logo"><img src="../assets/img/brand-mark.png" alt="" /></span>' +
       '<span class="w-brand__name t-heading">Finance Tracker</span></div>' +
       '<nav class="w-nav" aria-label="Main">' + nav + '</nav>' +
       '<div class="w-side__spacer"></div>' +

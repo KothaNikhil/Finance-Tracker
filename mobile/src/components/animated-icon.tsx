@@ -63,10 +63,9 @@ export function AnimatedSplashOverlay() {
 /** Reusable static brand mark for authentication and lock screens. */
 export function AnimatedIcon() {
   const scheme = useColorScheme();
-  const theme = useTheme();
 
   return (
-    <View style={[styles.iconContainer, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+    <View style={styles.iconContainer}>
       <Image
         style={styles.iconMark}
         contentFit="contain"
@@ -81,15 +80,9 @@ export function AnimatedIcon() {
 }
 
 const styles = StyleSheet.create({
-  iconContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 112,
-    height: 112,
-    borderRadius: 28,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  iconMark: { width: 88, height: 88 },
+  // The mark is its own rounded teal tile, so no extra container chrome.
+  iconContainer: { justifyContent: 'center', alignItems: 'center', width: 112, height: 112 },
+  iconMark: { width: 112, height: 112 },
   splashMark: { width: 128, height: 128 },
   splashOverlay: {
     ...StyleSheet.absoluteFill,
