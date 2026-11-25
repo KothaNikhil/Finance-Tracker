@@ -12,7 +12,7 @@
 
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AttachExistingSheet } from '@/components/attach-existing-sheet';
@@ -36,6 +36,7 @@ import { useLoans, type LoanView, type PersonGroup } from '@/hooks/use-lending';
 import { useLists } from '@/hooks/use-reference-data';
 import { useTheme } from '@/hooks/use-theme';
 import { useTransactionDetail } from '@/hooks/use-transaction-detail';
+import { useViewOnly } from '@/services/drive/edit-session';
 import {
   addLoanTransaction,
   addPerson,
@@ -55,6 +56,8 @@ export default function LendingScreen() {
   const { people: peopleList } = useLists();
   // Tapping a transaction inside a loan opens the app-wide detail sheet (mounted at the root).
   const { openTxn, openId } = useTransactionDetail();
+  // View only: loans stay browsable, but creating one (or any loan write) is disabled.
+  const viewOnly = useViewOnly();
 
   const [mode, setMode] = useState<'people' | 'loans'>('people');
   const [showClosed, setShowClosed] = useState(false);
@@ -101,6 +104,7 @@ export default function LendingScreen() {
                 variant="primary"
                 size="small"
                 onPress={() => setLoanForm({ mode: 'create' })}
+                disabled={viewOnly}
               />
             }
           />
@@ -136,8 +140,8 @@ export default function LendingScreen() {
               style={styles.empty}
               title="No loans yet"
               message="Create a loan here, or open any Activity transaction and choose Money Lent."
-              actionLabel="Create a loan"
-              onAction={() => setLoanForm({ mode: 'create' })}
+              actionLabel={viewOnly ? undefined : 'Create a loan'}
+              onAction={viewOnly ? undefined : () => setLoanForm({ mode: 'create' })}
               icon={{ ios: 'person.2', android: 'group', web: 'group' }}
             />
           ) : (
@@ -225,7 +229,12 @@ export default function LendingScreen() {
         onAddPerson={(name) => addPerson(name)}
         onSubmit={(v) => {
           if (loanForm?.mode === 'edit' && loanForm.loanId != null) {
-            updateLoan(loanForm.loanId, v);
+            try {
+              updateLoan(loanForm.loanId, v);
+            } catch (error) {
+              Alert.alert('Can’t change this loan', error instanceof Error ? error.message : String(error));
+              return;
+            }
           } else {
             const id = createLoan(v);
             setOpenLoanId(id); // jump straight into the new loan

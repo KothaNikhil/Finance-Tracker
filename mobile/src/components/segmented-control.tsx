@@ -18,11 +18,13 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   accessibilityLabel,
+  disabled = false,
 }: {
   options: SegmentOption<T>[];
   value: T;
   onChange: (value: T) => void;
   accessibilityLabel?: string;
+  disabled?: boolean;
 }) {
   const theme = useTheme();
   return (
@@ -37,14 +39,15 @@ export function SegmentedControl<T extends string>({
           <Pressable
             key={opt.value}
             onPress={() => onChange(opt.value)}
+            disabled={disabled}
             accessibilityRole="tab"
             accessibilityLabel={opt.label}
-            accessibilityState={{ selected }}
+            accessibilityState={disabled ? { selected, disabled } : { selected }}
             hitSlop={SEGMENT_HIT_SLOP}
             style={({ pressed }) => [
               styles.segment,
               selected && { backgroundColor: theme.accent },
-              { opacity: pressed && !selected ? Opacity.pressed : 1 },
+              { opacity: disabled ? Opacity.disabled : pressed && !selected ? Opacity.pressed : 1 },
             ]}
           >
             <ThemedText type="smallEmphasis" style={{ color: selected ? theme.onAccent : theme.textSecondary }}>

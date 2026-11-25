@@ -13,10 +13,12 @@ import { Chip } from '@/components/chip';
 import { DateField, todayIso } from '@/components/date-field';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Spacing } from '@/constants/theme';
 import { decimalStringToPaise, paiseToRupees } from '@/core/domain/money';
 import { LOAN_FLOWS, loanFlowOf, loanPartForFlow, type LoanFlow, type LoanKind, type LoanPart } from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 export interface LoanTxnFormValues {
   part: LoanPart;
@@ -48,6 +50,7 @@ export function LoanTxnForm({
   onClose,
 }: LoanTxnFormProps) {
   const theme = useTheme();
+  const viewOnly = useViewOnly();
   const editing = mode === 'edit';
   const [amount, setAmount] = useState(() => (initial ? paiseToRupees(initial.paise).toFixed(2) : ''));
   const [flow, setFlow] = useState<LoanFlow | null>(loanFlowOf(loanKind, initial?.part));
@@ -142,6 +145,7 @@ export function LoanTxnForm({
             label={editing ? 'Save changes' : 'Add entry'}
             variant="primary"
             onPress={submit}
+            disabled={viewOnly}
             style={styles.saveBtn}
           />
           {editing && onDelete ? (
@@ -150,10 +154,12 @@ export function LoanTxnForm({
               icon={{ ios: 'trash', android: 'delete', web: 'delete' }}
               variant="danger"
               onPress={confirmDelete}
+              disabled={viewOnly}
               accessibilityHint="Opens a confirmation before removing this entry"
               style={styles.deleteBtn}
             />
           ) : null}
+          {viewOnly ? <ViewOnlyHint /> : null}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>

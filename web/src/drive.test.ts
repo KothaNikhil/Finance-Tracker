@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DriveAccessMissingError, DriveReconnectRequiredError, GoogleDriveSyncPort } from './drive';
+import { RevisionConflictError } from '@finance-tracker/core/sync/engine';
 
 function jsonResponse(data: unknown, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(data), {
@@ -95,8 +96,9 @@ describe('GoogleDriveSyncPort', () => {
       .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'folder', name: 'Finance Tracker' }] }))
       .mockResolvedValueOnce(jsonResponse({
         files: [
-          { id: 'older', name: 'finance-live.db', modifiedTime: '2026-03-01T09:00:00Z' },
-          { id: 'canonical', name: 'finance-live.db', modifiedTime: '2026-03-01T10:00:00Z' },
+          // The oldest file is canonical, so a device that raced to create a second one loses.
+          { id: 'older', name: 'finance-live.db', createdTime: '2026-03-01T10:00:00Z' },
+          { id: 'canonical', name: 'finance-live.db', createdTime: '2026-03-01T09:00:00Z' },
         ],
       }))
       .mockResolvedValueOnce(new Response(Uint8Array.from([1, 2, 3])))
@@ -122,5 +124,40 @@ describe('GoogleDriveSyncPort', () => {
     expect(calls[3][1]?.method).toBe('POST');
     expect(String(calls[4][0])).toContain('/older');
     expect(calls[4][1]?.method).toBe('DELETE');
+  });
+
+  it('reads the edit lock with its ETag', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const lock = {
+      deviceId: 'phone-1',
+      deviceLabel: 'your phone',
+      platform: 'phone',
+      acquiredAt: '2026-11-24T10:32:00.000Z',
+      refreshedAt: '2026-11-24T10:32:00.000Z',
+      expiresAt: '2026-11-24T10:35:00.000Z',
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'folder', name: 'Finance Tracker' }] }))
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'lock', name: 'finance-session.json' }] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock' }, { ETag: '"lock-1"' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(lock)));
+
+    await expect(new GoogleDriveSyncPort('drive-token').readLock()).resolves.toEqual({
+      id: 'lock',
+      etag: '"lock-1"',
+      lock,
+    });
+  });
+
+  it('writes the edit lock with If-Match and maps 412 to a revision conflict', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(new Response('precondition', { status: 412 }));
+
+    await expect(
+      new GoogleDriveSyncPort('drive-token').writeLock({ id: 'lock', etag: '"lock-1"', lock: null }, null),
+    ).rejects.toBeInstanceOf(RevisionConflictError);
+    const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers['If-Match']).toBe('"lock-1"');
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('PATCH');
   });
 });

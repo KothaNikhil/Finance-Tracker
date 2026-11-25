@@ -22,6 +22,14 @@ import {
   type LiveDatabaseFile,
   type SnapshotFile,
 } from '@/core/sync/engine';
+import {
+  LOCK_FILE_NAME,
+  lockJson,
+  parseLockJson,
+  type EditLock,
+  type EditLockPort,
+  type LockFile,
+} from '@/core/sync/lock';
 
 const LIVE_FILE_NAME = 'finance-live.db';
 const SNAPSHOT_PREFIX = 'Finance-Tracker-backup-';
@@ -29,6 +37,7 @@ const SQLITE_MIME = 'application/x-sqlite3';
 
 interface DriveMetadata extends DriveFile {
   headRevisionId?: string;
+  createdTime?: string;
 }
 
 export class DriveReconnectRequiredError extends Error {
@@ -38,7 +47,7 @@ export class DriveReconnectRequiredError extends Error {
   }
 }
 
-export class GoogleDriveSyncPort implements DriveSyncPort {
+export class GoogleDriveSyncPort implements DriveSyncPort, EditLockPort {
   private folderId: string | null = null;
 
   constructor(private readonly token: string) {}
@@ -88,7 +97,7 @@ export class GoogleDriveSyncPort implements DriveSyncPort {
       buildListUrl(query, {
         orderBy: 'modifiedTime desc',
         pageSize: 100,
-        fields: 'files(id,name,modifiedTime,headRevisionId)',
+        fields: 'files(id,name,createdTime,modifiedTime,headRevisionId)',
       }),
     );
     const files = (result.value as { files?: DriveMetadata[] }).files ?? [];
@@ -130,9 +139,11 @@ export class GoogleDriveSyncPort implements DriveSyncPort {
     );
     if (matches.length === 0) return null;
 
+    // Two devices can create the live file at the same moment. The FIRST one created stays canonical,
+    // so the earlier creator keeps its file and the later one gets a RevisionConflictError.
     const ordered = [...matches].sort((a, b) => {
-      const dateDifference = Date.parse(b.modifiedTime ?? '') - Date.parse(a.modifiedTime ?? '');
-      return dateDifference || a.id.localeCompare(b.id);
+      const created = Date.parse(a.createdTime ?? a.modifiedTime ?? '') - Date.parse(b.createdTime ?? b.modifiedTime ?? '');
+      return created || a.id.localeCompare(b.id);
     });
     const canonical = ordered[0];
     for (const duplicate of ordered.slice(1)) {
@@ -246,4 +257,69 @@ export class GoogleDriveSyncPort implements DriveSyncPort {
     }
   }
 
+  /** The lock file's id and current ETag. Duplicates resolve to the oldest, like the live file. */
+  private async findLockFile(): Promise<{ id: string; etag: string } | null> {
+    const folderId = await this.ensureFolder();
+    const files = await this.listFiles(
+      `'${folderId}' in parents and name='${LOCK_FILE_NAME}' and trashed=false`,
+    );
+    if (!files[0]) return null;
+    const ordered = [...files].sort(
+      (a, b) =>
+        Date.parse(a.createdTime ?? a.modifiedTime ?? '') - Date.parse(b.createdTime ?? b.modifiedTime ?? '') ||
+        a.id.localeCompare(b.id),
+    );
+    await Promise.all(ordered.slice(1).map((duplicate) => this.deleteFile(duplicate.id)));
+    const metadata = await this.request<unknown>(
+      `${DRIVE_FILES_URL}/${encodeURIComponent(ordered[0].id)}?fields=id`,
+    );
+    if (!metadata.etag) throw new Error('Drive returned the edit lock without an ETag.');
+    return { id: ordered[0].id, etag: metadata.etag };
+  }
+
+  async readLock(): Promise<LockFile | null> {
+    const found = await this.findLockFile();
+    if (!found) return null;
+    const response = await fetch(mediaDownloadUrl(found.id), {
+      headers: { Authorization: `Bearer ${this.token}` },
+    });
+    if (response.status === 401) throw new DriveReconnectRequiredError();
+    if (!response.ok) throw new Error(`Could not read the edit lock (${response.status}).`);
+    return { ...found, lock: parseLockJson(await response.text()) };
+  }
+
+  async createLock(lock: EditLock): Promise<LockFile> {
+    const folderId = await this.ensureFolder();
+    const created = await this.request<unknown>(multipartUploadUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': multipartRelatedContentType() },
+      body: buildMultipartRelatedBody(
+        { ...createFileMetaBody(LOCK_FILE_NAME, folderId), mimeType: 'application/json' },
+        bytesToBase64(new TextEncoder().encode(lockJson(lock))),
+        'application/json',
+      ),
+    });
+    const createdId = parseFileId(created.value);
+    if (!createdId) throw new Error('Google Drive did not return the edit lock id.');
+    // Another device may have created one at the same moment; the oldest wins and the rest are deleted.
+    const canonical = await this.findLockFile();
+    if (!canonical || canonical.id !== createdId) throw new RevisionConflictError();
+    return { ...canonical, lock };
+  }
+
+  async writeLock(file: LockFile, lock: EditLock | null): Promise<LockFile> {
+    const written = await this.request<unknown>(
+      `${DRIVE_UPLOAD_URL}/${encodeURIComponent(file.id)}?uploadType=media&fields=id`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'If-Match': file.etag },
+        body: lockJson(lock),
+      },
+    );
+    const etag =
+      written.etag ??
+      (await this.request<unknown>(`${DRIVE_FILES_URL}/${encodeURIComponent(file.id)}?fields=id`)).etag;
+    if (!etag) throw new Error('Drive returned the edit lock without an ETag.');
+    return { id: file.id, etag, lock };
+  }
 }

@@ -11,6 +11,7 @@ const mockGetDb = jest.fn();
 const mockGetSqlite = jest.fn();
 
 jest.mock('@/core/db/runtime', () => ({
+  assertWritable: () => undefined,
   getDb: () => mockGetDb(),
   getMeta: () => null,
   setMeta: (...args: unknown[]) => mockGetSqlite().runSync(...args),
@@ -26,11 +27,13 @@ function databaseFor(options: { gets?: unknown[]; alls?: unknown[][] } = {}) {
 
   const selectChain = {
     from: jest.fn(),
+    innerJoin: jest.fn(),
     where: jest.fn(),
     get: jest.fn(() => gets.shift()),
     all: jest.fn(() => alls.shift() ?? []),
   };
   selectChain.from.mockReturnValue(selectChain);
+  selectChain.innerJoin.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);
 
   const updatePatches: Record<string, unknown>[] = [];
@@ -60,13 +63,13 @@ beforeEach(() => {
 });
 
 describe('updateLoan keeps attached transactions consistent', () => {
-  it('re-derives roles when the direction flips, and follows direction only on hand-entered rows', () => {
+  it('re-derives roles and direction on hand-entered rows when the direction flips', () => {
     const { updatePatches } = databaseFor({
-      gets: [{ kind: 'lent', personId: 7 }],
+      // The loan, then "no imported entry" for the direct and the sliced checks.
+      gets: [{ kind: 'lent', personId: 7 }, undefined, undefined],
       alls: [
         [
           { id: 1, transferRole: 'lent', source: 'manual' },
-          { id: 2, transferRole: 'repaid_to_me', source: 'axis' },
           { id: 3, transferRole: 'interest_received', source: 'manual' },
         ],
         [],
@@ -75,17 +78,32 @@ describe('updateLoan keeps attached transactions consistent', () => {
 
     updateLoan(4, { kind: 'borrowed' });
 
-    const [loanPatch, manualPrincipal, imported, manualInterest] = updatePatches;
+    const [loanPatch, manualPrincipal, manualInterest] = updatePatches;
     expect(loanPatch.kind).toBe('borrowed');
 
     expect(manualPrincipal.transferRole).toBe('borrowed');
     expect(manualPrincipal.direction).toBe('in');
 
-    expect(imported.transferRole).toBe('repaid_by_me');
-    expect(imported).not.toHaveProperty('direction');
-
     expect(manualInterest.transferRole).toBe('interest_paid');
     expect(manualInterest.direction).toBe('out');
+  });
+
+  it('refuses to flip the direction while a bank entry is attached', () => {
+    const { updatePatches } = databaseFor({
+      gets: [{ kind: 'lent', personId: 7 }, { id: 2 }],
+    });
+
+    expect(() => updateLoan(4, { kind: 'borrowed' })).toThrow(/bank entries attached/);
+    expect(updatePatches).toHaveLength(0);
+  });
+
+  it('refuses to flip the direction while part of a bank entry is attached', () => {
+    const { updatePatches } = databaseFor({
+      gets: [{ kind: 'lent', personId: 7 }, undefined, { id: 2 }],
+    });
+
+    expect(() => updateLoan(4, { kind: 'borrowed' })).toThrow(/bank entries attached/);
+    expect(updatePatches).toHaveLength(0);
   });
 
   it('moves attached transactions to the new person', () => {

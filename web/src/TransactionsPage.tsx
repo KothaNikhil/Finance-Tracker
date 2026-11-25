@@ -45,6 +45,7 @@ import { monthKeyOf, type TxnFilter } from '@finance-tracker/core/analytics/filt
 import { getDb } from '@finance-tracker/core/db/runtime';
 import { inr, useDatabaseRevision } from './feature-utils';
 import { downloadExport } from './export-workbook';
+import { useReadOnly, VIEW_ONLY_HINT } from './edit-session';
 import { DetailPanel, Icon, MONTHS_LONG, MONTHS_SHORT, TopActions, formatInr, longDate, shortDate } from './shell';
 import './TransactionsPage.css';
 
@@ -143,17 +144,19 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /** `.cb` drawn as an accessible checkbox. */
-function Check({ on, mixed = false, label, onToggle }: { on: boolean; mixed?: boolean; label: string; onToggle: () => void }) {
+function Check({ on, mixed = false, label, disabled = false, onToggle }: { on: boolean; mixed?: boolean; label: string; disabled?: boolean; onToggle: () => void }) {
   return (
     <span
-      className={`cb${on ? ' is-on' : ''}${mixed && !on ? ' is-mixed' : ''}`}
+      className={`cb${on ? ' is-on' : ''}${mixed && !on ? ' is-mixed' : ''}${disabled ? ' is-disabled' : ''}`}
       role="checkbox"
       aria-checked={mixed && !on ? 'mixed' : on}
       aria-label={label}
-      tabIndex={0}
-      onClick={(event) => { event.stopPropagation(); onToggle(); }}
+      aria-disabled={disabled || undefined}
+      title={disabled ? VIEW_ONLY_HINT : undefined}
+      tabIndex={disabled ? -1 : 0}
+      onClick={(event) => { event.stopPropagation(); if (!disabled) onToggle(); }}
       onKeyDown={(event) => {
-        if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); onToggle(); }
+        if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); if (!disabled) onToggle(); }
       }}
     ><Icon name="check" /></span>
   );
@@ -282,6 +285,7 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
   const [params, setParams] = useSearchParams();
   const db = getDb();
   const isPhone = useMediaQuery('(max-width: 719px)');
+  const readOnly = useReadOnly();
 
   const rows = useMemo(() => getAllTransactions().sort((a, b) => b.isoDate.localeCompare(a.isoDate) || (b.time ?? '').localeCompare(a.time ?? '') || b.id - a.id), [revision]);
   const categoryRows = useMemo(
@@ -399,6 +403,8 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
   });
   useEffect(() => { localStorage.setItem(COLUMNS_KEY, JSON.stringify(columns)); }, [columns]);
 
+  // Bulk edit is the only use of the selection, so view only drops it.
+  useEffect(() => { if (readOnly) setSelectedIds((current) => (current.size ? new Set() : current)); }, [readOnly]);
   useEffect(() => {
     const alive = new Set(rows.map((txn) => txn.id));
     setSelectedIds((current) => [...current].every((id) => alive.has(id)) ? current : new Set([...current].filter((id) => alive.has(id))));
@@ -406,6 +412,7 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
 
   const run = (action: () => void) => {
     setError('');
+    if (readOnly) { setError(VIEW_ONLY_HINT); return; }
     try { action(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const selectTxn = useCallback((id: number) => {
@@ -413,13 +420,13 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
     setParams((current) => { const next = new URLSearchParams(current); next.set('txn', String(id)); return next; }, { replace: Number(params.get('txn')) > 0 });
   }, [params, setParams]);
   const closeDetail = useCallback(() => updateParams({ txn: null }), [updateParams]);
-  const toggleSelected = (id: number) => setSelectedIds((current) => {
+  const toggleSelected = (id: number) => !readOnly && setSelectedIds((current) => {
     const next = new Set(current);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
   const allSelected = filtered.length > 0 && filtered.every((txn) => selectedIds.has(txn.id));
-  const toggleAll = () => setSelectedIds(allSelected ? new Set() : new Set(filtered.map((txn) => txn.id)));
+  const toggleAll = () => !readOnly && setSelectedIds(allSelected ? new Set() : new Set(filtered.map((txn) => txn.id)));
   const clearFilters = () => {
     updateParams(Object.fromEntries(FILTER_KEYS.map((key) => [key, null])));
     setLocalSearch('');
@@ -465,11 +472,11 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target) || exportOpen) return;
       if (event.key === 'j') { event.preventDefault(); move(1); }
       else if (event.key === 'k') { event.preventDefault(); move(-1); }
-      else if (event.key === 'e' && selected) { event.preventDefault(); setPickerOpen(true); }
+      else if (event.key === 'e' && selected && !readOnly) { event.preventDefault(); setPickerOpen(true); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [move, selected, exportOpen]);
+  }, [move, selected, exportOpen, readOnly]);
 
   /* ----- Render helpers ----- */
   const categoryText = (txn: TransactionRow) => {
@@ -494,7 +501,7 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
     return bits.join(' · ');
   };
 
-  const selectionMode = selectedIds.size > 0;
+  const selectionMode = selectedIds.size > 0 && !readOnly;
   const spacerRow = (height: number, key: string) => (
     <tr className="act-spacer" aria-hidden="true" key={key}>
       <td style={{ height }} /><td /><td /><td />
@@ -531,7 +538,7 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
           else if (event.key === ' ') { event.preventDefault(); toggleSelected(txn.id); }
         }}
       >
-        <td className="c-check"><Check on={on} label={`Select ${payee}`} onToggle={() => toggleSelected(txn.id)} /></td>
+        <td className="c-check"><Check on={on} label={`Select ${payee}`} disabled={readOnly} onToggle={() => toggleSelected(txn.id)} /></td>
         <td className="tabular"><div className="cellstack"><span>{shortDate(txn.isoDate)}</span><span className="t-caption muted">{hhmm(txn.time)}</span></div></td>
         <td><div className="cellstack"><span className="t-label">{txn.needsReview && <span className="review-mark" title="Needs review"></span>}{payee}</span>
           <span className="t-caption muted">{note || <><span className="only-compact">{account}</span><span className="only-with-panel">{account}</span></>}</span></div></td>
@@ -630,7 +637,7 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
           <div className="banner banner--review">
             <Icon name="flag" />
             <div className="banner__copy t-small">{fmtCount(filtered.length)} transactions need a category. Pick one in the panel, or select several and use <b>Set category</b>.</div>
-            <button type="button" className="banner__action" onClick={() => run(() => { const count = acceptAllReviews(); setNotice(`Accepted ${fmtCount(count)} review suggestions.`); })}>Accept all</button>
+            <button type="button" className="banner__action" disabled={readOnly} aria-disabled={readOnly || undefined} title={readOnly ? VIEW_ONLY_HINT : undefined} onClick={() => run(() => { const count = acceptAllReviews(); setNotice(`Accepted ${fmtCount(count)} review suggestions.`); })}>Accept all</button>
           </div>
         )}
         {notice && <div className="banner banner--success" role="status"><Icon name="check_circle" /><div className="banner__copy t-small">{notice}</div><button type="button" className="banner__action" onClick={() => setNotice('')}>Dismiss</button></div>}
@@ -641,7 +648,7 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
             <table className="tbl" aria-label="Transactions">
               <thead>
                 <tr>
-                  <th className="c-check"><Check on={allSelected} mixed={selectionMode} label="Select all" onToggle={toggleAll} /></th>
+                  <th className="c-check"><Check on={allSelected} mixed={selectionMode} label="Select all" disabled={readOnly} onToggle={toggleAll} /></th>
                   <th className="c-date is-sorted" aria-sort="descending">Date <Icon name="arrow_downward" /></th>
                   <th>Payee and note</th>
                   <th className="c-cat">Category</th>
@@ -698,7 +705,9 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
           </span>
         </>}
         footer={<>
-          <span className="save-note t-caption grow"><Icon name="cloud_done" />Changes save to Drive automatically</span>
+          {readOnly
+            ? <span className="save-note t-caption muted grow"><Icon name="visibility" />{VIEW_ONLY_HINT}</span>
+            : <span className="save-note t-caption grow"><Icon name="cloud_done" />Changes save to Drive automatically</span>}
           <span className="t-caption muted hide-phone shortcut-hint"><span className="kbd">j</span><span className="kbd">k</span> move</span>
         </>}
       >
@@ -736,7 +745,7 @@ export function TransactionsPage({ search, onSearchChange }: { search: string; o
           onSetCategory={(categoryId, subId) => run(() => { for (const id of selectedIds) setTransactionCategory(id, categoryId, subId); setSelectedIds(new Set()); })}
           onSetPerson={(personId) => {
             const chosen = rows.filter((txn) => selectedIds.has(txn.id));
-            if (chosen.some((txn) => txn.loanId != null || txn.transferRole != null || loanLinkedIds.has(txn.id))) {
+            if (chosen.some((txn) => txn.loanId != null || loanPartOf(txn.transferRole) != null || loanLinkedIds.has(txn.id))) {
               setError('Remove loan-linked transactions from the selection before changing “For”.');
               return;
             }
@@ -1028,11 +1037,19 @@ function TransactionDetail({
   onDeleted: () => void;
 }) {
   const db = getDb();
+  const readOnly = useReadOnly();
   const [tab, setTab] = useState<'ov' | 'dt'>('ov');
-  const [editingNote, setEditingNote] = useState(false);
-  const [lendOpen, setLendOpen] = useState(false);
-  const [loanActionsOpen, setLoanActionsOpen] = useState(false);
-  const [cardOpen, setCardOpen] = useState(false);
+  const [editingNoteState, setEditingNote] = useState(false);
+  const [lendOpenState, setLendOpen] = useState(false);
+  const [loanActionsOpenState, setLoanActionsOpen] = useState(false);
+  const [cardOpenState, setCardOpen] = useState(false);
+  // View only hides every editor; they come back as they were once this tab can edit again.
+  const editingNote = editingNoteState && !readOnly;
+  const lendOpen = lendOpenState && !readOnly;
+  const loanActionsOpen = loanActionsOpenState && !readOnly;
+  const cardOpen = cardOpenState && !readOnly;
+  const pickerShown = pickerOpen && !readOnly;
+  const ro = readOnly ? { disabled: true, 'aria-disabled': true, title: VIEW_ONLY_HINT } as const : {};
   const [attachLoanId, setAttachLoanId] = useState('');
   const [attachFlow, setAttachFlow] = useState<LoanFlow>(defaultLoanFlow(txn.direction));
   const [creatingLoan, setCreatingLoan] = useState(false);
@@ -1171,6 +1188,7 @@ function TransactionDetail({
         </div>
         <span className="t-small muted">{isSelf ? 'Self-transfer' : out ? 'Money out' : 'Money in'} · {longDate(txn.isoDate)}{txn.time ? ` · ${time12(txn.time)}` : ''}</span>
       </div>
+      {readOnly && <span className="t-caption muted row gap-1" role="note"><Icon name="visibility" className="ms-16" />{VIEW_ONLY_HINT}</span>}
       <div className="dp-tabs" role="tablist" aria-label="Transaction sections">
         <button type="button" role="tab" aria-selected={tab === 'ov'} className={`dp-tab${tab === 'ov' ? ' is-selected' : ''}`} onClick={() => setTab('ov')} onKeyDown={tabKey}>Overview</button>
         <button type="button" role="tab" aria-selected={tab === 'dt'} className={`dp-tab${tab === 'dt' ? ' is-selected' : ''}`} onClick={() => setTab('dt')} onKeyDown={tabKey}>Details</button>
@@ -1187,12 +1205,12 @@ function TransactionDetail({
                   ? 'Couldn’t match this payee. Pick one and it will be remembered.'
                   : !category ? 'Not counted in any category yet' : txn.autoCategorized ? 'Auto-categorized from payee' : 'Set by you'}</span>
               </div>
-              <span className="anchor"><button type="button" className="btn btn--sm" aria-haspopup="dialog" aria-expanded={pickerOpen} aria-keyshortcuts="e" onClick={() => setPickerOpen(!pickerOpen)}>{review || !category ? 'Pick' : 'Change'}<span className="kbd" style={{ marginLeft: 4 }}>e</span></button></span>
-              <button type="button" className="icon-btn icon-btn--sm" title="Re-categorize" aria-label="Re-categorize" onClick={() => run(() => { recategorizeTransaction(txn.id); })}><Icon name="refresh" /></button>
+              <span className="anchor"><button type="button" className="btn btn--sm" aria-haspopup="dialog" aria-expanded={pickerShown} aria-keyshortcuts="e" {...ro} onClick={() => setPickerOpen(!pickerOpen)}>{review || !category ? 'Pick' : 'Change'}<span className="kbd" style={{ marginLeft: 4 }}>e</span></button></span>
+              <button type="button" className="icon-btn icon-btn--sm" aria-label="Re-categorize" title="Re-categorize" {...ro} onClick={() => run(() => { recategorizeTransaction(txn.id); })}><Icon name="refresh" /></button>
             </div>
             {suggestions.length > 0 && (
               <div className="row wrap gap-1"><span className="t-caption muted">Suggested:</span>
-                {suggestions.map((item) => <button type="button" key={item.key} className="chip" title={item.key === 'guess' ? 'Accept this suggestion' : 'Use this category'} onClick={item.apply}>{item.emoji} {item.label}</button>)}
+                {suggestions.map((item) => <button type="button" key={item.key} className="chip" title={item.key === 'guess' ? 'Accept this suggestion' : 'Use this category'} {...ro} onClick={item.apply}>{item.emoji} {item.label}</button>)}
               </div>
             )}
           </div>
@@ -1200,7 +1218,7 @@ function TransactionDetail({
           <div className="dp-section"><span className="t-overline muted">HOW IT’S COUNTED</span>
             <div className="toggle-chips">
               {chips.map((chip) => (
-                <button type="button" key={chip.key} className={`tchip${chip.on ? ' is-on' : ''}`} aria-pressed={chip.on} disabled={chip.disabled} onClick={chip.toggle}>
+                <button type="button" key={chip.key} className={`tchip${chip.on ? ' is-on' : ''}`} aria-pressed={chip.on} disabled={chip.disabled || readOnly} aria-disabled={readOnly || undefined} title={readOnly ? VIEW_ONLY_HINT : undefined} onClick={chip.toggle}>
                   <Icon name={chip.on ? 'check' : chip.icon} />{chip.label}
                 </button>
               ))}
@@ -1208,7 +1226,7 @@ function TransactionDetail({
             {isSelf && <span className="t-caption muted">Self-transfers move money between your own accounts, so they aren’t counted as spending.</span>}
             {lent && (
               <div className="card card--subtle col gap-2">
-                <button type="button" className="lrow lrow--click act-loan-item" aria-label="Attached loan" aria-expanded={loanActionsOpen || lendOpen} onClick={toggleLending}>
+                <button type="button" className="lrow lrow--click act-loan-item" aria-label="Attached loan" aria-expanded={loanActionsOpen || lendOpen} {...ro} onClick={toggleLending}>
                   <Icon name="group" />
                   <span className="grow col gap-1">
                     <span className="t-caption muted">{allocations.length ? 'Split across loans' : 'Attached to'}</span>
@@ -1313,20 +1331,20 @@ function TransactionDetail({
                 onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); event.nativeEvent.stopImmediatePropagation(); setEditingNote(false); } }}
                 onBlur={(event) => { const value = event.currentTarget.value; if (value !== (txn.note ?? '')) run(() => setTransactionNote(txn.id, value)); setEditingNote(false); }} />
             ) : txn.note?.trim() ? (
-              <button type="button" className="note-box" aria-label="Edit note" onClick={() => setEditingNote(true)}>{txn.note}</button>
+              <button type="button" className="note-box" aria-label="Edit note" {...ro} onClick={() => setEditingNote(true)}>{txn.note}</button>
             ) : (
-              <button type="button" className="note-box note-box--empty" onClick={() => setEditingNote(true)}><Icon name="edit" className="ms-16" /><span className="t-small">Add a note…</span></button>
+              <button type="button" className="note-box note-box--empty" {...ro} onClick={() => setEditingNote(true)}><Icon name="edit" className="ms-16" /><span className="t-small">Add a note…</span></button>
             )}
           </div>
 
           <div className="grid grid-2" style={{ gap: 'var(--sp-2)' }}>
             <div className="field"><span className="field__label t-small">For</span>
-              <SelectBox label="Transaction person" value={txn.personId == null ? '' : String(txn.personId)} display={personName} disabled={txn.loanId != null || txn.transferRole != null || loanLinked}
+              <SelectBox label="Transaction person" value={txn.personId == null ? '' : String(txn.personId)} display={personName} disabled={readOnly || txn.loanId != null || loanPartOf(txn.transferRole) != null || allocations.length > 0}
                 onChange={(value) => run(() => setTransactionPerson(txn.id, value ? Number(value) : null))}>
                 <option value="">Not set</option>{peopleRows.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </SelectBox></div>
             <div className="field"><span className="field__label t-small">Payment mode</span>
-              <SelectBox label="Transaction payment mode" value={txn.paymentModeId == null ? '' : String(txn.paymentModeId)} display={modeName}
+              <SelectBox label="Transaction payment mode" value={txn.paymentModeId == null ? '' : String(txn.paymentModeId)} display={modeName} disabled={readOnly}
                 onChange={(value) => run(() => setTransactionPaymentMode(txn.id, value ? Number(value) : null))}>
                 <option value="">Not set</option>{paymentModeRows.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </SelectBox></div>
@@ -1360,11 +1378,11 @@ function TransactionDetail({
             {txn.linkedImportId != null && <div className="dl__row"><span className="dl__k">Card statement</span><span className="dl__v">{linkedStatement?.sourceLabel ?? `Import #${txn.linkedImportId}`}</span></div>}
             <div className="dl__row"><span className="dl__k">Record ID</span><span className="dl__v">#{txn.id}</span></div>
           </div></div>
-          <button type="button" className="btn btn--danger btn--sm" style={{ alignSelf: 'flex-start' }} onClick={() => { if (window.confirm('Delete this transaction?')) run(() => { deleteTransaction(txn.id); onDeleted(); }); }}><Icon name="delete" />Delete transaction</button>
+          <button type="button" className="btn btn--danger btn--sm" style={{ alignSelf: 'flex-start' }} {...ro} onClick={() => { if (window.confirm('Delete this transaction?')) run(() => { deleteTransaction(txn.id); onDeleted(); }); }}><Icon name="delete" />Delete transaction</button>
         </div>
       )}
 
-      {pickerOpen && panelEl && createPortal(
+      {pickerShown && panelEl && createPortal(
         <CategoryPicker
           className="pop pop--in-panel"
           style={{ top: pickerTop }}
@@ -1418,8 +1436,10 @@ export function TransactionDetailPanel({ txnId, onClose, footerNote }: { txnId: 
   }, [db, open, revision]);
   const txn = data && txnId != null ? data.rows.find((row) => row.id === txnId) ?? null : null;
   useEffect(() => { setPickerOpen(false); setError(''); }, [txnId]);
+  const readOnly = useReadOnly();
   const run = (action: () => void) => {
     setError('');
+    if (readOnly) { setError(VIEW_ONLY_HINT); return; }
     try { action(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 
@@ -1434,7 +1454,9 @@ export function TransactionDetailPanel({ txnId, onClose, footerNote }: { txnId: 
         <span className="t-overline muted">TRANSACTION</span>
         {txn && <Link className="btn btn--sm btn--ghost hide-phone" to={`/transactions?txn=${txn.id}`}>Open in Activity<Icon name="arrow_forward" /></Link>}
       </>}
-      footer={<span className="save-note t-caption grow"><Icon name="cloud_done" />{footerNote ?? 'Changes save to Drive automatically'}</span>}
+      footer={readOnly
+        ? <span className="save-note t-caption muted grow"><Icon name="visibility" />{VIEW_ONLY_HINT}</span>
+        : <span className="save-note t-caption grow"><Icon name="cloud_done" />{footerNote ?? 'Changes save to Drive automatically'}</span>}
     >
       {error && <div className="banner banner--danger" role="alert"><Icon name="error" /><div className="banner__copy t-small">{error}</div></div>}
       {data && txn ? (

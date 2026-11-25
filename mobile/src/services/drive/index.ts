@@ -10,24 +10,19 @@
  * ever returns our own backups.
  */
 
-import { File, Paths } from 'expo-file-system';
-
-import { isSqliteFile } from '@/core/backup';
 import {
   buildListUrl,
   folderChildrenQuery,
   folderSearchQuery,
-  mediaDownloadUrl,
   parseFileList,
-  pickLatestBackup,
   type DriveFile,
 } from '@/core/drive';
-import { restoreFromBytes } from '@/services/db/backup';
 import { ensureSignedIn, getAccessToken } from './auth';
-import { backupLiveDatabaseToDrive } from './sync';
+import { backupLiveDatabaseToDrive, restoreLatestFromDriveLive } from './sync';
 
 export { syncDownFromDrive } from './sync';
-export { startDriveSync } from './sync';
+export { startDriveSync, takeOverEditing, stayViewOnly, releaseEditLock } from './sync';
+export { useEditSession, useViewOnly, useSyncHealth } from './edit-session';
 export type { DriveSyncResult } from './sync';
 
 /** A backup found in Drive, for a future "pick which one" UI. */
@@ -96,20 +91,6 @@ export async function listDriveBackups(): Promise<DriveBackup[]> {
   return folderId ? listBackupsIn(token, folderId) : [];
 }
 
-/** Download a backup by id and restore it into the live database (replaces all current data). */
-async function downloadAndRestore(token: string, fileId: string): Promise<void> {
-  const dest = new File(Paths.cache, 'drive-restore.db');
-  const downloaded = await File.downloadFileAsync(mediaDownloadUrl(fileId), dest, {
-    headers: { Authorization: `Bearer ${token}` },
-    idempotent: true, // overwrite any previous temp download
-  });
-  const bytes = new Uint8Array(await downloaded.arrayBuffer());
-  if (!isSqliteFile(bytes)) {
-    throw new Error('The file in Drive isn’t a valid Finance Tracker backup.');
-  }
-  await restoreFromBytes(bytes);
-}
-
 export interface DriveRestoreResult {
   restored: boolean;
   /** False when no backup was found in Drive (folder empty / missing). */
@@ -118,19 +99,10 @@ export interface DriveRestoreResult {
 }
 
 /**
- * Restore the most recent backup from the user's Drive. Returns `found: false` when there are no
- * backups to restore. Destructive — the caller should confirm first.
+ * Restore the latest data from the user's Drive: the live database, or the newest snapshot when no
+ * live file exists yet. Returns `found: false` when Drive has neither. Destructive, so the caller
+ * should confirm first.
  */
 export async function restoreLatestFromDrive(): Promise<DriveRestoreResult> {
-  const account = await ensureSignedIn();
-  if (!account) return { restored: false, found: false };
-
-  const token = await getAccessToken();
-  const folderId = await findFolderId(token);
-  const backups = folderId ? await listBackupsIn(token, folderId) : [];
-  const latest = pickLatestBackup(backups);
-  if (!latest) return { restored: false, found: false };
-
-  await downloadAndRestore(token, latest.id);
-  return { restored: true, found: true, fileName: latest.name };
+  return restoreLatestFromDriveLive();
 }

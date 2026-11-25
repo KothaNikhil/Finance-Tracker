@@ -25,7 +25,7 @@ import {
   updateLoanTransaction,
 } from '@finance-tracker/core/db/repository';
 import { loanAllocationsQuery, loansQuery, loanTxnsQuery, unattachedTxnsQuery } from '@finance-tracker/core/db/queries/lending';
-import { getDb } from '@finance-tracker/core/db/runtime';
+import { getDb, isReadOnly } from '@finance-tracker/core/db/runtime';
 import { people as peopleTable, transactions as transactionsTable } from '@finance-tracker/core/db/schema';
 import {
   defaultLoanFlow,
@@ -44,6 +44,7 @@ import {
   type LoanPart,
 } from '@finance-tracker/core/lending/roles';
 import { useDatabaseRevision } from './feature-utils';
+import { useReadOnly, VIEW_ONLY_HINT } from './edit-session';
 import { DetailPanel, Icon, TopActions, formatInr, initials, longDate, shortDate } from './shell';
 import './LendingPage.css';
 
@@ -235,19 +236,28 @@ export function LendingPage() {
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [sort, setSort] = useState<SortKey>('outstanding');
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [dialog, setDialogState] = useState<DialogState | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const readOnly = useReadOnly();
+  // Every dialog here edits, so none opens in view only, and any open one closes when the tab turns view only.
+  const setDialog = useCallback((next: DialogState | null) => {
+    if (next && isReadOnly()) return;
+    setDialogState(next);
+  }, []);
+  useEffect(() => { if (readOnly) setDialogState(null); }, [readOnly]);
+  const ro = readOnly ? { disabled: true, 'aria-disabled': true, title: VIEW_ONLY_HINT } as const : {};
 
   const selected = loans.find((loan) => loan.id === selectedId) ?? null;
   const closePanel = useCallback(() => setSelectedId(null), []);
-  const closeDialog = useCallback(() => setDialog(null), []);
+  const closeDialog = useCallback(() => setDialog(null), [setDialog]);
   const done = useCallback((message: string) => {
     setDialog(null);
     setError('');
     setNotice(message);
-  }, []);
+  }, [setDialog]);
   const run = (action: () => void, message: string) => {
+    if (readOnly) { setError(VIEW_ONLY_HINT); return; }
     try {
       action();
       setError('');
@@ -360,7 +370,7 @@ export function LendingPage() {
   return (
     <div className="w-body ln">
       <TopActions>
-        <button type="button" className="btn btn--sm btn--primary ln-top" aria-label="New loan" onClick={openNew}>
+        <button type="button" className="btn btn--sm btn--primary ln-top" aria-label="New loan" {...ro} onClick={openNew}>
           <Icon name="add" /><span className="hide-phone">New loan</span>
         </button>
       </TopActions>
@@ -469,7 +479,7 @@ export function LendingPage() {
             <span className="empty__icon"><Icon name="handshake" /></span>
             <span className="t-heading">No loans yet</span>
             <span className="t-small muted">Mark a transfer as “Money lent” in Activity, or add a loan here. Repayments and interest can then be attached to it.</span>
-            <button type="button" className="btn btn--primary" onClick={openNew}><Icon name="add" />New loan</button>
+            <button type="button" className="btn btn--primary" {...ro} onClick={openNew}><Icon name="add" />New loan</button>
           </div>
         )}
       </main>
@@ -482,16 +492,16 @@ export function LendingPage() {
           <>
             <span className="t-overline muted">LOAN</span>
             <span className="grow"></span>
-            <button type="button" className="icon-btn icon-btn--sm icon-btn--plain ln-edit" title="Edit loan" aria-label="Edit loan" onClick={() => setDialog({ type: 'edit-loan' })}>
+            <button type="button" className="icon-btn icon-btn--sm icon-btn--plain ln-edit" title="Edit loan" aria-label="Edit loan" {...ro} onClick={() => setDialog({ type: 'edit-loan' })}>
               <Icon name="edit" />
             </button>
           </>
         )}
         footer={selected && (
           <>
-            <button type="button" className="btn btn--ghost btn--sm" style={{ color: 'var(--spend)' }} onClick={() => askDeleteLoan(selected)}><Icon name="delete" />Delete loan</button>
+            <button type="button" className="btn btn--ghost btn--sm" style={{ color: 'var(--spend)' }} {...ro} onClick={() => askDeleteLoan(selected)}><Icon name="delete" />Delete loan</button>
             <span className="grow"></span>
-            <span className="t-caption muted">Saves to Drive automatically</span>
+            <span className="t-caption muted">{readOnly ? VIEW_ONLY_HINT : 'Saves to Drive automatically'}</span>
           </>
         )}
       >
@@ -499,6 +509,7 @@ export function LendingPage() {
           <LoanDetail
             loan={selected}
             slicesByTxn={slicesByTxn}
+            readOnly={readOnly}
             onAddEntry={() => setDialog({ type: 'entry' })}
             onAttach={() => setDialog({ type: 'attach' })}
             onToggleClosed={() => run(() => setLoanClosed(selected.id, !selected.closed), selected.closed ? 'Loan reopened.' : 'Loan closed.')}
@@ -563,6 +574,7 @@ export function LendingPage() {
           confirmLabel={dialog.confirmLabel}
           onClose={closeDialog}
           onConfirm={() => {
+            if (readOnly) { setDialog(null); return; }
             try {
               dialog.action();
               done(`${dialog.confirmLabel.replace(/^Delete/, 'Deleted').replace(/^Detach$/, 'Detached')}.`);
@@ -584,6 +596,7 @@ export function LendingPage() {
 function LoanDetail({
   loan,
   slicesByTxn,
+  readOnly,
   onAddEntry,
   onAttach,
   onToggleClosed,
@@ -591,6 +604,7 @@ function LoanDetail({
 }: {
   loan: LoanView;
   slicesByTxn: Map<number, { part: string | null; paise: number; transferRole: string | null }[]>;
+  readOnly: boolean;
   onAddEntry: () => void;
   onAttach: () => void;
   onToggleClosed: () => void;
@@ -624,10 +638,11 @@ function LoanDetail({
         <div className="card stat-col" style={{ padding: 'var(--sp-2) var(--sp-3)' }}><span className="t-caption muted">Interest</span><span className="t-stat c-accent">{amt(balance.interestPaise)}</span></div>
       </div>
       <div className="row gap-2 wrap">
-        <button type="button" className="btn btn--sm btn--primary" onClick={onAddEntry}><Icon name="add" />Add entry</button>
-        <button type="button" className="btn btn--sm" onClick={onAttach}><Icon name="link" />Attach existing</button>
-        <button type="button" className="btn btn--sm" onClick={onToggleClosed}><Icon name={loan.closed ? 'replay' : 'task_alt'} />{loan.closed ? 'Reopen loan' : 'Close loan'}</button>
+        <button type="button" className="btn btn--sm btn--primary" disabled={readOnly} aria-disabled={readOnly || undefined} onClick={onAddEntry}><Icon name="add" />Add entry</button>
+        <button type="button" className="btn btn--sm" disabled={readOnly} aria-disabled={readOnly || undefined} onClick={onAttach}><Icon name="link" />Attach existing</button>
+        <button type="button" className="btn btn--sm" disabled={readOnly} aria-disabled={readOnly || undefined} onClick={onToggleClosed}><Icon name={loan.closed ? 'replay' : 'task_alt'} />{loan.closed ? 'Reopen loan' : 'Close loan'}</button>
       </div>
+      {readOnly && <span className="t-caption muted">{VIEW_ONLY_HINT}</span>}
       <div className="dp-section"><span className="t-overline muted">HISTORY</span>
         {loan.entries.length ? (
           <div className="hist">
@@ -636,15 +651,17 @@ function LoanDetail({
               const money = entryAmount(loan.kind, entry.part, entry.paise);
               const detail = entry.split ? splitCaption(entry.txnId) : entry.manual ? entry.remarks || 'Added by hand' : entry.account || entry.remarks || 'Imported';
               const open = () => onOpenEntry(entry);
+              // Each row opens an editor, so in view only it is plain text.
               return (
                 <div
                   key={entry.key}
                   className="hist__row"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${partLabel(loan.kind, entry.part)}, ${longDate(entry.isoDate)}, ${money.text}. ${entry.manual ? 'Edit entry' : 'Linked transaction details'}`}
-                  onClick={open}
-                  onKeyDown={activateOnKey(open)}
+                  role={readOnly ? undefined : 'button'}
+                  tabIndex={readOnly ? undefined : 0}
+                  style={readOnly ? { cursor: 'default' } : undefined}
+                  aria-label={readOnly ? undefined : `${partLabel(loan.kind, entry.part)}, ${longDate(entry.isoDate)}, ${money.text}. ${entry.manual ? 'Edit entry' : 'Linked transaction details'}`}
+                  onClick={readOnly ? undefined : open}
+                  onKeyDown={readOnly ? undefined : activateOnKey(open)}
                 >
                   <span className="hist__dot"><span className={`ms ${icon.tone}`} aria-hidden="true">{icon.name}</span></span>
                   <div className="col gap-0" style={{ minWidth: 0 }}>

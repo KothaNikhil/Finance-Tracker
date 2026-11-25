@@ -114,6 +114,12 @@ body.w :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .sync--unsaved { color: var(--text); }
 .sync--unsaved .ms { color: var(--review); }
 .sync--offline, .sync--reconnect { background: var(--review-muted); border-color: var(--review); color: var(--review); }
+.sync--inuse, .sync--viewonly { color: var(--text-secondary); }
+.sync--moved { background: var(--review-muted); border-color: var(--review); color: var(--review); }
+/* View only: editing controls in the page are shown disabled. Browsing, search and filters still work. */
+.is-viewonly .w-main .btn--primary, .is-viewonly .w-main .btn--danger,
+.is-viewonly .w-panel .btn--primary, .is-viewonly .w-panel .btn--danger,
+.is-viewonly .w-top > .btn--primary, .is-viewonly .w-top > a.btn--primary { opacity: 0.45; pointer-events: none; }
 .sync--conflict { background: var(--spend-muted); border-color: var(--spend); color: var(--spend); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sync--saving .ms { animation: none; } }

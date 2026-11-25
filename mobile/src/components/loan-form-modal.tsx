@@ -14,9 +14,11 @@ import { InfoDisclosure } from '@/components/info-disclosure';
 import { SegmentedControl } from '@/components/segmented-control';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Spacing } from '@/constants/theme';
 import type { LoanKind } from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 const LOAN_NOTE = 'A loan groups principal, repayments and interest with one person.';
 
@@ -38,6 +40,7 @@ export interface LoanFormModalProps {
 
 export function LoanFormModal({ visible, mode, initial, people, onAddPerson, onSubmit, onClose }: LoanFormModalProps) {
   const theme = useTheme();
+  const viewOnly = useViewOnly();
   const [name, setName] = useState(initial?.name ?? '');
   const [personId, setPersonId] = useState<number | null>(initial?.personId ?? null);
   const [kind, setKind] = useState<LoanKind>(initial?.kind ?? 'lent');
@@ -121,7 +124,7 @@ export function LoanFormModal({ visible, mode, initial, people, onAddPerson, onS
               onSubmitEditing={addPerson}
               containerStyle={styles.flexInput}
             />
-            <Button label="Add" onPress={addPerson} disabled={newPerson.trim() === ''} style={styles.addBtn} />
+            <Button label="Add" onPress={addPerson} disabled={newPerson.trim() === '' || viewOnly} style={styles.addBtn} />
           </View>
 
           <ThemedText type="overline" themeColor="textSecondary" style={styles.groupTitle}>
@@ -138,9 +141,10 @@ export function LoanFormModal({ visible, mode, initial, people, onAddPerson, onS
             label={mode === 'create' ? 'Create loan' : 'Save changes'}
             variant="primary"
             onPress={submit}
-            disabled={personId == null}
+            disabled={personId == null || viewOnly}
             style={styles.saveBtn}
           />
+          {viewOnly ? <ViewOnlyHint /> : null}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>

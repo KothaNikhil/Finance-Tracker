@@ -526,6 +526,9 @@ body.w :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .sync--unsaved .ms { color: var(--review); }
 .sync--offline, .sync--reconnect { background: var(--review-muted); border-color: var(--review); color: var(--review); }
 .sync--conflict { background: var(--spend-muted); border-color: var(--spend); color: var(--spend); }
+/* Single-editor lock: another device holds finance-session.json */
+.sync--inuse, .sync--viewonly { color: var(--text-secondary); }
+.sync--moved { background: var(--review-muted); border-color: var(--review); color: var(--review); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sync--saving .ms { animation: none; } }
 

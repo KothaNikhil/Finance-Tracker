@@ -139,4 +139,25 @@ describe('DriveSyncEngine', () => {
     expect(drive.snapshotsCreated).toBe(1);
     expect(drive.updates).toBe(1);
   });
+
+  it('keeps a before-delete snapshot for 30 days even when 30 newer backups exist', async () => {
+    const drive = fakeDrive();
+    const live = await drive.createLive(new Uint8Array([1]));
+    drive.snapshots.push({ id: 'del', name: 'Finance-Tracker-backup-1-before-delete-all-data.db', modifiedTime: '2026-02-20T00:00:00Z' });
+    drive.snapshots.push({ id: 'old-del', name: 'Finance-Tracker-backup-0-before-delete-all-data.db', modifiedTime: '2026-01-01T00:00:00Z' });
+    for (let day = 1; day <= 31; day += 1) {
+      drive.snapshots.push({ id: `m${day}`, name: `Finance-Tracker-backup-202603${String(day).padStart(2, '0')}-manual.db`, modifiedTime: `2026-03-${String(day).padStart(2, '0')}T00:00:00Z` });
+    }
+
+    await new DriveSyncEngine(drive).save(new Uint8Array([2]), {
+      expectedFileId: live.id,
+      expectedRevisionId: live.revisionId,
+      now: new Date('2026-03-15T12:00:00Z'),
+    });
+
+    const ids = drive.snapshots.map((file) => file.id);
+    expect(ids).toContain('del');
+    expect(ids).not.toContain('old-del');
+    expect(ids.filter((id) => id !== 'del').length).toBe(30);
+  });
 });

@@ -131,7 +131,7 @@ describe('transaction counting controls', () => {
     );
 
     const refund = outgoing.getByRole('button', { name: 'Refund' });
-    expect(refund).toHaveProp('accessibilityState', { selected: true });
+    expect(refund.props.accessibilityState).toMatchObject({ selected: true });
     await fireEvent.press(refund);
     expect(incomingCallbacks.onSetRefund).toHaveBeenCalledWith(false);
     expect(outgoing.getByText('Offsets spending')).toBeTruthy();
@@ -190,10 +190,10 @@ describe('transaction counting controls', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Self-transfer' })).toHaveProp('accessibilityState', {
+    expect(screen.getByRole('button', { name: 'Self-transfer' }).props.accessibilityState).toMatchObject({
       selected: false,
     });
-    expect(screen.getByRole('button', { name: 'Card bill' })).toHaveProp('accessibilityState', {
+    expect(screen.getByRole('button', { name: 'Card bill' }).props.accessibilityState).toMatchObject({
       selected: false,
     });
     expect(

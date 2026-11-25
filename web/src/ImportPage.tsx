@@ -25,6 +25,7 @@ import { imports, transactions } from '@finance-tracker/core/db/schema';
 import { getDb } from '@finance-tracker/core/db/runtime';
 import { ilog, resetImportLog } from '@finance-tracker/core/import/import-log';
 import { useDatabaseRevision } from './feature-utils';
+import { useReadOnly, VIEW_ONLY_HINT } from './edit-session';
 import { DetailPanel, Icon, MONTHS_SHORT, formatInr, friendlyDateTime, longDate, shortDate } from './shell';
 import { TransactionDetailPanel } from './TransactionsPage';
 import './ImportPage.css';
@@ -195,6 +196,8 @@ function lookupTxnId(dedupeKey: string): number | null {
 export function ImportPage() {
   const revision = useDatabaseRevision();
   const db = getDb();
+  // View only still reads, unlocks and previews files (all in memory); only saving to the DB is off.
+  const readOnly = useReadOnly();
   const fileInput = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [files, setFiles] = useState<ImportFile[]>([]);
@@ -501,7 +504,7 @@ export function ImportPage() {
     });
     try {
       for (const { item, row } of targets) {
-        if (item.status !== 'saved') continue;
+        if (item.status !== 'saved' || readOnly) continue;
         const txnId = lookupTxnId(row.txn.dedupeKey);
         if (txnId != null) setTransactionCategory(txnId, choice.categoryId, choice.subcategoryId);
       }
@@ -512,7 +515,7 @@ export function ImportPage() {
   };
 
   const save = async () => {
-    if (busy || totalToSave === 0) return;
+    if (busy || totalToSave === 0 || readOnly) return;
     setBusy(true);
     setError('');
     setNotice(null);
@@ -559,6 +562,7 @@ export function ImportPage() {
 
   const revert = (importId: number) => {
     setRevertTarget(null);
+    if (readOnly) return;
     try {
       const count = revertImport(importId);
       setNotice({ title: `Reverted import #${importId}`, body: `Removed ${count} transaction${count === 1 ? '' : 's'} from your data.` });
@@ -573,6 +577,7 @@ export function ImportPage() {
   };
 
   const askRevert = (importId: number) => {
+    if (readOnly) return;
     const group = history.find((entry) => entry.latestId === importId);
     setRevertTarget({ importId, title: group?.title ?? `Import #${importId}` });
   };
@@ -580,6 +585,7 @@ export function ImportPage() {
   const sentinel = useRef<HTMLTableRowElement>(null);
   const shownCount = Math.min(limit, tab === 'duplicates' ? duplicateRows.length : visibleRows.length);
   const totalForTab = tab === 'duplicates' ? duplicateRows.length : visibleRows.length;
+  useEffect(() => { if (readOnly) setRevertTarget(null); }, [readOnly]);
   useEffect(() => {
     const node = sentinel.current;
     if (!node || shownCount >= totalForTab) return;
@@ -617,12 +623,15 @@ export function ImportPage() {
       setPicker({ key, anchor: event.currentTarget.getBoundingClientRect() });
     };
     const label = `Category for ${payeeOf(row.txn)}: ${display?.label ?? 'none'}. Change`;
+    // A saved row's category lives in the DB; a preview row's choice is only in memory until Save.
+    const locked = readOnly && item.status === 'saved';
+    const lockProps = locked ? { disabled: true, 'aria-disabled': true, title: VIEW_ONLY_HINT } as const : {};
     if (review) {
-      return <button type="button" className="cat-pill cat-pill--review" onClick={open} aria-label={label} aria-haspopup="dialog">
+      return <button type="button" className="cat-pill cat-pill--review" onClick={open} aria-label={label} aria-haspopup="dialog" {...lockProps}>
         <span className="ms" style={{ fontSize: 14 }} aria-hidden="true">flag</span><span>{display ? display.label : 'Pick a category'}</span>
       </button>;
     }
-    return <button type="button" className="cat-pill" onClick={open} aria-label={label} aria-haspopup="dialog">
+    return <button type="button" className="cat-pill" onClick={open} aria-label={label} aria-haspopup="dialog" {...lockProps}>
       <span className="em" aria-hidden="true">{display?.emoji ?? '🏷️'}</span><span>{display?.label ?? 'Uncategorised'}</span>
     </button>;
   };
@@ -653,7 +662,7 @@ export function ImportPage() {
               {saved.updated > 0 && ` ${saved.updated} already-imported transaction${saved.updated === 1 ? ' was' : 's were'} updated${saved.flagged ? `; ${saved.flagged} need review` : ''}.`}
             </div></div>
           {saved.review > 0 && <Link className="banner__action" to="/transactions?review=1">Review {saved.review}</Link>}
-          {saved.importId != null && <button type="button" className="banner__action" style={{ color: 'var(--text-secondary)' }} onClick={() => askRevert(saved.importId!)}>Revert</button>}
+          {saved.importId != null && <button type="button" className="banner__action" style={{ color: 'var(--text-secondary)' }} disabled={readOnly} aria-disabled={readOnly || undefined} title={readOnly ? VIEW_ONLY_HINT : undefined} onClick={() => askRevert(saved.importId!)}>Revert</button>}
         </div>}
 
         {notice && <div className="banner banner--success banner--wrap" role="status"><span className="ms" aria-hidden="true">undo</span>
@@ -833,10 +842,10 @@ export function ImportPage() {
               <div className="sum__row"><span className="t-small muted">Date range</span><span className="t-small-em">{dateRange(allDates, true)}</span></div>
               {isSaved
                 ? <button type="button" className="btn btn--block" onClick={openChooser}><span className="ms" aria-hidden="true">add</span>Import more files</button>
-                : <button type="button" className="btn btn--primary btn--block" disabled={busy || totalToSave === 0} onClick={() => void save()}>
+                : <button type="button" className="btn btn--primary btn--block" disabled={busy || totalToSave === 0 || readOnly} aria-disabled={readOnly || undefined} onClick={() => void save()}>
                   <span className="ms" aria-hidden="true">cloud_upload</span>{busy ? 'Saving…' : `Save ${totalToSave} transaction${totalToSave === 1 ? '' : 's'}`}
                 </button>}
-              <span className="t-caption muted">{saveNote}</span>
+              <span className="t-caption muted">{readOnly && !isSaved ? VIEW_ONLY_HINT : saveNote}</span>
             </div>
           </div>
         </div>}
@@ -847,11 +856,11 @@ export function ImportPage() {
             {history.map((entry, position) => <div className="lrow" key={entry.key}>
               <span className={`badge${position === 0 ? ' badge--accent' : ''}`}>#{entry.latestId}</span>
               <div className="grow col gap-0"><span className="t-label">{entry.title}</span><span className="t-caption muted">{importedWhen(entry.importedAt)} · {entry.web ? 'on the web' : 'on your phone'}</span></div>
-              {position === 0 && <button type="button" className="btn btn--sm" onClick={() => askRevert(entry.latestId)}>Revert</button>}
+              {position === 0 && <button type="button" className="btn btn--sm" disabled={readOnly} aria-disabled={readOnly || undefined} title={readOnly ? VIEW_ONLY_HINT : undefined} onClick={() => askRevert(entry.latestId)}>Revert</button>}
             </div>)}
             {history.length === 0 && <div className="lrow"><div className="grow col gap-0"><span className="t-label">No imports yet</span><span className="t-caption muted">Saved imports show up here.</span></div></div>}
           </div>
-          <span className="t-caption muted" style={{ marginTop: 'var(--sp-2)', display: 'block' }}>Revert removes the most recent import, including any edits made to those transactions since.</span>
+          <span className="t-caption muted" style={{ marginTop: 'var(--sp-2)', display: 'block' }}>{readOnly ? VIEW_ONLY_HINT : 'Revert removes the most recent import, including any edits made to those transactions since.'}</span>
         </div>}
       </main>
 
@@ -898,7 +907,7 @@ export function ImportPage() {
           </div>
           <div className="w-dialog__actions">
             <button type="button" className="btn" autoFocus onClick={() => setRevertTarget(null)}>Cancel</button>
-            <button type="button" className="btn btn--danger" onClick={() => revert(revertTarget.importId)}><span className="ms" aria-hidden="true">undo</span>Revert import</button>
+            <button type="button" className="btn btn--danger" disabled={readOnly} onClick={() => revert(revertTarget.importId)}><span className="ms" aria-hidden="true">undo</span>Revert import</button>
           </div>
         </div>
       </div>}

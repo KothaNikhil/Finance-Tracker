@@ -16,6 +16,7 @@ import { EmptyState } from '@/components/empty-state';
 import { SegmentedControl } from '@/components/segmented-control';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { TextRole } from '@/constants/typography';
 import type { TxnFilter } from '@/core/analytics';
@@ -24,6 +25,7 @@ import { formatINR } from '@/core/domain/money';
 import { LOAN_FLOWS, loanFlowDirection, loanFlowLabel, loanPartForFlow, type LoanFlow, type LoanKind, type LoanPart } from '@/core/lending/roles';
 import { useUnattachedTxnsState } from '@/hooks/use-lending';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 export interface AttachExistingSheetProps {
   visible: boolean;
@@ -50,6 +52,7 @@ const DIRECTIONS: { label: string; value: Direction | undefined }[] = [
 
 export function AttachExistingSheet({ visible, loanKind, onAttach, onClose }: AttachExistingSheetProps) {
   const theme = useTheme();
+  const viewOnly = useViewOnly();
   const [flow, setFlow] = useState<LoanFlow>('paid');
   const [selected, setSelected] = useState<
     Map<number, { direction: Direction; manual: boolean }>
@@ -291,9 +294,10 @@ export function AttachExistingSheet({ visible, loanKind, onAttach, onClose }: At
           variant="primary"
           size="small"
           onPress={attach}
-          disabled={selected.size === 0 || invalidSelected > 0 || amountError != null}
+          disabled={selected.size === 0 || invalidSelected > 0 || amountError != null || viewOnly}
           style={styles.attachBtn}
         />
+        {viewOnly ? <ViewOnlyHint style={styles.viewOnlyHint} /> : null}
       </SafeAreaView>
     </BottomSheet>
   );
@@ -343,4 +347,5 @@ const styles = StyleSheet.create({
   rowLeft: { flex: 1, minWidth: 0 },
   loading: { alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.four },
   attachBtn: { marginTop: Spacing.one },
+  viewOnlyHint: { marginTop: Spacing.one },
 });

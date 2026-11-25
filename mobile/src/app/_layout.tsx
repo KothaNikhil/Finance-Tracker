@@ -6,6 +6,7 @@ import { Alert, AppState, Platform, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { EditSessionOverlay } from '@/components/edit-session-ui';
 import AppTabs from '@/components/app-tabs';
 import { LastEditedPill } from '@/components/last-edited-pill';
 import { LockScreen } from '@/components/lock-screen';
@@ -86,6 +87,7 @@ function Gate() {
       {/* The single, app-wide transaction detail sheet + the "reopen last edited" pill, on every tab. */}
       <TransactionDetailController />
       <LastEditedPill />
+      <EditSessionOverlay />
     </TransactionDetailProvider>
   );
 }

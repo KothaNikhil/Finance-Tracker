@@ -3,6 +3,14 @@ import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate }
 import type { Session } from '@supabase/supabase-js';
 import type { LiveDatabaseFile, SnapshotFile } from '@finance-tracker/core/sync/engine';
 import { UnsupportedSchemaVersionError } from '@finance-tracker/core/db/migrations';
+import { ReadOnlyError, isReadOnly, isReadOnlyError, setReadOnly } from '@finance-tracker/core/db/runtime';
+import {
+  EditLockLostError,
+  LOCK_HEARTBEAT_MS,
+  discardedOfflineSnapshotName,
+  type EditLock,
+} from '@finance-tracker/core/sync/lock';
+import { EditSession, holderName, lockTime, type EditSessionState } from '@finance-tracker/core/sync/session';
 import {
   createDriveSyncEngine,
   DriveAccessMissingError,
@@ -10,6 +18,7 @@ import {
   GoogleDriveSyncPort,
 } from './drive';
 import { closeDatabase, exportDatabase, openDatabase } from './database';
+import { VIEW_ONLY_HINT, webDevice } from './edit-session';
 import { requestDriveAccessToken, revokeDriveAccessToken, supabase } from './auth';
 import { DRIVE_FILE_SCOPE } from './config';
 import { useDatabaseRevision } from './feature-utils';
@@ -61,6 +70,21 @@ function profileOf(session: Session): Profile {
   return { name, email };
 }
 
+const NO_LOCK: EditSessionState = { mode: 'unknown', reason: null, holder: null, confirmedAt: null };
+
+/** What the "Editing moved" banner says about this tab's unsaved changes. */
+interface MovedInfo {
+  holder: EditLock | null;
+  /** Changes dropped from this tab (kept as a Drive snapshot). */
+  discarded: number;
+  /** Changes still in this tab because the snapshot couldn't be saved. */
+  kept: number;
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [gate, setGate] = useState<Gate>('boot');
@@ -90,6 +114,16 @@ function App() {
   const [signedOutElsewhere, setSignedOutElsewhere] = useState(false);
   const signedOutElsewhereRef = useRef(false);
   const finishSignOutElsewhereRef = useRef<() => void>(() => {});
+  // One device edits at a time (finance-session.json in Drive). The tab is read-only unless it holds it.
+  const sessionRef = useRef<EditSession | null>(null);
+  const [lock, setLock] = useState<EditSessionState>(NO_LOCK);
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [movedInfo, setMovedInfo] = useState<MovedInfo | null>(null);
+  const [askTakeOver, setAskTakeOver] = useState(false);
+  const [blockedNotice, setBlockedNotice] = useState(false);
+  const lostRef = useRef<(holder: EditLock | null) => Promise<'discarded' | void>>(async () => {});
+  // Set while a Drive reload announces itself, so it isn't counted as an unsaved change.
+  const suppressDirtyRef = useRef(false);
 
   const setLive = useCallback((file: LiveDatabaseFile | null) => {
     liveFileRef.current = file;
@@ -103,6 +137,11 @@ function App() {
 
   const resetDriveState = useCallback(() => {
     operationGenerationRef.current += 1;
+    sessionRef.current?.stopHeartbeat();
+    sessionRef.current = null;
+    setLock(NO_LOCK);
+    setMovedInfo(null);
+    setAskTakeOver(false);
     closeDatabase();
     engineRef.current = null;
     driveTokenRef.current = null;
@@ -162,11 +201,80 @@ function App() {
     };
   }, [resetDriveState]);
 
+  // Every Drive write first checks this tab still holds the edit lock.
+  const engineFor = useCallback((token: string) => createDriveSyncEngine(token, undefined, {
+    beforeWrite: async () => {
+      const editSession = sessionRef.current;
+      if (!editSession) throw new ReadOnlyError();
+      await editSession.assertCanWrite();
+    },
+  }), []);
+
+  /** Take the edit lock once data is open. If another device holds it, the tab asks Take over / View only. */
+  const startEditSession = useCallback(async (token: string) => {
+    const port = new GoogleDriveSyncPort(token);
+    let editSession = sessionRef.current;
+    if (!editSession) {
+      const created = new EditSession(port, webDevice(), { onLost: (holder) => lostRef.current(holder) });
+      created.subscribe(() => {
+        if (sessionRef.current === created) setLock(created.getState());
+      });
+      sessionRef.current = created;
+      editSession = created;
+    } else {
+      editSession.setPort(port);
+    }
+    if (editSession.getState().mode !== 'unknown' || !navigator.onLine) return;
+    try {
+      await editSession.start();
+    } catch (error) {
+      // A network error is retried by the heartbeat; a lapsed token needs the user.
+      if (error instanceof DriveReconnectRequiredError) setStatus('reconnect');
+    }
+  }, []);
+
+  /**
+   * Load Drive's copy into the open tab without leaving the page (view only, or after the lock
+   * moved). Skips the download when Drive hasn't changed, unless `force`.
+   */
+  const refreshFromDrive = useCallback(async (force = false): Promise<boolean> => {
+    const token = driveTokenRef.current;
+    if (!token) return false;
+    const operation = operationGenerationRef.current;
+    const isCurrent = () => operation === operationGenerationRef.current;
+    const drive = new GoogleDriveSyncPort(token);
+    const current = await drive.findLiveFile();
+    if (!isCurrent() || !current) return false;
+    const known = liveFileRef.current;
+    if (!force && known && known.id === current.id && known.revisionId === current.revisionId) return false;
+    const bytes = await drive.download(current.id);
+    if (!isCurrent()) return false;
+    await openDatabase(bytes);
+    if (!isCurrent()) return false;
+    setLive(current);
+    dirtyRef.current = false;
+    dirtySinceRef.current = null;
+    setSavedBaseline(changeCountRef.current);
+    setSavedAt(new Date(current.modifiedTime));
+    setSavedByTab(false);
+    setLoadedAt(new Date());
+    setStatus('saved');
+    setDbEpoch((epoch) => epoch + 1);
+    // Tell the pages to re-read, without counting it as a change.
+    suppressDirtyRef.current = true;
+    try {
+      window.dispatchEvent(new Event('finance-db-change'));
+    } finally {
+      suppressDirtyRef.current = false;
+    }
+    return true;
+  }, [setLive]);
+
   const loadFromDrive = useCallback(async (token: string) => {
     const operation = ++operationGenerationRef.current;
     const isCurrent = () => operation === operationGenerationRef.current;
     driveTokenRef.current = token;
-    engineRef.current = createDriveSyncEngine(token);
+    engineRef.current = engineFor(token);
     setGate('loading');
     setMessage('');
     setLoadInfo({ step: 'finding', file: null, loaded: 0, total: null, error: '' });
@@ -215,13 +323,14 @@ function App() {
       setStatus('saved');
       setDbEpoch((epoch) => epoch + 1);
       setGate('ready');
+      void startEditSession(token);
     } catch (error) {
       if (!isCurrent()) return;
       if (error instanceof DriveAccessMissingError) setGate('permission');
       else if (error instanceof DriveReconnectRequiredError) setGate('reconnect');
       else setLoadInfo((info) => ({ ...info, error: error instanceof Error ? error.message : 'Could not open your data from Drive.' }));
     }
-  }, [setLive]);
+  }, [engineFor, setLive, startEditSession]);
 
   // Sign-in asks Google for drive.file directly, so a fresh session carries a Drive token and loads at once.
   useEffect(() => {
@@ -234,6 +343,8 @@ function App() {
 
   useEffect(() => {
     const markDirty = () => {
+      // A reload from Drive, or a stray write while view only (blocked before it changes data).
+      if (suppressDirtyRef.current || isReadOnly()) return;
       dirtyRef.current = true;
       dirtySinceRef.current ??= Date.now();
       changeCountRef.current += 1;
@@ -264,10 +375,24 @@ function App() {
 
   useEffect(() => {
     const onOffline = () => {
+      setOnline(false);
       if (dirtyRef.current) setStatus('offline');
     };
     const onOnline = () => {
-      if (dirtyRef.current) void saveRef.current();
+      setOnline(true);
+      // Re-check the lock first: another device may have taken over while this tab was offline.
+      void (async () => {
+        const editSession = sessionRef.current;
+        if (editSession) {
+          try {
+            if (editSession.getState().mode === 'unknown') await editSession.start();
+            else await editSession.tick();
+          } catch {
+            // The heartbeat retries.
+          }
+        }
+        if (dirtyRef.current) await saveRef.current();
+      })();
     };
     window.addEventListener('offline', onOffline);
     window.addEventListener('online', onOnline);
@@ -289,6 +414,8 @@ function App() {
       setStatus('offline');
       return false;
     }
+    // Only the device holding the edit lock saves. Changes wait until this tab takes over.
+    if (sessionRef.current?.getState().mode !== 'editing') return false;
     savingRef.current = true;
     const savedChangeCount = changeCountRef.current;
     let saveAgain = false;
@@ -318,7 +445,9 @@ function App() {
       setStatus('unsaved');
       return false;
     } catch (error) {
-      if (error instanceof DriveReconnectRequiredError || error instanceof DriveAccessMissingError) setStatus('reconnect');
+      // Another device holds the edit lock: the lost-lock handler already dealt with the changes.
+      if (error instanceof EditLockLostError || isReadOnlyError(error)) setStatus(dirtyRef.current ? 'unsaved' : 'saved');
+      else if (error instanceof DriveReconnectRequiredError || error instanceof DriveAccessMissingError) setStatus('reconnect');
       else {
         setStatus('error');
         setMessage(error instanceof Error ? error.message : 'Could not save to Google Drive.');
@@ -336,12 +465,123 @@ function App() {
     };
   }, [save]);
 
+  // The lock moved to another device while this tab was editing. Keep unsaved changes as a Drive
+  // snapshot (30 days), then show Drive's copy. If the snapshot fails, keep them in the tab instead.
+  useEffect(() => {
+    lostRef.current = async (holder) => {
+      const pending = dirtyRef.current ? Math.max(1, changeCount - savedBaseline) : 0;
+      if (pending) {
+        const token = driveTokenRef.current;
+        try {
+          if (!token) throw new DriveReconnectRequiredError();
+          await new GoogleDriveSyncPort(token).createSnapshot(discardedOfflineSnapshotName(new Date()), exportDatabase());
+        } catch {
+          setMovedInfo({ holder, discarded: 0, kept: pending });
+          return;
+        }
+      }
+      setMovedInfo({ holder, discarded: pending, kept: 0 });
+      try {
+        await refreshFromDrive(pending > 0);
+      } catch {
+        // The view-only refresh retries on the next heartbeat.
+      }
+      return pending ? 'discarded' : undefined;
+    };
+  }, [changeCount, savedBaseline, refreshFromDrive]);
+
+  // Heartbeat: keep the lock fresh while editing; while view only, follow who holds it and load what
+  // they save. A tab that couldn't check the lock yet (offline at open) tries again.
+  useEffect(() => {
+    if (gate !== 'ready') return;
+    const timer = window.setInterval(() => {
+      const editSession = sessionRef.current;
+      if (!editSession || !driveTokenRef.current || !navigator.onLine) return;
+      void (async () => {
+        if (editSession.getState().mode === 'unknown') await editSession.start();
+        else await editSession.tick();
+        if (editSession.getState().mode === 'view-only' && !dirtyRef.current) await refreshFromDrive();
+      })().catch((error: unknown) => {
+        if (error instanceof DriveReconnectRequiredError) setStatus('reconnect');
+      });
+    }, LOCK_HEARTBEAT_MS);
+    return () => window.clearInterval(timer);
+  }, [gate, refreshFromDrive]);
+
+  // Editing again (took over, or the lock was free): save what waited, drop the "moved" banner.
+  useEffect(() => {
+    if (lock.mode !== 'editing') return;
+    setMovedInfo(null);
+    setAskTakeOver(false);
+    if (dirtyRef.current) void saveRef.current();
+  }, [lock.mode]);
+
+  // Read-only unless this tab holds the lock, is online and connected to Drive.
+  const readOnly = gate === 'ready' && (lock.mode !== 'editing' || !online || status === 'reconnect');
+  useEffect(() => {
+    setReadOnly(readOnly);
+  }, [readOnly]);
+  useEffect(() => () => setReadOnly(false), []);
+
+  // Closing or reloading the tab gives the lock up, so the phone can edit straight away.
+  useEffect(() => {
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      if (sessionRef.current?.editing) sessionRef.current.releaseNow();
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, []);
+
+  // Anything a page didn't disable fails with ReadOnlyError: show a short notice, not a crash.
+  useEffect(() => {
+    const onRejection = (event: PromiseRejectionEvent) => {
+      if (!isReadOnlyError(event.reason)) return;
+      event.preventDefault();
+      setBlockedNotice(true);
+    };
+    const onError = (event: ErrorEvent) => {
+      if (!isReadOnlyError(event.error)) return;
+      event.preventDefault();
+      setBlockedNotice(true);
+    };
+    window.addEventListener('unhandledrejection', onRejection);
+    window.addEventListener('error', onError);
+    return () => {
+      window.removeEventListener('unhandledrejection', onRejection);
+      window.removeEventListener('error', onError);
+    };
+  }, []);
+  useEffect(() => {
+    if (!blockedNotice) return;
+    const timer = window.setTimeout(() => setBlockedNotice(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [blockedNotice]);
+
+  const takeOver = useCallback(async () => {
+    const editSession = sessionRef.current;
+    const token = driveTokenRef.current;
+    if (!editSession || !token) throw new DriveReconnectRequiredError();
+    editSession.setPort(new GoogleDriveSyncPort(token));
+    await editSession.takeOver();
+    if (!editSession.editing) throw new Error('Another device took the edit lock first. Try again.');
+    // Kept changes are saved by the editing effect (a Drive change since load shows the conflict
+    // dialog). Otherwise load what the other device saved.
+    if (!dirtyRef.current) await refreshFromDrive();
+  }, [refreshFromDrive]);
+
+  const stayViewOnly = useCallback(() => {
+    sessionRef.current?.chooseViewOnly();
+    setAskTakeOver(false);
+  }, []);
+
   const reconnectDrive = useCallback(async () => {
     try {
       const token = await requestDriveAccessToken();
       driveTokenRef.current = token;
-      engineRef.current = createDriveSyncEngine(token);
+      engineRef.current = engineFor(token);
       if (dbEpoch) {
+        await startEditSession(token);
         if (dirtyRef.current) await saveRef.current();
         else setStatus('saved');
         return;
@@ -351,7 +591,7 @@ function App() {
       setMessage(error instanceof Error ? error.message : 'Could not reconnect Google Drive.');
       if (!dbEpoch) setGate((current) => (current === 'permission' ? 'permission' : 'reconnect'));
     }
-  }, [dbEpoch, loadFromDrive]);
+  }, [dbEpoch, engineFor, loadFromDrive, startEditSession]);
 
   const startFresh = useCallback(async () => {
     const operation = ++operationGenerationRef.current;
@@ -370,10 +610,11 @@ function App() {
       setStatus('unsaved');
       setDbEpoch((epoch) => epoch + 1);
       setGate('ready');
+      if (driveTokenRef.current) void startEditSession(driveTokenRef.current);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not create a database.');
     }
-  }, [setLive]);
+  }, [setLive, startEditSession]);
 
   const loadDriveVersion = useCallback(async () => {
     const token = driveTokenRef.current;
@@ -426,6 +667,7 @@ function App() {
   }, []);
 
   const snapshotBeforeDelete = useCallback(async () => {
+    if (isReadOnly()) throw new ReadOnlyError();
     if (dirtyRef.current) await saveRef.current();
     if (dirtyRef.current) throw new Error('Resolve the pending Drive save before deleting data.');
     const token = driveTokenRef.current;
@@ -437,6 +679,7 @@ function App() {
   }, []);
 
   const restoreSnapshot = useCallback(async (snapshotId: string) => {
+    if (isReadOnly()) throw new ReadOnlyError();
     const token = driveTokenRef.current;
     if (!token || !engineRef.current) throw new DriveReconnectRequiredError();
     setDatabaseReplacementInProgress(true);
@@ -461,6 +704,8 @@ function App() {
       setGate('ready');
       const { touchDataUpdatedAt } = await import('@finance-tracker/core/db/repository');
       touchDataUpdatedAt();
+      // Opened from the damaged-file screen: take the lock so the restored copy can be saved.
+      void startEditSession(token);
     } catch (error) {
       // openDatabase leaves the current data untouched on failure; the caller shows the error.
       if (error instanceof DriveReconnectRequiredError) setStatus('reconnect');
@@ -468,7 +713,7 @@ function App() {
     } finally {
       setDatabaseReplacementInProgress(false);
     }
-  }, [dbEpoch]);
+  }, [dbEpoch, startEditSession]);
 
   const exportExcel = useCallback(async (toDrive: boolean) => {
     if (!toDrive) {
@@ -506,6 +751,8 @@ function App() {
       if (dirtyRef.current) throw new Error('Your changes aren’t saved to Drive yet. Fix the save status at the top, then sign out.');
     }
     try {
+      // Give the edit lock up so the phone can edit straight away (best effort; it expires anyway).
+      if (sessionRef.current?.editing) await sessionRef.current.release().catch(() => undefined);
       await revokeDriveAccessToken(driveTokenRef.current);
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
@@ -564,7 +811,16 @@ function App() {
         onRestoreSnapshot={restoreSnapshot}
         onBeforeDelete={snapshotBeforeDelete}
         onExportExcel={exportExcel}
+        lock={lock}
+        online={online}
+        readOnly={readOnly}
+        movedInfo={movedInfo}
+        blockedNotice={blockedNotice}
+        onAskTakeOver={() => setAskTakeOver(true)}
       />
+      {gate === 'ready' && lock.mode === 'view-only' && (lock.reason === 'in-use' || askTakeOver) && (
+        <InUseDialog holder={lock.holder} onTakeOver={takeOver} onViewOnly={stayViewOnly} />
+      )}
       {status === 'conflict' && (
         <ConflictDialog
           driveTime={conflictDriveTime}
@@ -791,6 +1047,12 @@ function AppShell({
   onRestoreSnapshot,
   onBeforeDelete,
   onExportExcel,
+  lock,
+  online,
+  readOnly,
+  movedInfo,
+  blockedNotice,
+  onAskTakeOver,
 }: {
   profile: Profile;
   status: SaveStatus;
@@ -813,6 +1075,12 @@ function AppShell({
   onRestoreSnapshot: (id: string) => Promise<void>;
   onBeforeDelete: () => Promise<void>;
   onExportExcel: (toDrive: boolean) => Promise<void>;
+  lock: EditSessionState;
+  online: boolean;
+  readOnly: boolean;
+  movedInfo: MovedInfo | null;
+  blockedNotice: boolean;
+  onAskTakeOver: () => void;
 }) {
   const location = useLocation();
   const [search, setSearch] = useState('');
@@ -910,18 +1178,22 @@ function AppShell({
             {isActivity && (
               <label className="w-search"><Icon name="search" /><input ref={searchRef} className="grow" aria-label="Search payee, note, amount" aria-keyshortcuts="/" placeholder="Search payee, note, amount…" value={search} onChange={(event) => setSearch(event.target.value)} /><span className="kbd" aria-hidden="true">/</span></label>
             )}
-            <SyncPill status={status} pendingChanges={pendingChanges} savedAt={savedAt} savedByTab={savedByTab} loadedAt={loadedAt} onSaveNow={onSaveNow} onReconnect={onReconnect} />
+            <SyncPill status={status} lock={online ? lock : null} pendingChanges={pendingChanges} savedAt={savedAt} savedByTab={savedByTab} loadedAt={loadedAt} onSaveNow={onSaveNow} onReconnect={onReconnect} onTakeOver={onAskTakeOver} />
             <div ref={setTopActions} style={{ display: 'contents' }} />
           </header>
 
+          {online && lock.mode === 'view-only' && <LockBanner lock={lock} movedInfo={movedInfo} onTakeOver={onAskTakeOver} />}
           {status === 'reconnect' && (
-            <div className="w-shell-banner"><div className="banner banner--review banner--wrap"><Icon name="link_off" /><div className="banner__copy"><div className="t-small-em">Google Drive disconnected</div><div className="t-small muted">{pendingChanges > 0 ? `Your ${pendingChanges} ${pendingChanges === 1 ? 'change is' : 'changes are'} kept in this tab. Reconnect to save them. Don’t close the tab until then.` : 'Reconnect to keep saving changes from this tab.'}</div></div><button type="button" className="banner__action" onClick={onReconnect}>Reconnect</button></div></div>
+            <div className="w-shell-banner"><div className="banner banner--review banner--wrap"><Icon name="link_off" /><div className="banner__copy"><div className="t-small-em">Google Drive disconnected · editing paused</div><div className="t-small muted">{pendingChanges > 0 ? `Your ${pendingChanges} ${pendingChanges === 1 ? 'change is' : 'changes are'} kept in this tab. Reconnect to save them. Don’t close the tab until then.` : 'Reconnect to keep saving changes from this tab.'}</div></div><button type="button" className="banner__action" onClick={onReconnect}>Reconnect</button></div></div>
           )}
           {signedOutElsewhere && (
             <div className="w-shell-banner"><div className="banner banner--review banner--wrap" role="alert"><Icon name="logout" /><div className="banner__copy"><div className="t-small-em">You were signed out</div><div className="t-small muted">This tab still has unsaved changes. It closes your data as soon as they’re saved to Drive. Don’t close the tab until then.</div></div></div></div>
           )}
-          {status === 'offline' && (
-            <div className="w-shell-banner"><div className="banner banner--review"><Icon name="cloud_off" /><div className="banner__copy t-small">You’re offline. Changes are kept in this tab and will save to Drive when you’re back online.</div></div></div>
+          {!online && (
+            <div className="w-shell-banner"><div className="banner banner--review banner--wrap"><Icon name="cloud_off" /><div className="banner__copy"><div className="t-small-em">You’re offline · editing paused</div><div className="t-small muted">{pendingChanges > 0 ? `You can still browse. ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'} not yet saved ${pendingChanges === 1 ? 'is' : 'are'} kept in this tab and save when you’re back, unless another device takes over editing first.` : 'You can still browse. Editing resumes when you’re back online.'}</div></div></div></div>
+          )}
+          {blockedNotice && readOnly && (
+            <div className="w-shell-banner"><div className="banner banner--review" role="status"><Icon name="visibility" /><div className="banner__copy t-small">{lock.mode === 'view-only' ? VIEW_ONLY_HINT : 'Editing is paused until this tab is online and connected to Google Drive.'}</div></div></div>
           )}
           {status === 'error' && message && (
             <div className="w-shell-banner"><div className="banner banner--danger banner--wrap" role="alert"><Icon name="error" /><div className="banner__copy"><div className="t-small-em">Couldn’t save to Drive</div><div className="t-small muted">{message}</div></div><button type="button" className="banner__action" onClick={onSaveNow}>Retry</button></div></div>
@@ -960,20 +1232,25 @@ const SYNC_ICON: Record<SaveStatus, string> = {
 
 function SyncPill({
   status,
+  lock,
   pendingChanges,
   savedAt,
   savedByTab,
   loadedAt,
   onSaveNow,
   onReconnect,
+  onTakeOver,
 }: {
   status: SaveStatus;
+  /** The edit lock, or null while offline (the save status says that). */
+  lock: EditSessionState | null;
   pendingChanges: number;
   savedAt: Date | null;
   savedByTab: boolean;
   loadedAt: Date | null;
   onSaveNow: () => void;
   onReconnect: () => void;
+  onTakeOver: () => void;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -1011,17 +1288,27 @@ function SyncPill({
     conflict: 'Conflict · action needed',
     error: 'Not saved · retry',
   }[status];
-  const pillClass = status === 'error' ? 'conflict' : status;
+  // While another device edits, the lock state replaces the save state.
+  const lockPill = lock?.mode === 'view-only' && status !== 'reconnect'
+    ? lock.reason === 'in-use'
+      ? { cls: 'inuse', icon: 'devices', text: `In use on ${holderName(lock.holder, 'web')}` }
+      : lock.reason === 'moved' || lock.reason === 'discarded'
+        ? { cls: 'moved', icon: 'phonelink_lock', text: 'View only · editing moved' }
+        : { cls: 'viewonly', icon: 'visibility', text: 'View only' }
+    : null;
+  const pillClass = lockPill?.cls ?? (status === 'error' ? 'conflict' : status);
+  const pillIcon = lockPill?.icon ?? SYNC_ICON[status];
+  const pillText = lockPill?.text ?? text;
 
   return (
     <span className="anchor" ref={anchorRef}>
       <button type="button" className={`sync sync--${pillClass}`} aria-haspopup="dialog" aria-expanded={open} aria-live="polite" onClick={() => setOpen((value) => !value)}>
-        <Icon name={SYNC_ICON[status]} /><span className="sync__text">{text}</span>
+        <Icon name={pillIcon} /><span className="sync__text">{pillText}</span>
       </button>
       {open && (
         <div className="pop" role="dialog" aria-label="Google Drive save status" style={{ top: 40, right: 0, width: 320 }}>
           <div style={{ padding: 'var(--sp-3) var(--sp-3) var(--sp-2)' }} className="col gap-1"><span className="t-overline muted">GOOGLE DRIVE</span>
-            <span className="t-small-em">{text}</span></div>
+            <span className="t-small-em">{pillText}</span></div>
           <div className="dl" style={{ padding: '0 var(--sp-3)' }}>
             <div className="dl__row"><span className="dl__k">File</span><span className="dl__v">Finance Tracker / {LIVE_FILE_LABEL}</span></div>
             <div className="dl__row"><span className="dl__k">Last saved</span><span className="dl__v">{savedAt ? `${friendlyDateTime(savedAt)}${savedByTab ? ' · this tab' : ''}` : 'Not saved yet'}</span></div>
@@ -1030,7 +1317,9 @@ function SyncPill({
           </div>
           <div className="pop__foot">
             <button type="button" className="btn btn--sm btn--ghost" onClick={() => { setOpen(false); navigate('/settings?section=drive'); }}>Snapshots</button>
-            {status === 'reconnect'
+            {lockPill
+              ? <button type="button" className="btn btn--sm btn--primary" onClick={() => { setOpen(false); onTakeOver(); }}><Icon name="edit" />Take over</button>
+              : status === 'reconnect'
               ? <button type="button" className="btn btn--sm btn--primary" onClick={() => { setOpen(false); onReconnect(); }}><Icon name="link" />Reconnect</button>
               : <button type="button" className="btn btn--sm btn--primary" disabled={status === 'saving' || status === 'conflict'} onClick={() => { setOpen(false); onSaveNow(); }}><Icon name="cloud_upload" />Save now</button>}
           </div>
@@ -1046,6 +1335,72 @@ function exportSize(): string {
   } catch {
     return '—';
   }
+}
+
+function LockBanner({ lock, movedInfo, onTakeOver }: { lock: EditSessionState; movedInfo: MovedInfo | null; onTakeOver: () => void }) {
+  const moved = (lock.reason === 'moved' || lock.reason === 'discarded') && movedInfo;
+  if (moved) {
+    const who = holderName(movedInfo.holder, 'web');
+    const at = movedInfo.holder ? ` at ${lockTime(movedInfo.holder.acquiredAt)}` : '';
+    const count = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`;
+    const detail = movedInfo.discarded
+      ? `This tab is now view only. ${count(movedInfo.discarded)} it hadn’t saved yet ${movedInfo.discarded === 1 ? 'was' : 'were'} kept as a Drive snapshot for 30 days.`
+      : movedInfo.kept
+        ? `This tab is now view only. Its ${count(movedInfo.kept)} not yet saved ${movedInfo.kept === 1 ? 'is' : 'are'} still here; take over to save ${movedInfo.kept === 1 ? 'it' : 'them'}.`
+        : 'This tab is now view only and shows the other device’s changes as they’re saved.';
+    return (
+      <div className="w-shell-banner"><div className="banner banner--review banner--wrap" role="status"><Icon name="phonelink_lock" /><div className="banner__copy"><div className="t-small-em">Editing moved to {who}{at}</div><div className="t-small muted">{detail}</div></div><button type="button" className="banner__action" onClick={onTakeOver}>Take over</button></div></div>
+    );
+  }
+  const holder = lock.holder;
+  const detail = holder
+    ? `${capitalize(holderName(holder, 'web'))} is editing (since ${lockTime(holder.acquiredAt)}). You can browse and search, but nothing here is saved.`
+    : 'No device is editing right now. Take over to edit here.';
+  return (
+    <div className="w-shell-banner"><div className="banner banner--wrap" role="status"><Icon name="visibility" /><div className="banner__copy"><div className="t-small-em">View only</div><div className="t-small muted">{detail}</div></div><button type="button" className="banner__action" onClick={onTakeOver}>Take over</button></div></div>
+  );
+}
+
+function InUseDialog({ holder, onTakeOver, onViewOnly }: { holder: EditLock | null; onTakeOver: () => Promise<void>; onViewOnly: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) onViewOnly();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onViewOnly]);
+  const who = holderName(holder, 'web');
+  const minutes = holder ? Math.max(0, Math.round((Date.now() - Date.parse(holder.refreshedAt)) / 60_000)) : null;
+  const lastActive = minutes === null || !Number.isFinite(minutes) ? '' : minutes === 0 ? ' and was last active just now' : ` and was last active ${minutes} min ago`;
+  const other = holder?.platform === 'phone' ? 'The phone' : 'The other device';
+  const takeOver = () => {
+    setBusy(true);
+    setError('');
+    onTakeOver().catch((reason: unknown) => {
+      setBusy(false);
+      setError(reason instanceof Error ? reason.message : 'Could not take over editing.');
+    });
+  };
+  return (
+    <div className="w-modal">
+      <div className="w-dialog" role="alertdialog" aria-modal="true" aria-labelledby="iu-t">
+        <div className="w-dialog__head"><span className="w-dialog__icon w-dialog__icon--review"><Icon name="devices" /></span>
+          <div className="col gap-1"><span id="iu-t" className="t-heading">In use on {who}</span>
+            <span className="t-small muted">Only one device can edit at a time, so changes never overwrite each other.{holder ? ` ${capitalize(who)} has been editing since ${lockTime(holder.acquiredAt)}${lastActive}.` : ''}</span></div></div>
+        <div className="card card--subtle col gap-2">
+          <div className="row gap-2"><Icon name="edit" className="ms-24 c-accent" /><div className="col gap-0"><span className="t-small-em">Take over</span><span className="t-caption muted">This tab edits. {other} switches to view only. Anything it hasn’t saved yet is kept as a Drive snapshot.</span></div></div>
+          <div className="row gap-2"><Icon name="visibility" className="ms-24 muted" /><div className="col gap-0"><span className="t-small-em">View only</span><span className="t-caption muted">Browse and search here. Nothing is saved. You can take over later from the banner.</span></div></div>
+        </div>
+        {error && <div className="banner banner--danger" role="alert"><Icon name="error" /><div className="banner__copy t-small">{error}</div></div>}
+        <div className="w-dialog__actions">
+          <button type="button" className="btn" disabled={busy} onClick={onViewOnly}>View only</button>
+          <button type="button" className="btn btn--primary" disabled={busy} autoFocus onClick={takeOver}><Icon name="edit" />{busy ? 'Taking over…' : 'Take over'}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ConflictDialog({

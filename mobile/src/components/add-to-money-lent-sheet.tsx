@@ -21,6 +21,7 @@ import { Chip } from '@/components/chip';
 import { SegmentedControl } from '@/components/segmented-control';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { TextRole } from '@/constants/typography';
 import type { TransactionRow } from '@/core/db/schema';
@@ -37,6 +38,7 @@ import {
   type LoanPart,
 } from '@/core/lending/roles';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 export interface LoanChoice {
   id: number;
@@ -116,6 +118,8 @@ export function AddToMoneyLentSheet({
   onClose,
 }: AddToMoneyLentSheetProps) {
   const theme = useTheme();
+  // View only: the current attachment stays readable; every control that would change it is disabled.
+  const viewOnly = useViewOnly();
   const [mode, setMode] = useState<'single' | 'split'>('single');
   const [selectedLoanId, setSelectedLoanId] = useState<number | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
@@ -339,6 +343,7 @@ export function AddToMoneyLentSheet({
                 options={LOAN_FLOWS.map((option) => ({ value: option.flow, label: option.label }))}
                 value={flow}
                 onChange={setFlow}
+                disabled={viewOnly}
               />
               {singleError ? (
                 <ThemedText type="small" style={{ color: theme.spend }} accessibilityLiveRegion="polite">
@@ -387,10 +392,14 @@ export function AddToMoneyLentSheet({
                       )}
                       <Pressable
                         onPress={() => removeRow(i)}
+                        disabled={viewOnly}
                         hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
                         accessibilityRole="button"
                         accessibilityLabel={`Remove slice ${i + 1}`}
-                        style={({ pressed }) => ({ opacity: pressed ? Opacity.pressed : 1 })}
+                        accessibilityState={{ disabled: viewOnly }}
+                        style={({ pressed }) => ({
+                          opacity: viewOnly ? Opacity.disabled : pressed ? Opacity.pressed : 1,
+                        })}
                       >
                         <ThemedText type="smallEmphasis" style={{ color: theme.spend }}>
                           Remove
@@ -400,14 +409,15 @@ export function AddToMoneyLentSheet({
 
                     <Pressable
                       onPress={() => setOpenLoanPicker(pickerOpen ? null : row.key)}
+                      disabled={viewOnly}
                       accessibilityRole="button"
                       accessibilityLabel={`Choose loan for slice ${i + 1}`}
-                      accessibilityState={{ expanded: pickerOpen }}
+                      accessibilityState={{ expanded: pickerOpen, disabled: viewOnly }}
                       hitSlop={{ top: 3, bottom: 3 }}
                       style={({ pressed }) => [
                         styles.loanSelector,
                         { borderColor: row.loanId == null && rowError ? theme.spend : theme.borderStrong },
-                        { opacity: pressed ? Opacity.pressed : 1 },
+                        { opacity: viewOnly ? Opacity.disabled : pressed ? Opacity.pressed : 1 },
                       ]}
                     >
                       <ThemedText
@@ -427,7 +437,7 @@ export function AddToMoneyLentSheet({
                         tintColor={theme.textSecondary}
                       />
                     </Pressable>
-                    {pickerOpen ? (
+                    {pickerOpen && !viewOnly ? (
                       <View style={[styles.loanOptions, { borderColor: theme.border }]}>
                         {loans.length === 0 ? (
                           <ThemedText type="small" themeColor="textSecondary" style={styles.loanOptionEmpty}>
@@ -479,10 +489,12 @@ export function AddToMoneyLentSheet({
                       options={LOAN_FLOWS.map((option) => ({ value: option.flow, label: option.label }))}
                       value={row.flow}
                       onChange={(nextFlow) => updateRow(i, { flow: nextFlow })}
+                      disabled={viewOnly}
                     />
                     <TextField
                       value={row.text}
                       onChangeText={(value) => updateRow(i, { text: value })}
+                      editable={!viewOnly}
                       placeholder="0.00"
                       keyboardType="decimal-pad"
                       leading={
@@ -507,6 +519,7 @@ export function AddToMoneyLentSheet({
                 variant="secondary"
                 size="small"
                 onPress={addRow}
+                disabled={viewOnly}
               />
 
               <Card
@@ -558,7 +571,7 @@ export function AddToMoneyLentSheet({
                 and paid on money you borrowed. Paid and Received stay out of spending and income; interest
                 still counts.
               </ThemedText>
-              <Button label="Save split" variant="primary" onPress={submitSplit} disabled={!canSplit} style={styles.saveBtn} />
+              <Button label="Save split" variant="primary" onPress={submitSplit} disabled={!canSplit || viewOnly} style={styles.saveBtn} />
             </>
           ) : attached ? (
             <>
@@ -574,7 +587,7 @@ export function AddToMoneyLentSheet({
                 label="Update Money Lent"
                 variant="primary"
                 onPress={submitSingle}
-                disabled={!canSubmitSingle}
+                disabled={!canSubmitSingle || viewOnly}
                 style={styles.saveBtn}
               />
             </>
@@ -594,9 +607,10 @@ export function AddToMoneyLentSheet({
                           setSelectedLoanId(loan.id);
                           setCreatingNew(false);
                         }}
+                        disabled={viewOnly}
                         accessibilityRole="radio"
                         accessibilityLabel={loanLabel(loan)}
-                        accessibilityState={{ checked: chosen }}
+                        accessibilityState={{ checked: chosen, disabled: viewOnly }}
                         style={({ pressed }) => [
                           styles.loanRow,
                           index > 0 && {
@@ -607,7 +621,7 @@ export function AddToMoneyLentSheet({
                             backgroundColor: chosen
                               ? theme.backgroundSelected
                               : theme.backgroundElement,
-                            opacity: pressed ? Opacity.pressed : 1,
+                            opacity: viewOnly ? Opacity.disabled : pressed ? Opacity.pressed : 1,
                           },
                         ]}
                       >
@@ -639,9 +653,10 @@ export function AddToMoneyLentSheet({
                   setCreatingNew(true);
                   setSelectedLoanId(null);
                 }}
+                disabled={viewOnly}
               />
 
-              {creatingNew && (
+              {creatingNew && !viewOnly && (
                 <Card tone="subtle" padding="small" style={styles.newLoan}>
                   <ThemedText type="overline" themeColor="textSecondary">
                     NEW LOAN
@@ -693,7 +708,7 @@ export function AddToMoneyLentSheet({
                 label="Add to Money Lent"
                 variant="primary"
                 onPress={submitSingle}
-                disabled={!canSubmitSingle}
+                disabled={!canSubmitSingle || viewOnly}
                 style={styles.saveBtn}
               />
             </>
@@ -702,16 +717,22 @@ export function AddToMoneyLentSheet({
           {(attached || isSplit) && (
             <Pressable
               onPress={onDetach}
+              disabled={viewOnly}
               accessibilityRole="button"
               accessibilityLabel="Remove this transaction from Money Lent"
+              accessibilityState={{ disabled: viewOnly }}
               hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-              style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? Opacity.pressed : 1 }]}
+              style={({ pressed }) => [
+                styles.removeBtn,
+                { opacity: viewOnly ? Opacity.disabled : pressed ? Opacity.pressed : 1 },
+              ]}
             >
               <ThemedText type="smallEmphasis" style={{ color: theme.spend }}>
                 Remove from Money Lent
               </ThemedText>
             </Pressable>
           )}
+          {viewOnly ? <ViewOnlyHint /> : null}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>

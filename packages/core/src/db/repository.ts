@@ -4,11 +4,12 @@
  * user's edits. Keeps SQL/Drizzle details in one place so screens stay simple.
  */
 
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { nextDataUpdatedAt } from './data-updated-at';
-import { deleteMeta, getDb, getMeta, setMeta } from './runtime';
+import { assertWritable, deleteMeta, getDb, getMeta, setMeta } from './runtime';
 import { seedDatabase } from './seed-database';
+import { lastImportQuery, summarizeLastImport, type LastImportSummary } from './queries/transactions';
 import {
   categories,
   categoryRules,
@@ -169,6 +170,7 @@ export function clearPendingImport(): void {
 
 /** Mark the local data as changed right now. Call after any user-initiated data mutation. */
 export function touchDataUpdatedAt(): void {
+  assertWritable();
   setDataUpdatedAt(nextDataUpdatedAt(getDataUpdatedAt()));
 }
 
@@ -230,61 +232,79 @@ export function saveTransactions(
   // Record the import batch first so its id can stamp the rows (only when this came from a real
   // import — a null label means "don't track", e.g. an internal insert). Credit-card imports also
   // stamp the statement's card/month/total-due, used later to link the bank bill-payment to it.
-  let importId: number | null = null;
-  if (sourceLabel !== null) {
-    const ins = db
-      .insert(imports)
-      .values({
-        sourceLabel: sourceLabel.trim(),
-        importedAt: now,
-        addedCount: fresh.length,
-        updatedCount: 0,
-        cardLast4: cardMeta?.cardLast4 ?? null,
-        statementMonth: cardMeta?.statementMonth ?? null,
-        totalDuePaise: cardMeta?.totalDuePaise ?? null,
-      })
-      .returning({ id: imports.id })
-      .all();
-    importId = ins[0].id;
-  }
+  const added = db.transaction((tx) => {
+    let importId: number | null = null;
+    if (sourceLabel !== null) {
+      const ins = tx
+        .insert(imports)
+        .values({
+          sourceLabel: sourceLabel.trim(),
+          importedAt: now,
+          addedCount: fresh.length,
+          updatedCount: 0,
+          cardLast4: cardMeta?.cardLast4 ?? null,
+          statementMonth: cardMeta?.statementMonth ?? null,
+          totalDuePaise: cardMeta?.totalDuePaise ?? null,
+        })
+        .returning({ id: imports.id })
+        .all();
+      importId = ins[0].id;
+    }
 
-  const rows: NewTransactionRow[] = fresh.map((t) => {
-    const guess = categorizeTxn(t, index, learned);
+    const rows: NewTransactionRow[] = fresh.map((t) => {
+      const guess = categorizeTxn(t, index, learned);
 
-    // Transfers (to your own accounts, or money sent to a person) are always surfaced for review —
-    // they're the "money lent?" bucket the user decides on. Applies to every source, incl. Paytm.
-    const needsReview = guess.needsReview || t.kind === 'self' || t.kind === 'sent';
+      // Transfers (to your own accounts, or money sent to a person) are always surfaced for review —
+      // they're the "money lent?" bucket the user decides on. Applies to every source, incl. Paytm.
+      const needsReview = guess.needsReview || t.kind === 'self' || t.kind === 'sent';
 
-    return {
-      isoDate: t.isoDate,
-      time: t.time,
-      paise: t.paise,
-      direction: t.direction,
-      kind: t.kind,
-      categoryId: guess.categoryId,
-      subcategoryId: guess.subcategoryId,
-      counterpartyName: t.counterpartyName,
-      counterpartyVpa: t.counterpartyVpa,
-      accountName: t.accountName,
-      rawDetails: t.rawDetails,
-      rawTag: t.rawTag,
-      remarks: t.remarks,
-      isRefund: t.kind === 'refund',
-      transferRole: t.transferRole ?? null,
-      source: t.source,
-      sourceRef: t.sourceRef,
-      orderId: t.orderId,
-      dedupeKey: t.dedupeKey,
-      importId,
-      autoCategorized: guess.categoryId != null,
-      needsReview,
-      createdAt: now,
-    };
+      return {
+        isoDate: t.isoDate,
+        time: t.time,
+        paise: t.paise,
+        direction: t.direction,
+        kind: t.kind,
+        categoryId: guess.categoryId,
+        subcategoryId: guess.subcategoryId,
+        counterpartyName: t.counterpartyName,
+        counterpartyVpa: t.counterpartyVpa,
+        accountName: t.accountName,
+        rawDetails: t.rawDetails,
+        rawTag: t.rawTag,
+        remarks: t.remarks,
+        isRefund: t.kind === 'refund',
+        transferRole: t.transferRole ?? null,
+        source: t.source,
+        sourceRef: t.sourceRef,
+        orderId: t.orderId,
+        dedupeKey: t.dedupeKey,
+        importId,
+        autoCategorized: guess.categoryId != null,
+        needsReview,
+        createdAt: now,
+      };
+    });
+
+    insertTransactionRows(tx, rows);
+    return rows.length;
   });
-
-  db.insert(transactions).values(rows).onConflictDoNothing({ target: transactions.dedupeKey }).run();
   touchDataUpdatedAt();
-  return rows.length;
+  return added;
+}
+
+/**
+ * SQLite caps how many values one statement can bind (32,766 in the builds we ship), and each
+ * transaction row binds about 24. Insert in chunks so a full-year statement can't overflow it.
+ */
+const INSERT_CHUNK_ROWS = 500;
+
+function insertTransactionRows(db: Pick<ReturnType<typeof getDb>, 'insert'>, rows: NewTransactionRow[]): void {
+  for (let start = 0; start < rows.length; start += INSERT_CHUNK_ROWS) {
+    db.insert(transactions)
+      .values(rows.slice(start, start + INSERT_CHUNK_ROWS))
+      .onConflictDoNothing({ target: transactions.dedupeKey })
+      .run();
+  }
 }
 
 export interface ImportFileBatch {
@@ -363,7 +383,7 @@ export function saveImportBatch(files: ImportFileBatch[]): number {
           createdAt: now,
         };
       });
-      tx.insert(transactions).values(rows).onConflictDoNothing({ target: transactions.dedupeKey }).run();
+      insertTransactionRows(tx, rows);
       insertedCount += rows.length;
     }
     return insertedCount;
@@ -372,15 +392,12 @@ export function saveImportBatch(files: ImportFileBatch[]): number {
   return added;
 }
 
-/** The most recent import batch (for the "revert last import" affordance), or null when none. */
-export function getLastImport(): { id: number; sourceLabel: string; importedAt: string; addedCount: number } | null {
-  const row = getDb()
-    .select({ id: imports.id, sourceLabel: imports.sourceLabel, importedAt: imports.importedAt, addedCount: imports.addedCount })
-    .from(imports)
-    .orderBy(desc(imports.id))
-    .limit(1)
-    .get();
-  return row ?? null;
+/**
+ * The most recent import batch (for the "revert last import" affordance), or null when none. A
+ * multi-file web batch is summed, because reverting it removes every file in the batch.
+ */
+export function getLastImport(): LastImportSummary | null {
+  return summarizeLastImport(lastImportQuery(getDb()).all());
 }
 
 /**
@@ -611,6 +628,11 @@ export function updateLoan(loanId: number, patch: { name?: string; personId?: nu
   const db = getDb();
   const before = getLoanMeta(loanId);
   if (!before) return;
+  if (patch.kind !== undefined && patch.kind !== before.kind && loanHasImportedEntries(loanId)) {
+    throw new Error(
+      'This loan has bank entries attached. Detach them first, or create a new loan for the other direction.',
+    );
+  }
 
   const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (patch.name !== undefined) set.name = patch.name.trim();
@@ -647,6 +669,27 @@ export function updateLoan(loanId: number, patch: { name?: string; personId?: nu
     for (const txnId of new Set(sliced.map((row) => row.txnId))) resyncSplitTxn(txnId);
   }
   touchDataUpdatedAt();
+}
+
+/**
+ * True when an imported (bank/statement) row is on this loan, attached whole or as a split slice.
+ * Its direction is the bank's record, so flipping the loan's direction would mislabel it.
+ */
+export function loanHasImportedEntries(loanId: number): boolean {
+  const db = getDb();
+  const direct = db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(and(eq(transactions.loanId, loanId), sql`${transactions.source} <> 'manual'`))
+    .get();
+  if (direct) return true;
+  const sliced = db
+    .select({ id: transactions.id })
+    .from(loanAllocations)
+    .innerJoin(transactions, eq(transactions.id, loanAllocations.txnId))
+    .where(and(eq(loanAllocations.loanId, loanId), sql`${transactions.source} <> 'manual'`))
+    .get();
+  return !!sliced;
 }
 
 /** Mark a loan closed (collapsed on the Lent tab, out of totals) or reopen it. */
@@ -1042,7 +1085,8 @@ export function setTransactionPerson(txnId: number, personId: number | null): vo
     .from(loanAllocations)
     .where(eq(loanAllocations.txnId, txnId))
     .get();
-  if (row.loanId != null || row.transferRole != null || isSplitLoanTransaction) {
+  // Only loan roles tie the person to a loan. Card bill payments and gifts/donations keep a free choice.
+  if (row.loanId != null || loanPartOf(row.transferRole) != null || isSplitLoanTransaction) {
     throw new Error('The person on a loan transaction is managed by its loan.');
   }
   db.update(transactions).set({ personId }).where(eq(transactions.id, txnId)).run();

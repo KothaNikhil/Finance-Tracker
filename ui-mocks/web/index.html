@@ -53,7 +53,8 @@
     <span class="muted">Drive status</span>
     <select id="sync" aria-label="Drive save status">
       <option value="saved">Saved</option><option value="saving">Saving…</option><option value="unsaved">Unsaved changes</option>
-      <option value="offline">Offline</option><option value="reconnect">Reconnect Drive</option><option value="conflict">Conflict</option>
+      <option value="offline">Offline</option><option value="reconnect">Reconnect Drive</option><option value="conflict">Conflict (backstop)</option>
+      <optgroup label="One device edits at a time"><option value="inuse">In use on phone (after sign-in)</option><option value="viewonly">View only</option><option value="moved">Editing moved to phone</option></optgroup>
     </select>
     <a id="open-direct" href="#" target="_blank">Open page ↗</a>
   </div>

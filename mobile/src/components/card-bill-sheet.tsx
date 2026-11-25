@@ -12,11 +12,13 @@ import {
 } from '@/components/card-bill-model';
 import { Card } from '@/components/card';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { TextRole } from '@/constants/typography';
 import type { ImportRow, TransactionRow } from '@/core/db/schema';
 import { formatINR } from '@/core/domain/money';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const PREVIEW_ITEM_COUNT = 6;
@@ -67,6 +69,8 @@ export function CardBillSheet({
   onClose,
 }: CardBillSheetProps) {
   const theme = useTheme();
+  // View only: the linked statement stays browsable; linking and unlinking are disabled.
+  const viewOnly = useViewOnly();
   const [showAllItems, setShowAllItems] = useState(false);
   const [seededStatementId, setSeededStatementId] = useState<number | null>(null);
 
@@ -229,6 +233,7 @@ export function CardBillSheet({
                 variant="danger"
                 size="small"
                 onPress={onUnlink}
+                disabled={viewOnly}
                 accessibilityHint="Restores this bank transaction to normal counting"
                 icon={{ ios: 'link', android: 'link_off', web: 'link_off' }}
               />
@@ -274,6 +279,7 @@ export function CardBillSheet({
                             statement={statement}
                             suggested
                             border={index > 0}
+                            disabled={viewOnly}
                             onPress={() => onLink(statement.id)}
                           />
                         ))}
@@ -289,6 +295,7 @@ export function CardBillSheet({
                             key={statement.id}
                             statement={statement}
                             border={index > 0}
+                            disabled={viewOnly}
                             onPress={() => onLink(statement.id)}
                           />
                         ))}
@@ -305,6 +312,7 @@ export function CardBillSheet({
               )}
             </>
           )}
+          {viewOnly ? <ViewOnlyHint /> : null}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>
@@ -429,17 +437,21 @@ function StatementChoice({
   statement,
   suggested = false,
   border,
+  disabled = false,
   onPress,
 }: {
   statement: ImportRow;
   suggested?: boolean;
   border: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   const theme = useTheme();
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
+      accessibilityState={{ disabled }}
       accessibilityRole="button"
       accessibilityLabel={`Link ${cardStatementLabel(statement)}${
         statement.totalDuePaise == null ? '' : `, total due ${formatINR(statement.totalDuePaise)}`
@@ -447,7 +459,7 @@ function StatementChoice({
       style={({ pressed }) => [
         styles.choiceRow,
         border ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border } : null,
-        { opacity: pressed ? Opacity.pressed : 1 },
+        { opacity: disabled ? Opacity.disabled : pressed ? Opacity.pressed : 1 },
       ]}
     >
       <View style={styles.grow}>

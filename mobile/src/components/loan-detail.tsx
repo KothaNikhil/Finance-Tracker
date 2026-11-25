@@ -13,12 +13,14 @@ import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { ListSection } from '@/components/list-section';
 import { ThemedText } from '@/components/themed-text';
+import { ViewOnlyHint } from '@/components/view-only-hint';
 import { Opacity, Radius, Spacing, TouchTarget } from '@/constants/theme';
 import { TextRole } from '@/constants/typography';
 import { formatINR } from '@/core/domain/money';
 import { isTransferRole, loanFlowLabel, loanFlowOf, loanPartOf, ROLE_META, type LoanKind, type LoanPart } from '@/core/lending/roles';
 import type { LoanView } from '@/hooks/use-lending';
 import { useTheme } from '@/hooks/use-theme';
+import { useViewOnly } from '@/services/drive/edit-session';
 
 export interface LoanDetailProps {
   visible: boolean;
@@ -52,6 +54,8 @@ interface LoanHistoryItem {
 
 export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting, onEditLoan, onToggleClosed, onDeleteLoan, onPressTxn, onEditTxn }: LoanDetailProps) {
   const theme = useTheme();
+  // View only: balance and history stay readable; every loan action is disabled.
+  const viewOnly = useViewOnly();
   if (!loan) return null;
 
   const { balance: bal, netOwedToMePaise: net } = loan;
@@ -167,6 +171,7 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
                 icon={{ ios: 'plus.square', android: 'add_box', web: 'add_box' }}
                 variant="secondary"
                 onPress={onAddTxn}
+                disabled={viewOnly}
                 style={styles.actionBtn}
               />
               <Button
@@ -174,6 +179,7 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
                 icon={{ ios: 'paperclip', android: 'attach_file', web: 'attach_file' }}
                 variant="secondary"
                 onPress={onAttachExisting}
+                disabled={viewOnly}
                 style={styles.actionBtn}
               />
             </View>
@@ -188,6 +194,7 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
               icon={{ ios: 'square.and.pencil', android: 'edit', web: 'edit' }}
               variant="secondary"
               onPress={onEditLoan}
+              disabled={viewOnly}
               style={styles.actionBtn}
             />
             <Button
@@ -199,6 +206,7 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
               }}
               variant={loan.closed ? 'secondary' : 'danger'}
               onPress={onToggleClosed}
+              disabled={viewOnly}
               style={styles.actionBtn}
             />
           </View>
@@ -209,7 +217,7 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
             </ThemedText>
             {history.length > 0 ? (
               <ThemedText type="caption" themeColor="textSecondary">
-                Tap a row to edit
+                {viewOnly ? 'Tap a row to view' : 'Tap a row to edit'}
               </ThemedText>
             ) : null}
           </View>
@@ -223,7 +231,10 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
                 <HistoryRow
                   key={item.key}
                   item={item}
-                  onPress={() => (item.manual ? onEditTxn(item.txnId) : onPressTxn(item.txnId))}
+                  onPress={() =>
+                    // View only: a hand-entered row opens the read-only detail sheet, not its editor.
+                    item.manual && !viewOnly ? onEditTxn(item.txnId) : onPressTxn(item.txnId)
+                  }
                 />
               ))}
             </ListSection>
@@ -234,8 +245,10 @@ export function LoanDetail({ visible, loan, onClose, onAddTxn, onAttachExisting,
             icon={{ ios: 'trash', android: 'delete', web: 'delete' }}
             variant="danger"
             onPress={confirmDelete}
+            disabled={viewOnly}
             style={styles.deleteBtn}
           />
+          {viewOnly ? <ViewOnlyHint /> : null}
         </ScrollView>
       </SafeAreaView>
     </BottomSheet>

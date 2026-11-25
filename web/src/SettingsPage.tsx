@@ -28,6 +28,7 @@ import { getImportLog, subscribeImportLog } from '@finance-tracker/core/import/i
 import type { SnapshotFile } from '@finance-tracker/core/sync/engine';
 import type { SaveStatus } from './App';
 import { moveItem, useDatabaseRevision } from './feature-utils';
+import { useReadOnly, VIEW_ONLY_HINT } from './edit-session';
 import { exportDatabase } from './database';
 import { friendlyDateTime, Icon, initials, longDate } from './shell';
 import { applyTheme, getStoredTheme, type ThemePreference } from './theme';
@@ -156,6 +157,12 @@ function SectionHead({ title, copy, children }: { title: string; copy: string; c
   );
 }
 
+/** The view-only line shown at the top of a section whose editing controls are disabled. */
+function ViewOnlyNote({ readOnly }: { readOnly: boolean }) {
+  if (!readOnly) return null;
+  return <div className="banner banner--wrap" role="note"><Icon name="visibility" /><div className="banner__copy t-small">{VIEW_ONLY_HINT}</div></div>;
+}
+
 function InfoRow({ children }: { children: ReactNode }) {
   return <div className="lrow"><span className="ms muted" style={{ fontSize: 18 }} aria-hidden="true">info</span><span className="t-caption muted">{children}</span></div>;
 }
@@ -206,9 +213,11 @@ function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose:
 function useReorder<T extends { id: number }>(items: T[], persist: (ids: number[]) => void) {
   const [dragId, setDragId] = useState<number | null>(null);
   const [overId, setOverId] = useState<number | null>(null);
+  const readOnly = useReadOnly();
   const reset = () => { setDragId(null); setOverId(null); };
   return (item: T, enabled = true) => {
-    if (!enabled) return { className: '' };
+    // Reordering writes, so view only turns off dragging and Alt+arrow moves.
+    if (!enabled || readOnly) return { className: '' };
     return {
       className: `${dragId === item.id ? ' is-dragging' : ''}${overId === item.id && dragId !== item.id ? ' is-drop-target' : ''}`,
       draggable: true,
@@ -292,7 +301,8 @@ function EditRow({
 }
 
 /** Makes a whole `.lrow` open its inline editor on click / Enter (rows the mock draws without row actions). */
-function clickToEdit(drag: { className: string; onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void }, onEdit: () => void) {
+function clickToEdit(drag: { className: string; onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void }, onEdit: () => void, readOnly = false) {
+  if (readOnly) return { className: `lrow${drag.className}` };
   return {
     role: 'button',
     tabIndex: 0,
@@ -310,11 +320,11 @@ function clickToEdit(drag: { className: string; onKeyDown?: (event: KeyboardEven
   };
 }
 
-function RowActions({ name, onEdit, onDelete }: { name: string; onEdit: () => void; onDelete?: () => void }) {
+function RowActions({ name, disabled = false, onEdit, onDelete }: { name: string; disabled?: boolean; onEdit: () => void; onDelete?: () => void }) {
   return (
     <span className="row-actions">
-      <button type="button" className="icon-btn icon-btn--sm icon-btn--plain" aria-label={`Edit ${name}`} onClick={(event) => { event.stopPropagation(); onEdit(); }}><Icon name="edit" /></button>
-      {onDelete && <button type="button" className="icon-btn icon-btn--sm icon-btn--plain" aria-label={`Delete ${name}`} onClick={(event) => { event.stopPropagation(); onDelete(); }}><Icon name="delete" /></button>}
+      <button type="button" className="icon-btn icon-btn--sm icon-btn--plain" aria-label={`Edit ${name}`} disabled={disabled} aria-disabled={disabled || undefined} onClick={(event) => { event.stopPropagation(); onEdit(); }}><Icon name="edit" /></button>
+      {onDelete && <button type="button" className="icon-btn icon-btn--sm icon-btn--plain" aria-label={`Delete ${name}`} disabled={disabled} aria-disabled={disabled || undefined} onClick={(event) => { event.stopPropagation(); onDelete(); }}><Icon name="delete" /></button>}
     </span>
   );
 }
@@ -341,6 +351,8 @@ function CategoriesSection() {
   const [editingCat, setEditingCat] = useState<Editing>(null);
   const [editingSub, setEditingSub] = useState<Editing>(null);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const readOnly = useReadOnly();
+  useEffect(() => { if (readOnly) { setEditingCat(null); setEditingSub(null); setConfirm(null); } }, [readOnly]);
   const categoryRows = useMemo(() => db.select().from(categories).where(eq(categories.isArchived, false)).orderBy(asc(categories.sortOrder), asc(categories.id)).all(), [db, revision]);
   const subcategoryRows = useMemo(() => db.select().from(subcategories).where(eq(subcategories.isArchived, false)).orderBy(asc(subcategories.sortOrder), asc(subcategories.id)).all(), [db, revision]);
   const categoryCounts = useCounts(transactions.categoryId, revision);
@@ -363,8 +375,9 @@ function CategoriesSection() {
   return (
     <section className="sec" aria-label="Categories">
       <SectionHead title="Categories" copy="Drag to reorder. Order is used in pickers on the web and the phone.">
-        <button type="button" className="btn btn--sm btn--primary" onClick={() => setEditingCat({ id: 'new' })}><Icon name="add" />New category</button>
+        <button type="button" className="btn btn--sm btn--primary" disabled={readOnly} aria-disabled={readOnly || undefined} onClick={() => setEditingCat({ id: 'new' })}><Icon name="add" />New category</button>
       </SectionHead>
+      <ViewOnlyNote readOnly={readOnly} />
       <NoticeBanner notice={notice} />
       <div className="two-pane">
         <div className="card pane">
@@ -399,7 +412,7 @@ function CategoriesSection() {
                   <span className="em-box">{item.emoji || <Icon name="label" className="muted ms-16" />}</span>
                   <span className="grow t-label truncate">{item.name}</span>
                   <span className="t-caption muted">{count(categoryCounts.get(item.id))}</span>
-                  <RowActions name={item.name} onEdit={() => setEditingCat({ id: item.id })} />
+                  <RowActions name={item.name} disabled={readOnly} onEdit={() => setEditingCat({ id: item.id })} />
                   <span className="ms muted" style={{ fontSize: 18 }} aria-hidden="true">chevron_right</span>
                 </div>
               );
@@ -411,7 +424,7 @@ function CategoriesSection() {
         <div className="card pane">
           <div className="pane__head">
             <div className="row gap-2">{selected?.emoji && <span>{selected.emoji}</span>}<span className="t-heading">{selected ? `${selected.name} · sub-categories` : 'Sub-categories'}</span></div>
-            <button type="button" className="btn btn--sm btn--ghost" disabled={!selected} onClick={() => setEditingSub({ id: 'new' })}><Icon name="add" />Add</button>
+            <button type="button" className="btn btn--sm btn--ghost" disabled={!selected || readOnly} aria-disabled={readOnly || undefined} onClick={() => setEditingSub({ id: 'new' })}><Icon name="add" />Add</button>
           </div>
           {subs.map((item) => {
             if (editingSub?.id === item.id) {
@@ -425,6 +438,7 @@ function CategoriesSection() {
                 <span className="t-caption muted">{count(subCounts.get(item.id))}</span>
                 <RowActions
                   name={item.name}
+                  disabled={readOnly}
                   onEdit={() => setEditingSub({ id: item.id })}
                   onDelete={() => setConfirm({
                     icon: 'delete',
@@ -465,6 +479,8 @@ function ModesSection() {
   const { notice, run } = useAction();
   const [editing, setEditing] = useState<Editing>(null);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const readOnly = useReadOnly();
+  useEffect(() => { if (readOnly) { setEditing(null); setConfirm(null); } }, [readOnly]);
   const rows = useMemo(() => db.select().from(paymentModes).where(eq(paymentModes.isArchived, false)).orderBy(asc(paymentModes.sortOrder), asc(paymentModes.id)).all(), [db, revision]);
   const counts = useCounts(transactions.paymentModeId, revision);
   const drag = useReorder(rows, reorderPaymentModes);
@@ -477,8 +493,9 @@ function ModesSection() {
   return (
     <section className="sec" aria-label="Payment modes">
       <SectionHead title="Payment modes" copy="How you paid. Shown in the transaction detail.">
-        <button type="button" className="btn btn--sm btn--primary" onClick={() => setEditing({ id: 'new' })}><Icon name="add" />Add mode</button>
+        <button type="button" className="btn btn--sm btn--primary" disabled={readOnly} aria-disabled={readOnly || undefined} onClick={() => setEditing({ id: 'new' })}><Icon name="add" />Add mode</button>
       </SectionHead>
+      <ViewOnlyNote readOnly={readOnly} />
       <NoticeBanner notice={notice} />
       <div className="card pane" style={{ maxWidth: 640 }}>
         {rows.map((item) => {
@@ -495,7 +512,7 @@ function ModesSection() {
           }
           const props = drag(item, editing == null);
           return (
-            <div key={item.id} {...props} {...clickToEdit(props, () => setEditing({ id: item.id }))}>
+            <div key={item.id} {...props} {...clickToEdit(props, () => setEditing({ id: item.id }), readOnly)}>
               <Icon name="drag_indicator" className="drag" />
               {icon}
               <span className="grow t-label">{item.name}</span>
@@ -519,6 +536,8 @@ function PeopleSection({ name }: { name: string }) {
   const { notice, run } = useAction();
   const [editing, setEditing] = useState<Editing>(null);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const readOnly = useReadOnly();
+  useEffect(() => { if (readOnly) { setEditing(null); setConfirm(null); } }, [readOnly]);
   const rows = useMemo(() => db.select().from(people).where(eq(people.isArchived, false)).orderBy(asc(people.sortOrder), asc(people.id)).all(), [db, revision]);
   const loanCounts = useMemo(() => {
     const result = db.select({ id: loans.personId, n: sql<number>`count(*)` }).from(loans).groupBy(loans.personId).all();
@@ -539,8 +558,9 @@ function PeopleSection({ name }: { name: string }) {
   return (
     <section className="sec" aria-label="People & groups">
       <SectionHead title="People & groups" copy="Used for “For” on transactions and for Lending.">
-        <button type="button" className="btn btn--sm btn--primary" onClick={() => setEditing({ id: 'new' })}><Icon name="add" />Add person</button>
+        <button type="button" className="btn btn--sm btn--primary" disabled={readOnly} aria-disabled={readOnly || undefined} onClick={() => setEditing({ id: 'new' })}><Icon name="add" />Add person</button>
       </SectionHead>
+      <ViewOnlyNote readOnly={readOnly} />
       <NoticeBanner notice={notice} />
       <div className="two-pane">
         <div className="card pane">
@@ -559,7 +579,7 @@ function PeopleSection({ name }: { name: string }) {
             const props = drag(item, editing == null);
             const loanCount = loanCounts.get(item.id) ?? 0;
             return (
-              <div key={item.id} {...props} {...clickToEdit(props, () => setEditing({ id: item.id }))}>
+              <div key={item.id} {...props} {...clickToEdit(props, () => setEditing({ id: item.id }), readOnly)}>
                 <span className="avatar">{initials(item.name)}</span>
                 <span className="grow t-label">{item.name}</span>
                 {isYou(item.name) && <span className="badge">You</span>}
@@ -658,6 +678,9 @@ function DriveSection(props: SettingsPageProps) {
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [logs, setLogs] = useState<string[]>(getImportLog);
+  // View only: saving, snapshots and restores would write the shared Drive file; download/export only read it.
+  const readOnly = useReadOnly();
+  useEffect(() => { if (readOnly) setConfirm(null); }, [readOnly]);
   const databaseSize = useMemo(() => exportDatabase().byteLength, [revision]);
   const transactionCount = useMemo(() => db.select({ count: sql<number>`count(*)` }).from(transactions).get()?.count ?? 0, [db, revision]);
   const badge = STATUS_BADGE[props.status];
@@ -699,6 +722,7 @@ function DriveSection(props: SettingsPageProps) {
   return (
     <section className="sec" aria-label="Drive & backups">
       <SectionHead title="Drive & backups" copy="Your data lives in one file on your Google Drive. The website keeps nothing in this browser." />
+      <ViewOnlyNote readOnly={readOnly} />
       <NoticeBanner notice={notice} />
       <div className="card card--lg col gap-3">
         <div className="file-card"><span className="em-box"><Icon name="database" /></span>
@@ -714,11 +738,11 @@ function DriveSection(props: SettingsPageProps) {
           <div className="dl__row"><span className="dl__k t-small">Autosave</span><span className="dl__v t-small">A few seconds after each change</span></div>
         </div>
         <div className="row gap-2 wrap">
-          <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => void run(async () => {
+          <button type="button" className="btn btn--sm btn--primary" disabled={busy || readOnly} aria-disabled={readOnly || undefined} onClick={() => void run(async () => {
             if (!await props.onSaveNow()) throw new Error('Could not save to Drive. Check the sync status and try again.');
             return 'Saved to Drive.';
           })}><Icon name="cloud_upload" />Save now</button>
-          <button type="button" className="btn btn--sm" disabled={busy} onClick={() => void run(async () => {
+          <button type="button" className="btn btn--sm" disabled={busy || readOnly} aria-disabled={readOnly || undefined} onClick={() => void run(async () => {
             if (!await props.onBackupNow()) throw new Error('Could not take a snapshot. Check the sync status and try again.');
             await loadSnapshots();
             return 'Snapshot taken.';
@@ -742,7 +766,7 @@ function DriveSection(props: SettingsPageProps) {
             <div className="lrow" key={file.id}>
               <span className="em-box"><Icon name={info.icon} /></span>
               <div className="grow col gap-0" style={{ minWidth: 0 }}><span className="t-label truncate" title={file.name}>{info.label}</span><span className="t-caption muted">{info.when}</span></div>
-              <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setConfirm({
+              <button type="button" className="btn btn--sm" disabled={busy || readOnly} aria-disabled={readOnly || undefined} onClick={() => setConfirm({
                 icon: 'history',
                 title: 'Restore this snapshot?',
                 body: `${info.label}${info.when ? ` · ${info.when}` : ''}. Restoring replaces finance-live.db for the phone and the website. A snapshot of the current file is taken first.`,
@@ -819,9 +843,12 @@ function DangerSection({ onBeforeDelete }: { onBeforeDelete: () => Promise<void>
   const [typed, setTyped] = useState('');
   const [mismatch, setMismatch] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const readOnly = useReadOnly();
+  useEffect(() => { if (readOnly) setConfirming(false); }, [readOnly]);
   const closeConfirm = useCallback(() => setConfirming(false), []);
   const remove = () => {
     setConfirming(false);
+    if (readOnly) return;
     void run(async () => {
       await onBeforeDelete();
       clearAllData();
@@ -832,15 +859,16 @@ function DangerSection({ onBeforeDelete }: { onBeforeDelete: () => Promise<void>
   return (
     <section className="sec" aria-label="Delete all data">
       <SectionHead title="Delete all data" copy="Removes every transaction, loan, category and import." />
+      <ViewOnlyNote readOnly={readOnly} />
       <NoticeBanner notice={notice} />
       <div className="card card--lg danger-card col gap-3" style={{ maxWidth: 720 }}>
         <div className="banner banner--danger banner--wrap"><Icon name="warning" /><div className="banner__copy t-small">This empties finance-live.db on Drive, so it also clears the phone app. A final snapshot is kept for 30 days.</div></div>
         <div className="field">
           <label className="field__label" htmlFor="settings-delete-confirm">Type DELETE to confirm</label>
-          <div className={`field__box${mismatch ? ' is-error' : ''}`}><input id="settings-delete-confirm" value={typed} onChange={(event) => { setTyped(event.target.value); setMismatch(false); }} placeholder="DELETE" autoComplete="off" spellCheck={false} aria-invalid={mismatch} aria-describedby={mismatch ? 'settings-delete-error' : undefined} /></div>
+          <div className={`field__box${mismatch ? ' is-error' : ''}`}><input id="settings-delete-confirm" disabled={readOnly} value={typed} onChange={(event) => { setTyped(event.target.value); setMismatch(false); }} placeholder="DELETE" autoComplete="off" spellCheck={false} aria-invalid={mismatch} aria-describedby={mismatch ? 'settings-delete-error' : undefined} /></div>
           {mismatch && <span id="settings-delete-error" className="field__error" role="alert">Type DELETE in capitals to continue.</span>}
         </div>
-        <div className="row gap-2"><button type="button" className="btn btn--danger" disabled={busy} onClick={() => { if (typed === 'DELETE') setConfirming(true); else setMismatch(true); }}><Icon name="delete_forever" />Delete all data</button></div>
+        <div className="row gap-2"><button type="button" className="btn btn--danger" disabled={busy || readOnly} aria-disabled={readOnly || undefined} onClick={() => { if (typed === 'DELETE') setConfirming(true); else setMismatch(true); }}><Icon name="delete_forever" />Delete all data</button></div>
       </div>
       {confirming && (
         <ConfirmDialog

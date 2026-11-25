@@ -1,7 +1,7 @@
 /*
  * Finance Tracker — WEBSITE mock runtime (no app code, no network).
  *
- *  - URL params: ?theme=light|dark|system  &state=<page state>  &sync=saved|saving|unsaved|offline|reconnect|conflict
+ *  - URL params: ?theme=light|dark|system  &state=<page state>  &sync=saved|saving|unsaved|offline|reconnect|conflict|inuse|viewonly|moved
  *  - Builds the responsive shell around <main class="w-main">: sidebar (desktop/tablet), top bar with the
  *    Drive save status, phone bottom tabs, and the shell-level sync banner / conflict dialog.
  *  - Page states: <body data-states="key=Label|key2=Label2">. Elements with data-only="a b" show only in
@@ -114,7 +114,13 @@
     offline: { icon: 'cloud_off', text: 'Offline · will retry' },
     reconnect: { icon: 'link_off', text: 'Reconnect Drive' },
     conflict: { icon: 'error', text: 'Conflict · action needed' },
+    // Single-editor lock (finance-session.json in Drive). Only the device holding it saves.
+    inuse: { icon: 'devices', text: 'In use on your phone' },
+    viewonly: { icon: 'visibility', text: 'View only' },
+    moved: { icon: 'phonelink_lock', text: 'View only · editing moved' },
   };
+  var READ_ONLY = { offline: 1, reconnect: 1, inuse: 1, viewonly: 1, moved: 1 };
+  if (READ_ONLY[sync]) document.documentElement.classList.add('is-viewonly');
 
   function buildShell() {
     var app = document.querySelector('.w-app');
@@ -159,13 +165,17 @@
       (tpl ? tpl.innerHTML : '');
     col.insertBefore(top, col.firstChild);
 
-    // Shell banner for reconnect / offline
-    if (sync === 'reconnect' || sync === 'offline') {
+    // Shell banner for reconnect / offline / view only
+    var BANNERS = {
+      reconnect: '<div class="banner banner--review banner--wrap"><span class="ms">link_off</span><div class="banner__copy"><div class="t-small-em">Google Drive disconnected · editing paused</div><div class="t-small muted">Your 3 changes are kept in this tab. Reconnect to save them. Don’t close the tab until then.</div></div><span class="banner__action">Reconnect</span></div>',
+      offline: '<div class="banner banner--review banner--wrap"><span class="ms">cloud_off</span><div class="banner__copy"><div class="t-small-em">You’re offline · editing paused</div><div class="t-small muted">You can still browse. 3 changes not yet saved are kept in this tab and save when you’re back, unless another device takes over editing first.</div></div></div>',
+      viewonly: '<div class="banner banner--wrap"><span class="ms">visibility</span><div class="banner__copy"><div class="t-small-em">View only</div><div class="t-small muted">Your phone is editing (since 10:32). You can browse and search, but nothing here is saved.</div></div><span class="banner__action">Take over</span></div>',
+      moved: '<div class="banner banner--review banner--wrap"><span class="ms">phonelink_lock</span><div class="banner__copy"><div class="t-small-em">Editing moved to your phone at 10:32</div><div class="t-small muted">This tab is now view only. 2 changes it hadn’t saved yet were kept as a Drive snapshot for 30 days.</div></div><span class="banner__action">Take over</span></div>',
+    };
+    if (BANNERS[sync]) {
       var b = document.createElement('div');
       b.className = 'w-shell-banner';
-      b.innerHTML = sync === 'reconnect'
-        ? '<div class="banner banner--review banner--wrap"><span class="ms">link_off</span><div class="banner__copy"><div class="t-small-em">Google Drive disconnected</div><div class="t-small muted">Your 3 changes are kept in this tab. Reconnect to save them. Don’t close the tab until then.</div></div><span class="banner__action">Reconnect</span></div>'
-        : '<div class="banner banner--review"><span class="ms">cloud_off</span><div class="banner__copy t-small">You’re offline. Changes are kept in this tab and will save to Drive when you’re back online.</div></div>';
+      b.innerHTML = BANNERS[sync];
       col.insertBefore(b, top.nextSibling);
     }
 
@@ -207,7 +217,24 @@
       anchor.appendChild(pop);
     });
 
-    // Conflict dialog
+    // "In use on another device" dialog, shown after sign-in when another device holds the lock
+    if (sync === 'inuse') {
+      var iu = document.createElement('div');
+      iu.className = 'w-modal';
+      iu.innerHTML =
+        '<div class="w-dialog" role="alertdialog" aria-labelledby="iu-t">' +
+        '<div class="w-dialog__head"><span class="w-dialog__icon w-dialog__icon--review"><span class="ms">devices</span></span>' +
+        '<div class="col gap-1"><span id="iu-t" class="t-heading">In use on your phone</span>' +
+        '<span class="t-small muted">Only one device can edit at a time, so changes never overwrite each other. Your phone has been editing since 10:32 and was last active 1 min ago.</span></div></div>' +
+        '<div class="card card--subtle col gap-2">' +
+        '<div class="row gap-2"><span class="ms ms-24 c-accent">edit</span><div class="col gap-0"><span class="t-small-em">Take over</span><span class="t-caption muted">This tab edits. The phone switches to view only. Anything it hasn’t saved yet is kept as a Drive snapshot.</span></div></div>' +
+        '<div class="row gap-2"><span class="ms ms-24 muted">visibility</span><div class="col gap-0"><span class="t-small-em">View only</span><span class="t-caption muted">Browse and search here. Nothing is saved. You can take over later from the banner.</span></div></div></div>' +
+        '<div class="w-dialog__actions"><span class="btn">View only</span><span class="btn btn--primary"><span class="ms">edit</span>Take over</span></div>' +
+        '</div>';
+      document.body.appendChild(iu);
+    }
+
+    // Conflict dialog (backstop: with the edit lock this should only appear after a lock bug or race)
     if (sync === 'conflict') {
       var m = document.createElement('div');
       m.className = 'w-modal';

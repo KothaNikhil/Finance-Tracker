@@ -47,8 +47,45 @@ export function txnCountQuery(db: DB, filter: TxnFilter) {
 }
 
 /** The most recent import batch (0 or 1 rows). Live on the `imports` table — refreshes on revert. */
+/**
+ * Every statement record in the most recent import batch, newest first. A web import can save several
+ * files as one batch, and "revert last import" removes the whole batch, so the summary must cover it.
+ */
 export function lastImportQuery(db: DB) {
-  return db.select().from(imports).orderBy(desc(imports.id)).limit(1);
+  return db
+    .select()
+    .from(imports)
+    .where(
+      sql`${imports.id} = (SELECT MAX(id) FROM imports) OR (${imports.batchKey} IS NOT NULL AND ${imports.batchKey} = (SELECT batch_key FROM imports ORDER BY id DESC LIMIT 1))`,
+    )
+    .orderBy(desc(imports.id));
+}
+
+export interface LastImportSummary {
+  /** The newest statement record; revertImport on it removes the whole batch. */
+  id: number;
+  /** All file names in the batch, joined. */
+  sourceLabel: string;
+  importedAt: string;
+  /** Transactions added by the whole batch. */
+  addedCount: number;
+  fileCount: number;
+}
+
+/** Fold the rows of {@link lastImportQuery} into one summary (null when nothing was imported). */
+export function summarizeLastImport(
+  rows: readonly { id: number; sourceLabel: string; importedAt: string; addedCount: number }[],
+): LastImportSummary | null {
+  const newest = rows[0];
+  if (!newest) return null;
+  const labels = rows.map((row) => row.sourceLabel.trim()).filter(Boolean);
+  return {
+    id: newest.id,
+    sourceLabel: labels.join(', '),
+    importedAt: newest.importedAt,
+    addedCount: rows.reduce((sum, row) => sum + row.addedCount, 0),
+    fileCount: rows.length,
+  };
 }
 
 /** One-shot read of every row matching the filter (for the Excel export — NOT live). */

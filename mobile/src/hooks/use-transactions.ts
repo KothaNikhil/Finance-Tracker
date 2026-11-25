@@ -17,7 +17,13 @@ import { useLiveQuery } from '@/hooks/use-live-query';
 import type { TxnFilter } from '@/core/analytics';
 import type { ImportRow, TransactionRow } from '@/core/db/schema';
 import { getDb } from '@/services/db/database';
-import { lastImportQuery, txnCountQuery, txnListQuery } from '@/services/db/queries/transactions';
+import {
+  lastImportQuery,
+  summarizeLastImport,
+  txnCountQuery,
+  txnListQuery,
+  type LastImportSummary,
+} from '@/services/db/queries/transactions';
 
 export interface TransactionListResult {
   /** The loaded window of rows (newest first), grown by `loadMore`. */
@@ -95,9 +101,12 @@ export function useTransactionCount(filter: TxnFilter = {}): {
   };
 }
 
-/** The most recent import batch, live (null until the first import). Backs "revert last import". */
-export function useLastImport(): ImportRow | null {
+/**
+ * The most recent import batch, live (null until the first import). Backs "revert last import". A
+ * multi-file web batch is summed, since reverting it removes every file in the batch.
+ */
+export function useLastImport(): LastImportSummary | null {
   const db = getDb();
   const { data } = useLiveQuery(lastImportQuery(db), []);
-  return (data?.[0] as ImportRow | undefined) ?? null;
+  return summarizeLastImport((data ?? []) as ImportRow[]);
 }
