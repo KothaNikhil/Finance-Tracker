@@ -121,4 +121,26 @@ describe('GoogleDriveSyncPort', () => {
       },
     ]);
   });
+
+  it('reads the edit lock when Drive sends no ETag (Drive API v3)', async () => {
+    const lock = {
+      deviceId: 'web-1',
+      deviceLabel: 'Chrome on Windows',
+      platform: 'web',
+      acquiredAt: '2026-11-25T10:32:00.000Z',
+      refreshedAt: '2026-11-25T10:32:00.000Z',
+      expiresAt: '2026-11-25T10:35:00.000Z',
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'folder', name: 'Finance Tracker' }] }))
+      .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'lock', name: 'finance-session.json' }] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '3' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(lock)));
+
+    await expect(new GoogleDriveSyncPort('drive-token').readLock()).resolves.toEqual({
+      id: 'lock',
+      version: '3',
+      lock,
+    });
+  });
 });

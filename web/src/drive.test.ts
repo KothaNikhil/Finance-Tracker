@@ -126,38 +126,78 @@ describe('GoogleDriveSyncPort', () => {
     expect(calls[4][1]?.method).toBe('DELETE');
   });
 
-  it('reads the edit lock with its ETag', async () => {
+  const editLock = {
+    deviceId: 'phone-1',
+    deviceLabel: 'your phone',
+    platform: 'phone',
+    acquiredAt: '2026-11-24T10:32:00.000Z',
+    refreshedAt: '2026-11-24T10:32:00.000Z',
+    expiresAt: '2026-11-24T10:35:00.000Z',
+  } as const;
+
+  it('reads the edit lock with its Drive version (v3 sends no ETag)', async () => {
     const fetchMock = vi.mocked(fetch);
-    const lock = {
-      deviceId: 'phone-1',
-      deviceLabel: 'your phone',
-      platform: 'phone',
-      acquiredAt: '2026-11-24T10:32:00.000Z',
-      refreshedAt: '2026-11-24T10:32:00.000Z',
-      expiresAt: '2026-11-24T10:35:00.000Z',
-    };
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'folder', name: 'Finance Tracker' }] }))
       .mockResolvedValueOnce(jsonResponse({ files: [{ id: 'lock', name: 'finance-session.json' }] }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'lock' }, { ETag: '"lock-1"' }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(lock)));
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '7' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(editLock)));
 
     await expect(new GoogleDriveSyncPort('drive-token').readLock()).resolves.toEqual({
       id: 'lock',
-      etag: '"lock-1"',
-      lock,
+      version: '7',
+      lock: editLock,
     });
   });
 
-  it('writes the edit lock with If-Match and maps 412 to a revision conflict', async () => {
+  it('writes the edit lock when its version is unchanged, without If-Match', async () => {
     const fetchMock = vi.mocked(fetch);
-    fetchMock.mockResolvedValueOnce(new Response('precondition', { status: 412 }));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '7' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '8' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(editLock)));
 
     await expect(
-      new GoogleDriveSyncPort('drive-token').writeLock({ id: 'lock', etag: '"lock-1"', lock: null }, null),
+      new GoogleDriveSyncPort('drive-token').writeLock({ id: 'lock', version: '7', lock: null }, editLock),
+    ).resolves.toEqual({ id: 'lock', version: '8', lock: editLock });
+    expect(fetchMock.mock.calls[1][1]?.method).toBe('PATCH');
+    const headers = fetchMock.mock.calls[1][1]?.headers as Record<string, string>;
+    expect(headers['If-Match']).toBeUndefined();
+  });
+
+  it('rejects a lock write when another device changed the lock since it was read', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '8' }));
+
+    await expect(
+      new GoogleDriveSyncPort('drive-token').writeLock({ id: 'lock', version: '7', lock: null }, editLock),
     ).rejects.toBeInstanceOf(RevisionConflictError);
-    const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>;
-    expect(headers['If-Match']).toBe('"lock-1"');
-    expect(fetchMock.mock.calls[0][1]?.method).toBe('PATCH');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the lock on unload with one keepalive PATCH, sent synchronously', () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'lock' }));
+
+    new GoogleDriveSyncPort('drive-token').releaseLockNow({ id: 'lock', version: '7', lock: editLock });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/lock?uploadType=media');
+    expect(init?.method).toBe('PATCH');
+    expect(init?.keepalive).toBe(true);
+    expect(init?.body).toBe('null');
+  });
+
+  it('rejects a lock write when another device overwrote it in the same moment', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '7' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'lock', version: '8' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...editLock, deviceId: 'web-1' })));
+
+    await expect(
+      new GoogleDriveSyncPort('drive-token').writeLock({ id: 'lock', version: '7', lock: null }, editLock),
+    ).rejects.toBeInstanceOf(RevisionConflictError);
   });
 });

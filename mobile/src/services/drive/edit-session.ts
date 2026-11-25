@@ -118,9 +118,14 @@ export interface SyncHealth {
   pendingChanges: boolean;
   /** Set briefly after edits made offline reached Drive. */
   savedAfterOffline: number | null;
+  /**
+   * The first sync of this run on a phone that has never synced with Drive. Screens show "loading
+   * from Drive" instead of "nothing here yet" meanwhile, since the data may still be on its way.
+   */
+  firstDownload: boolean;
 }
 
-let health: SyncHealth = { offline: false, pendingChanges: false, savedAfterOffline: null };
+let health: SyncHealth = { offline: false, pendingChanges: false, savedAfterOffline: null, firstDownload: false };
 const healthListeners = new Set<() => void>();
 
 export function setSyncHealth(patch: Partial<SyncHealth>): void {
@@ -128,7 +133,8 @@ export function setSyncHealth(patch: Partial<SyncHealth>): void {
   if (
     next.offline === health.offline &&
     next.pendingChanges === health.pendingChanges &&
-    next.savedAfterOffline === health.savedAfterOffline
+    next.savedAfterOffline === health.savedAfterOffline &&
+    next.firstDownload === health.firstDownload
   ) {
     return;
   }

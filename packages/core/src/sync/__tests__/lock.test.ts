@@ -25,20 +25,20 @@ function memoryLockPort() {
       return file;
     },
     setRaw(lock) {
-      file = { id: 'lock', etag: `e${++version}`, lock };
+      file = { id: 'lock', version: `v${++version}`, lock };
     },
     async readLock() {
       return file ? { ...file } : null;
     },
     async createLock(lock) {
       if (file) throw new RevisionConflictError();
-      file = { id: 'lock', etag: `e${++version}`, lock };
+      file = { id: 'lock', version: `v${++version}`, lock };
       return { ...file };
     },
     async writeLock(current, lock) {
       port.interfere?.();
-      if (!file || file.etag !== current.etag) throw new RevisionConflictError();
-      file = { id: file.id, etag: `e${++version}`, lock };
+      if (!file || file.version !== current.version) throw new RevisionConflictError();
+      file = { id: file.id, version: `v${++version}`, lock };
       return { ...file };
     },
   };
@@ -247,5 +247,50 @@ describe('DriveSyncEngine write guard', () => {
       engine.save(new Uint8Array([2]), { expectedFileId: 'live', expectedRevisionId: '1' }),
     ).rejects.toBeInstanceOf(EditLockLostError);
     expect(port.writes).toBe(0);
+  });
+});
+
+describe('EditLockManager.releaseNow', () => {
+  it('clears the lock synchronously through releaseLockNow, skipping the version check', async () => {
+    const port = memoryLockPort();
+    const released: LockFile[] = [];
+    port.releaseLockNow = (current) => {
+      released.push(current);
+      port.setRaw(null);
+    };
+    const onWeb = new EditLockManager(port, web, clockAt('2026-11-24T10:32:00Z').now);
+    await onWeb.acquire();
+
+    void onWeb.releaseNow();
+
+    // Sent before any await, so it still goes out while the page unloads.
+    expect(released).toHaveLength(1);
+    expect(port.file?.lock).toBeNull();
+    expect(onWeb.holdsLock).toBe(false);
+  });
+
+  it('makes a device that just took over stop editing on its next heartbeat', async () => {
+    const port = memoryLockPort();
+    port.releaseLockNow = () => port.setRaw(null);
+    const clock = clockAt('2026-11-24T10:32:00Z');
+    const onWeb = new EditLockManager(port, web, clock.now);
+    const onPhone = new EditLockManager(port, phone, clock.now);
+    await onWeb.acquire();
+    await onPhone.acquire({ takeOver: true });
+
+    await onWeb.releaseNow(); // still thinks it holds the lock; unchecked write clears the phone's
+
+    expect(await onPhone.refresh()).toBe(false);
+    await expect(onPhone.assertCanWrite()).rejects.toBeInstanceOf(EditLockLostError);
+  });
+
+  it('falls back to a checked writeLock when the port has no releaseLockNow', async () => {
+    const port = memoryLockPort();
+    const onWeb = new EditLockManager(port, web, clockAt('2026-11-24T10:32:00Z').now);
+    await onWeb.acquire();
+
+    await onWeb.releaseNow();
+
+    expect(port.file?.lock).toBeNull();
   });
 });

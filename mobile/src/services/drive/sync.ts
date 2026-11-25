@@ -23,7 +23,7 @@ import {
   setSyncHealth,
   syncHealth,
 } from './edit-session';
-import { GoogleDriveSyncPort } from './sync-port';
+import { DriveReconnectRequiredError, GoogleDriveSyncPort } from './sync-port';
 
 const SYNC_FILE_ID = 'drive_sync_file_id';
 const SYNC_REVISION_ID = 'drive_sync_revision_id';
@@ -205,7 +205,24 @@ async function synchronizeWithDrive(
   if (!isCurrent()) return { restored: false, found: false };
   const session = await getEditSession();
   session.setPort(drive);
-  if ((await resolveEditLock(drive, session, isCurrent)) === 'view-only') {
+  let lockMode: 'editing' | 'view-only';
+  try {
+    lockMode = await resolveEditLock(drive, session, isCurrent);
+  } catch (error) {
+    // A broken lock check must not leave the phone without its data. Still bring in Drive's copy
+    // (a read, and never over unsaved phone changes), then report the error as before.
+    if (
+      isCurrent() &&
+      !isNetworkError(error) &&
+      !(error instanceof DriveReconnectRequiredError) &&
+      !(error instanceof EditLockLostError) &&
+      !localChangesPending()
+    ) {
+      await viewOnlySync(drive, isCurrent).catch(() => undefined);
+    }
+    throw error;
+  }
+  if (lockMode === 'view-only') {
     return viewOnlySync(drive, isCurrent);
   }
   const current = await drive.findLiveFile();
@@ -559,6 +576,9 @@ export function startDriveSync(onError: (error: Error) => void): () => void {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let maxWaitTimer: ReturnType<typeof setTimeout> | null = null;
   let errorReported = false;
+  // A phone that has never synced may be about to receive all its data from Drive.
+  let firstDownloadPending = getMeta(SYNC_FILE_ID) === null;
+  setSyncHealth({ firstDownload: firstDownloadPending });
   const retryTimer = setInterval(() => {
     if (errorReported || localChangesPending() || syncHealth().offline) void runSync();
   }, MAX_WAIT_MS);
@@ -605,6 +625,11 @@ export function startDriveSync(onError: (error: Error) => void): () => void {
         errorReported = true;
         reportActiveError(error);
       }
+    } finally {
+      if (firstDownloadPending && isCurrent()) {
+        firstDownloadPending = false;
+        setSyncHealth({ firstDownload: false });
+      }
     }
   };
 
@@ -648,6 +673,7 @@ export function startDriveSync(onError: (error: Error) => void): () => void {
   void runSync();
   return () => {
     disposed = true;
+    setSyncHealth({ firstDownload: false });
     stopHeartbeat();
     setLostHandler(null);
     databaseSubscription.remove();

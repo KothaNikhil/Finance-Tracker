@@ -11,12 +11,12 @@ function memoryLockPort(): EditLockPort {
     },
     async createLock(lock) {
       if (file) throw new RevisionConflictError();
-      file = { id: 'lock', etag: `e${++version}`, lock };
+      file = { id: 'lock', version: `v${++version}`, lock };
       return { ...file };
     },
     async writeLock(current, lock) {
-      if (!file || file.etag !== current.etag) throw new RevisionConflictError();
-      file = { id: file.id, etag: `e${++version}`, lock };
+      if (!file || file.version !== current.version) throw new RevisionConflictError();
+      file = { id: file.id, version: `v${++version}`, lock };
       return { ...file };
     },
   };

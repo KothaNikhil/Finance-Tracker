@@ -85,8 +85,9 @@ Whole-file sync can't merge two sets of edits, so only one device may edit at a 
 - A small lock file, **`finance-session.json`**, sits next to `finance-live.db`. It names the
   device holding it (phone or browser), when it took it, and a heartbeat time.
 - The holder refreshes the heartbeat every **60 s**. A lock with no heartbeat for **3 min** is stale
-  and can be taken without asking. Lock writes use the file's ETag (`If-Match`) so two devices
-  can't both win.
+  and can be taken without asking. Drive API v3 has no ETags, so a lock write first checks that
+  the file's `version` hasn't changed since it was read, then reads the content back; the loser of a
+  race finds out at once or, at the latest, on its next heartbeat.
 - Opening the app while another device holds a fresh lock asks: **Take over** (this device edits;
   the other one becomes view only on its next heartbeat or sync) or **View only**.
 - **View only** means nothing is editable on any page: edit controls are disabled and show

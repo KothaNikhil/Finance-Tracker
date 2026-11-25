@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/components/card';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
 import { CategoryDetail } from '@/components/category-detail';
+import { DriveLoadingState, useFirstDriveDownload } from '@/components/drive-loading-state';
 import { EmptyState } from '@/components/empty-state';
 import { FeedbackBanner } from '@/components/feedback-banner';
 import {
@@ -93,6 +94,7 @@ export default function HomeScreen() {
     error: countError,
     retry: retryCount,
   } = useTransactionCount();
+  const firstDriveDownload = useFirstDriveDownload();
 
   // Start at the newest month that actually has data. The explicit Month / Year / All control
   // keeps every previous period scope available without making the default an empty calendar page.
@@ -259,6 +261,8 @@ export default function HomeScreen() {
             />
           ) : loading ? (
             <HomeLoadingSkeleton />
+          ) : totalCount === 0 && firstDriveDownload ? (
+            <DriveLoadingState style={styles.empty} />
           ) : totalCount === 0 ? (
             <EmptyState
               style={styles.empty}

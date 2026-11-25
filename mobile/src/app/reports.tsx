@@ -20,6 +20,7 @@ import { ActivityFilterBar } from '@/components/activity-filter-bar';
 import { ActivitySummary } from '@/components/activity-summary';
 import { Button } from '@/components/button';
 import { CategoryBreakdown, type CategoryBreakdownRow } from '@/components/category-breakdown';
+import { DriveLoadingState, useFirstDriveDownload } from '@/components/drive-loading-state';
 import { EmptyState } from '@/components/empty-state';
 import { FeedbackBanner } from '@/components/feedback-banner';
 import { IconButton } from '@/components/icon-button';
@@ -73,6 +74,7 @@ export default function ActivityScreen() {
     error: totalError,
     retry: retryTotal,
   } = useTransactionCount();
+  const firstDriveDownload = useFirstDriveDownload();
 
   const subNames = useMemo(() => {
     const m = new Map<number, string>();
@@ -354,6 +356,11 @@ export default function ActivityScreen() {
           <View style={styles.content}>
             <ScreenHeader title="Activity" />
             <ActivityScreenSkeleton />
+          </View>
+        ) : totalCount === 0 && firstDriveDownload ? (
+          <View style={styles.content}>
+            <ScreenHeader title="Activity" />
+            <DriveLoadingState style={styles.empty} />
           </View>
         ) : totalCount === 0 ? (
           <View style={styles.content}>

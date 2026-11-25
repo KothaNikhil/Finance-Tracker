@@ -257,8 +257,31 @@ export class GoogleDriveSyncPort implements DriveSyncPort, EditLockPort {
     }
   }
 
-  /** The lock file's id and current ETag. Duplicates resolve to the oldest, like the live file. */
-  private async findLockFile(): Promise<{ id: string; etag: string } | null> {
+  /** Drive's current `version` of the lock file. A lock file deleted meanwhile reads as a conflict. */
+  private async lockVersion(fileId: string): Promise<string> {
+    const response = await fetch(`${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,version`, {
+      headers: { Authorization: `Bearer ${this.token}` },
+    });
+    if (response.status === 401) throw new DriveReconnectRequiredError();
+    if (response.status === 404) throw new RevisionConflictError();
+    if (!response.ok) throw new Error(`Could not read the edit lock (${response.status}).`);
+    const version = parseVersion(await response.json());
+    if (!version) throw new Error('Drive returned the edit lock without a version.');
+    return version;
+  }
+
+  private async lockContent(fileId: string): Promise<EditLock | null> {
+    const response = await fetch(mediaDownloadUrl(fileId), {
+      headers: { Authorization: `Bearer ${this.token}` },
+    });
+    if (response.status === 401) throw new DriveReconnectRequiredError();
+    if (response.status === 404) throw new RevisionConflictError();
+    if (!response.ok) throw new Error(`Could not read the edit lock (${response.status}).`);
+    return parseLockJson(await response.text());
+  }
+
+  /** The lock file's id and current version. Duplicates resolve to the oldest, like the live file. */
+  private async findLockFile(): Promise<{ id: string; version: string } | null> {
     const folderId = await this.ensureFolder();
     const files = await this.listFiles(
       `'${folderId}' in parents and name='${LOCK_FILE_NAME}' and trashed=false`,
@@ -270,22 +293,25 @@ export class GoogleDriveSyncPort implements DriveSyncPort, EditLockPort {
         a.id.localeCompare(b.id),
     );
     await Promise.all(ordered.slice(1).map((duplicate) => this.deleteFile(duplicate.id)));
-    const metadata = await this.request<unknown>(
-      `${DRIVE_FILES_URL}/${encodeURIComponent(ordered[0].id)}?fields=id`,
-    );
-    if (!metadata.etag) throw new Error('Drive returned the edit lock without an ETag.');
-    return { id: ordered[0].id, etag: metadata.etag };
+    try {
+      return { id: ordered[0].id, version: await this.lockVersion(ordered[0].id) };
+    } catch (error) {
+      if (error instanceof RevisionConflictError) return null;
+      throw error;
+    }
   }
 
   async readLock(): Promise<LockFile | null> {
+    // Version before content: if the lock changes in between, the stale version makes the next
+    // write fail and re-read, rather than overwrite a lock this device never saw.
     const found = await this.findLockFile();
     if (!found) return null;
-    const response = await fetch(mediaDownloadUrl(found.id), {
-      headers: { Authorization: `Bearer ${this.token}` },
-    });
-    if (response.status === 401) throw new DriveReconnectRequiredError();
-    if (!response.ok) throw new Error(`Could not read the edit lock (${response.status}).`);
-    return { ...found, lock: parseLockJson(await response.text()) };
+    try {
+      return { ...found, lock: await this.lockContent(found.id) };
+    } catch (error) {
+      if (error instanceof RevisionConflictError) return null;
+      throw error;
+    }
   }
 
   async createLock(lock: EditLock): Promise<LockFile> {
@@ -308,18 +334,24 @@ export class GoogleDriveSyncPort implements DriveSyncPort, EditLockPort {
   }
 
   async writeLock(file: LockFile, lock: EditLock | null): Promise<LockFile> {
+    // Drive v3 has no ETag / If-Match, so check the version right before writing and read the
+    // content back after: a device that raced and lost sees the other device's lock.
+    if ((await this.lockVersion(file.id)) !== file.version) throw new RevisionConflictError();
     const written = await this.request<unknown>(
-      `${DRIVE_UPLOAD_URL}/${encodeURIComponent(file.id)}?uploadType=media&fields=id`,
+      `${DRIVE_UPLOAD_URL}/${encodeURIComponent(file.id)}?uploadType=media&fields=id,version`,
       {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'If-Match': file.etag },
+        headers: { 'Content-Type': 'application/json' },
         body: lockJson(lock),
       },
     );
-    const etag =
-      written.etag ??
-      (await this.request<unknown>(`${DRIVE_FILES_URL}/${encodeURIComponent(file.id)}?fields=id`)).etag;
-    if (!etag) throw new Error('Drive returned the edit lock without an ETag.');
-    return { id: file.id, etag, lock };
+    const version = parseVersion(written.value) ?? (await this.lockVersion(file.id));
+    if (lockJson(await this.lockContent(file.id)) !== lockJson(lock)) throw new RevisionConflictError();
+    return { id: file.id, version, lock };
   }
+}
+
+function parseVersion(value: unknown): string | null {
+  const version = (value as { version?: unknown } | null)?.version;
+  return typeof version === 'string' || typeof version === 'number' ? String(version) : null;
 }

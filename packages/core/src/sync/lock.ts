@@ -9,9 +9,10 @@
  * A second device sees "In use on <device>" and can either Take over (the lock moves to it) or stay
  * View only. The device that lost the lock finds out on its next refresh or write and stops writing.
  *
- * Writes to the lock file use the file's ETag (`If-Match`), so two devices racing to take the lock
- * can't both win; the loser gets {@link RevisionConflictError} from the port. The live file's own
- * revision check stays as a backstop.
+ * Drive API v3 has no ETags, so writes to the lock file are guarded by the file's `version` (which
+ * Drive bumps on every change): the port re-reads it right before writing and reads the content
+ * back afterwards. A device that loses a race gets {@link RevisionConflictError} from the port, or
+ * at the latest on its next heartbeat. The live file's own revision check stays as a backstop.
  *
  * This module is pure TypeScript. Each app implements {@link EditLockPort} with its Drive client.
  */
@@ -49,8 +50,8 @@ export interface EditLock {
 /** The lock file as read from Drive. `lock` is null after a release. */
 export interface LockFile {
   id: string;
-  /** Used as `If-Match` on the next write. */
-  etag: string;
+  /** Drive's `version` of the lock file when it was read; the next write requires it unchanged. */
+  version: string;
   lock: EditLock | null;
 }
 
@@ -63,10 +64,16 @@ export interface EditLockPort {
    */
   createLock(lock: EditLock): Promise<LockFile>;
   /**
-   * Replace the lock file's content, only if its ETag still matches `file.etag`. Rejects with
+   * Replace the lock file's content, only if its version still matches `file.version`. Rejects with
    * {@link RevisionConflictError} when another device wrote it first.
    */
   writeLock(file: LockFile, lock: EditLock | null): Promise<LockFile>;
+  /**
+   * Optional: clear the lock with one request that outlives the page (e.g. a `keepalive` fetch),
+   * started synchronously and without a version check. Used by {@link EditLockManager.releaseNow};
+   * ports without it fall back to {@link writeLock}.
+   */
+  releaseLockNow?(file: LockFile): void;
 }
 
 /** Thrown when a device tries to write to Drive without holding the lock. */
@@ -199,15 +206,26 @@ export class EditLockManager {
   }
 
   /**
-   * Release without re-reading first, using the last known ETag. For page unload, where there is
-   * no time for a round trip. If another device wrote the lock since, the ETag no longer matches
-   * and Drive rejects the write, which is what we want.
+   * Release without a lock check first. For page unload, where only a request started synchronously
+   * still reaches Drive, so the port's {@link EditLockPort.releaseLockNow} is used when it has one.
+   * That write is unchecked: if another device took over in the last moments, its lock is cleared,
+   * and its next heartbeat sees the lock free and stops editing (it never writes over a lock it
+   * doesn't hold). Ports without `releaseLockNow` get a checked {@link EditLockPort.writeLock}.
    */
   async releaseNow(): Promise<void> {
     const file = this.file;
     const held = this.holdsLock;
     this.held = null;
     if (!file || !held) return;
+    if (this.port.releaseLockNow) {
+      try {
+        this.port.releaseLockNow(file);
+      } catch {
+        // Best effort: an unreleased lock simply expires.
+      }
+      this.file = { ...file, lock: null };
+      return;
+    }
     try {
       this.file = await this.port.writeLock(file, null);
     } catch {

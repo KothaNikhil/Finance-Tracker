@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AttachExistingSheet } from '@/components/attach-existing-sheet';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
+import { DriveLoadingState, useFirstDriveDownload } from '@/components/drive-loading-state';
 import { EmptyState } from '@/components/empty-state';
 import { LoanDetail } from '@/components/loan-detail';
 import { ListSection } from '@/components/list-section';
@@ -58,6 +59,7 @@ export default function LendingScreen() {
   const { openTxn, openId } = useTransactionDetail();
   // View only: loans stay browsable, but creating one (or any loan write) is disabled.
   const viewOnly = useViewOnly();
+  const firstDriveDownload = useFirstDriveDownload();
 
   const [mode, setMode] = useState<'people' | 'loans'>('people');
   const [showClosed, setShowClosed] = useState(false);
@@ -135,6 +137,8 @@ export default function LendingScreen() {
               message="Your lending data is still safe. Close and reopen this screen to try again."
               icon={{ ios: 'exclamationmark.triangle', android: 'error', web: 'error' }}
             />
+          ) : active.length === 0 && closed.length === 0 && firstDriveDownload ? (
+            <DriveLoadingState style={styles.empty} />
           ) : active.length === 0 && closed.length === 0 ? (
             <EmptyState
               style={styles.empty}
