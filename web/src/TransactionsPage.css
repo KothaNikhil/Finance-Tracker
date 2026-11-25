@@ -53,6 +53,8 @@ textarea.note-box:focus { border-color: var(--focus); }
   .act .bulk .pop { bottom: calc(64px + 64px); }
 }
 .act .bulk .pop { bottom: calc(100% + var(--sp-2)); left: 0; }
-.act-range { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); padding: var(--sp-2); }
+.act-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); padding: var(--sp-2); }
+.act-range .field { min-width: 0; }
+.act-range input[type='date'] { width: 100%; min-width: 0; }
 .act-range .field__label { font-size: 12px; }
 .act .w-panel__bar .act-nav { margin-left: auto; margin-right: calc(var(--sp-1) - var(--sp-2)); }

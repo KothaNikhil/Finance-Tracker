@@ -925,7 +925,7 @@ function Toolbar(props: {
 
   return (
     <div className="toolbar toolbar--scroll">
-      <ChipMenu id="period" menu={menu} setMenu={setMenu} icon="calendar_month" label={periodLabel(from, to)} set={!!(from || to)} width={280}>
+      <ChipMenu id="period" menu={menu} setMenu={setMenu} icon="calendar_month" label={periodLabel(from, to)} set={!!(from || to)} width={340}>
         <OptionList options={periodOptions} value={`${from}|${to}`} onPick={(value) => { const [f, t] = value.split('|'); pick({ from: f || null, to: t || null }); }} />
         <div className="act-range" style={{ borderTop: 'var(--hairline) solid var(--border)' }}>
           <label className="field"><span className="field__label">From</span><span className="field__box field__box--sm"><input className="act-input" type="date" aria-label="From date" value={draftFrom} onChange={(event) => setDraftFrom(event.target.value)} /></span></label>
