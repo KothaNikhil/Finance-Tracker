@@ -75,6 +75,32 @@ const CNT = sql<number>`coalesce(sum(case when ${t.direction} in ('out', 'in') a
 const OUT_SPENT = sql<number>`coalesce(sum(${COUNTABLE_PAISE}), 0)`;
 const OUT_CNT = sql<number>`count(*)`;
 
+/**
+ * Which money flow a breakdown groups: `spent` = money out (the default), `received` = income
+ * (money in, refunds excluded), `net` = money out minus refunds/cashback in the same group.
+ */
+export type BreakdownFlow = 'spent' | 'net' | 'received';
+
+const IS_OUT = sql`${t.direction} = 'out'`;
+const IS_INCOME = sql`(${t.direction} = 'in' and ${t.isRefund} = 0)`;
+const IS_REFUND_IN = sql`(${t.direction} = 'in' and ${t.isRefund} = 1)`;
+const NET_PAISE = sql<number>`coalesce(sum(case when ${IS_OUT} then ${COUNTABLE_PAISE} else -${COUNTABLE_PAISE} end), 0)`;
+
+function flowRows(flow: BreakdownFlow): SQL {
+  if (flow === 'received') return IS_INCOME;
+  if (flow === 'net') return sql`(${IS_OUT} or ${IS_REFUND_IN})`;
+  return IS_OUT;
+}
+
+function flowAmount(flow: BreakdownFlow) {
+  return flow === 'net' ? NET_PAISE : OUT_SPENT;
+}
+
+/** Net groups whose refunds exactly cancel their spend are dropped; other flows keep every group. */
+function flowHaving(flow: BreakdownFlow): SQL | undefined {
+  return flow === 'net' ? sql`${NET_PAISE} <> 0` : undefined;
+}
+
 // Grouping keys mirror the pure functions' fallbacks exactly.
 const MERCHANT_KEY = sql<string>`coalesce(nullif(trim(${t.counterpartyName}), ''), nullif(trim(${t.counterpartyVpa}), ''), '(unknown)')`;
 const ACCOUNT_KEY = sql<string>`coalesce(nullif(trim(${t.accountName}), ''), '(unknown)')`;
@@ -127,44 +153,55 @@ export function yearlyTotalsQuery(db: DB) {
     .orderBy(desc(YEAR_INT));
 }
 
-/** Gross money-out per category within the filter (uncategorized → categoryId null). Live. */
-export function categoryBreakdownQuery(db: DB, filter: TxnFilter) {
+/**
+ * Per-category amount within the filter (uncategorized → categoryId null), biggest first. `flow`
+ * picks money out (default), income, or net of refunds; `spentPaise` holds that flow's amount. Live.
+ */
+export function categoryBreakdownQuery(db: DB, filter: TxnFilter, flow: BreakdownFlow = 'spent') {
+  const amount = flowAmount(flow);
   return db
-    .select({ categoryId: t.categoryId, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
+    .select({ categoryId: t.categoryId, spentPaise: amount, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), HAS_COUNTABLE_PAISE))
+    .where(and(buildTxnConditions(filter), flowRows(flow), HAS_COUNTABLE_PAISE))
     .groupBy(t.categoryId)
-    .orderBy(desc(OUT_SPENT));
+    .having(flowHaving(flow))
+    .orderBy(desc(amount));
 }
 
-/** Gross money-out per sub-category within one category (no sub-category → subcategoryId null). Live. */
-export function subcategoryBreakdownQuery(db: DB, categoryId: number, filter: TxnFilter) {
+/** Per-sub-category amount within one category (no sub-category → subcategoryId null). See `flow` above. Live. */
+export function subcategoryBreakdownQuery(db: DB, categoryId: number, filter: TxnFilter, flow: BreakdownFlow = 'spent') {
+  const amount = flowAmount(flow);
   return db
-    .select({ subcategoryId: t.subcategoryId, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
+    .select({ subcategoryId: t.subcategoryId, spentPaise: amount, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), eq(t.categoryId, categoryId), HAS_COUNTABLE_PAISE))
+    .where(and(buildTxnConditions(filter), flowRows(flow), eq(t.categoryId, categoryId), HAS_COUNTABLE_PAISE))
     .groupBy(t.subcategoryId)
-    .orderBy(desc(OUT_SPENT));
+    .having(flowHaving(flow))
+    .orderBy(desc(amount));
 }
 
-/** Spend per merchant (name, falling back to VPA, then '(unknown)'), biggest first. Live. */
-export function merchantSpendQuery(db: DB, filter: TxnFilter) {
+/** Amount per merchant (name, falling back to VPA, then '(unknown)'), biggest first. See `flow` above. Live. */
+export function merchantSpendQuery(db: DB, filter: TxnFilter, flow: BreakdownFlow = 'spent') {
+  const amount = flowAmount(flow);
   return db
-    .select({ key: MERCHANT_KEY, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
+    .select({ key: MERCHANT_KEY, spentPaise: amount, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), HAS_COUNTABLE_PAISE))
+    .where(and(buildTxnConditions(filter), flowRows(flow), HAS_COUNTABLE_PAISE))
     .groupBy(MERCHANT_KEY)
-    .orderBy(desc(OUT_SPENT));
+    .having(flowHaving(flow))
+    .orderBy(desc(amount));
 }
 
-/** Spend per funding account, biggest first. Live. */
-export function accountSpendQuery(db: DB, filter: TxnFilter) {
+/** Amount per funding account, biggest first. See `flow` above. Live. */
+export function accountSpendQuery(db: DB, filter: TxnFilter, flow: BreakdownFlow = 'spent') {
+  const amount = flowAmount(flow);
   return db
-    .select({ key: ACCOUNT_KEY, spentPaise: OUT_SPENT, txnCount: OUT_CNT })
+    .select({ key: ACCOUNT_KEY, spentPaise: amount, txnCount: OUT_CNT })
     .from(t)
-    .where(and(buildTxnConditions(filter), eq(t.direction, 'out'), HAS_COUNTABLE_PAISE))
+    .where(and(buildTxnConditions(filter), flowRows(flow), HAS_COUNTABLE_PAISE))
     .groupBy(ACCOUNT_KEY)
-    .orderBy(desc(OUT_SPENT));
+    .having(flowHaving(flow))
+    .orderBy(desc(amount));
 }
 
 /** Spend per "For" person (unassigned → personId null), biggest first. Live. */

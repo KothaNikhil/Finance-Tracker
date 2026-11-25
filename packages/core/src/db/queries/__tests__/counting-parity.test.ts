@@ -340,6 +340,25 @@ describe('SQL aggregates and the pure predicate agree on the same fixture', () =
     expect(sqlRows.reduce((sum, r) => sum + r.spentPaise, 0)).toBe(totals[0]);
   });
 
+  it('net and income breakdowns follow their flow and sum to the matching tile', () => {
+    const [[spent, received, refund]] = rows<[number, number, number, number]>(sqlite, periodTotalsQuery(proxyDb(), JUNE));
+    const sumOf = (list: [unknown, number, number][]) => list.reduce((sum, r) => sum + r[1], 0);
+
+    const net = rows<[number | null, number, number]>(sqlite, categoryBreakdownQuery(proxyDb(), JUNE, 'net'));
+    expect(sumOf(net)).toBe(spent - refund);
+    // The refunds-only category comes back negative rather than disappearing.
+    expect(net).toContainEqual([9, -30_000, 1]);
+    const netMerchants = rows<[string, number, number]>(sqlite, merchantSpendQuery(proxyDb(), JUNE, 'net'));
+    expect(netMerchants).toContainEqual(['Amazon', 250_000 - 30_000, 2]);
+
+    const income = rows<[number | null, number, number]>(sqlite, categoryBreakdownQuery(proxyDb(), JUNE, 'received'));
+    expect(sumOf(income)).toBe(received);
+    const incomeAccounts = rows<[string, number, number]>(sqlite, accountSpendQuery(proxyDb(), JUNE, 'received'));
+    expect(sumOf(incomeAccounts)).toBe(received);
+    // The card's payment-received leg is a transfer and refunds are not income.
+    expect(incomeAccounts.map(([key]) => key)).not.toContain(CARD_ACCOUNT);
+  });
+
   it('the merchant, account and person breakdowns match', () => {
     const merchants = rows<[string, number, number]>(sqlite, merchantSpendQuery(proxyDb(), JUNE)).map(
       ([key, spentPaise, txnCount]) => ({ key, spentPaise, txnCount }),

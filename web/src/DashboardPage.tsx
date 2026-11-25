@@ -105,9 +105,12 @@ export function DashboardPage() {
   const trend = monthlyForYearQuery(db, year).all();
   const categoriesList = db.select().from(categories).orderBy(asc(categories.sortOrder), asc(categories.id)).all();
   const subcategoryNames = new Map(db.select().from(subcategories).all().map((item) => [item.id, item.name]));
-  const breakdown = categoryBreakdownQuery(db, filter).all();
-  const merchantSpend = merchantSpendQuery(db, filter).all().slice(0, 8);
-  const accountSpend = accountSpendQuery(db, filter).all().slice(0, 6);
+  const breakdown = categoryBreakdownQuery(db, filter, trendMode).all();
+  const merchantSpend = merchantSpendQuery(db, filter, trendMode).all().slice(0, 8);
+  const accountSpend = accountSpendQuery(db, filter, trendMode).all().slice(0, 6);
+  const isIncome = trendMode === 'received';
+  const amountLabel = isIncome ? 'Received' : trendMode === 'net' ? 'Net spent' : 'Spent';
+  const emptyLabel = isIncome ? 'No income' : 'No spending';
   const accountKey = sql<string>`coalesce(nullif(trim(${transactions.accountName}), ''), '(unknown)')`;
   const accountSources = new Map<string, string>();
   for (const row of db.select({ key: accountKey, source: transactions.source, n: sql<number>`count(*)` })
@@ -120,8 +123,10 @@ export function DashboardPage() {
     return { emoji: category?.emoji || (key === 'uncategorized' ? '❔' : '•'), name: category?.name ?? 'Uncategorized' };
   };
   const categoryTotal = breakdown.reduce((sum, item) => sum + item.spentPaise, 0);
-  const share = (paise: number) => (categoryTotal ? (paise / categoryTotal) * 100 : 0);
+  const share = (paise: number) => (categoryTotal > 0 ? (paise / categoryTotal) * 100 : 0);
   const topShare = breakdown.length ? share(breakdown[0].spentPaise) : 0;
+  // Net rows can be negative (refunds above spend); their bars collapse to empty.
+  const barWidth = (pct: number) => `${topShare > 0 ? Math.max(0, (pct / topShare) * 100) : 0}%`;
   const collapse = !showAllCategories && breakdown.length > TOP_CATEGORIES + 1;
   const visibleBreakdown = collapse ? breakdown.slice(0, TOP_CATEGORIES) : breakdown;
   const rest = collapse ? breakdown.slice(TOP_CATEGORIES) : [];
@@ -156,6 +161,8 @@ export function DashboardPage() {
       query.set('to', mode === 'month' ? `${year}-${pad(month)}-31` : `${year}-12-31`);
     }
     if (categoryKey != null) query.set('category', String(categoryKey));
+    // Net mixes spend with refunds (money in), so it can't be narrowed to one direction.
+    if (trendMode !== 'net') query.set('direction', isIncome ? 'in' : 'out');
     const text = query.toString();
     return text ? `/transactions?${text}` : '/transactions';
   };
@@ -182,13 +189,13 @@ export function DashboardPage() {
     ? []
     : selectedKey === 'uncategorized'
       ? (selectedRow ? [{ subcategoryId: null, spentPaise: selectedRow.spentPaise, txnCount: selectedRow.txnCount }] : [])
-      : subcategoryBreakdownQuery(db, selectedKey, filter).all();
-  const panelPayees = panelFilter ? merchantSpendQuery(db, panelFilter).all().slice(0, 3) : [];
+      : subcategoryBreakdownQuery(db, selectedKey, filter, trendMode).all();
+  const panelPayees = panelFilter ? merchantSpendQuery(db, panelFilter, trendMode).all().slice(0, 3) : [];
   const miniRows = selectedKey == null
     ? []
     : MONTHS_SHORT.map((_, index) => {
       const key = { year, month: index + 1 };
-      return categoryBreakdownQuery(db, { from: key, to: key, categoryId: filterIdOf(selectedKey) }).get()?.spentPaise ?? 0;
+      return Math.max(0, categoryBreakdownQuery(db, { from: key, to: key, categoryId: filterIdOf(selectedKey) }, trendMode).get()?.spentPaise ?? 0);
     });
   const miniMax = niceMax(Math.max(0, ...miniRows));
 
@@ -290,7 +297,7 @@ export function DashboardPage() {
               </div>
             )}
             <div className="card card--lg">
-              <div className="card__head" style={{ marginBottom: 'var(--sp-1)' }}><span className="t-heading">By account</span><span className="t-caption muted">Spent</span></div>
+              <div className="card__head" style={{ marginBottom: 'var(--sp-1)' }}><span className="t-heading">By account</span><span className="t-caption muted">{amountLabel}</span></div>
               {accountSpend.length ? accountSpend.map((item) => {
                 const source = accountSources.get(item.key) ?? '';
                 return (
@@ -300,14 +307,14 @@ export function DashboardPage() {
                     <span className="t-label tabular">{formatInr(item.spentPaise)}</span>
                   </div>
                 );
-              }) : <span className="t-small muted">No spending in {periodName}.</span>}
+              }) : <span className="t-small muted">{emptyLabel} in {periodName}.</span>}
             </div>
           </div>
         </div>
 
         <div className="grid grid-2">
           <div className="card card--lg">
-            <div className="card__head"><span className="t-heading">Where it went</span><span className="t-caption muted">Click a category for details</span></div>
+            <div className="card__head"><span className="t-heading">{isIncome ? 'Where it came from' : 'Where it went'}</span><span className="t-caption muted">Click a category for details</span></div>
             {breakdown.length ? (
               <div className="brk">
                 {visibleBreakdown.map((item) => {
@@ -317,7 +324,7 @@ export function DashboardPage() {
                   return (
                     <button key={key} type="button" className={`brk__row${selectedKey === key ? ' is-active' : ''}`} aria-expanded={selectedKey === key} onClick={() => setSelectedKey(key)}>
                       <span className="brk__em">{info.emoji}</span>
-                      <div className="brk__main"><span className="t-label">{info.name}</span><div className="brk__track"><div className="brk__fill" style={{ width: `${topShare ? (pct / topShare) * 100 : 0}%` }} /></div></div>
+                      <div className="brk__main"><span className="t-label">{info.name}</span><div className="brk__track"><div className="brk__fill" style={{ width: barWidth(pct) }} /></div></div>
                       <span className="brk__amt t-small-em">{formatInr(item.spentPaise)}</span><span className="brk__pct t-caption muted">{pct.toFixed(1)}%</span>
                     </button>
                   );
@@ -325,25 +332,26 @@ export function DashboardPage() {
                 {rest.length > 0 && (
                   <button type="button" className="brk__row" aria-label={`Everything else (${rest.length}): show all categories`} onClick={() => setShowAllCategories(true)}>
                     <span className="brk__em">•</span>
-                    <div className="brk__main"><span className="t-label">Everything else ({rest.length})</span><div className="brk__track"><div className="brk__fill" style={{ width: `${topShare ? (share(restPaise) / topShare) * 100 : 0}%` }} /></div></div>
+                    <div className="brk__main"><span className="t-label">Everything else ({rest.length})</span><div className="brk__track"><div className="brk__fill" style={{ width: barWidth(share(restPaise)) }} /></div></div>
                     <span className="brk__amt t-small-em">{formatInr(restPaise)}</span><span className="brk__pct t-caption muted">{share(restPaise).toFixed(1)}%</span>
                   </button>
                 )}
               </div>
-            ) : <span className="t-small muted">No spending in {periodName}.</span>}
+            ) : <span className="t-small muted">{emptyLabel} in {periodName}.</span>}
           </div>
+
           <div className="card card--lg">
-            <div className="card__head"><span className="t-heading">Top payees</span><Link className="t-link" to={activityLink()}>See all</Link></div>
+            <div className="card__head"><span className="t-heading">{isIncome ? 'Top payers' : 'Top payees'}</span><Link className="t-link" to={activityLink()}>See all</Link></div>
             {merchantSpend.length ? (
               <div className="merch">
-                <span className="t-caption muted">Payee</span><span className="t-caption muted" style={{ textAlign: 'right' }}>Txns</span><span className="t-caption muted" style={{ textAlign: 'right' }}>Spent</span>
+                <span className="t-caption muted">{isIncome ? 'Payer' : 'Payee'}</span><span className="t-caption muted" style={{ textAlign: 'right' }}>Txns</span><span className="t-caption muted" style={{ textAlign: 'right' }}>{amountLabel}</span>
                 {merchantSpend.map((item) => [
                   <span key={`${item.key}-n`} className="t-label nm" title={item.key}>{item.key}</span>,
                   <span key={`${item.key}-c`} className="t-small muted tabular" style={{ textAlign: 'right' }}>{item.txnCount.toLocaleString('en-IN')}</span>,
                   <span key={`${item.key}-s`} className="t-small-em tabular" style={{ textAlign: 'right' }}>{formatInr(item.spentPaise, { noPaise: true })}</span>,
                 ])}
               </div>
-            ) : <span className="t-small muted">No spending in {periodName}.</span>}
+            ) : <span className="t-small muted">{emptyLabel} in {periodName}.</span>}
           </div>
         </div>
       </main>
@@ -360,8 +368,8 @@ export function DashboardPage() {
         {selectedInfo && (
           <>
             <div className="row gap-3"><span className="dp-cat__em" style={{ width: 44, height: 44, fontSize: 22 }}>{selectedInfo.emoji}</span>
-              <div className="grow col gap-0"><span className="t-subtitle">{selectedInfo.name}</span><span className="t-small muted">{share(selectedRow?.spentPaise ?? 0).toFixed(1)}% of spending · {(selectedRow?.txnCount ?? 0).toLocaleString('en-IN')} transactions</span></div></div>
-            <div className="card card--subtle row row--between"><span className="t-small muted">Spent in {periodName}</span><span className="t-amount">{formatInr(selectedRow?.spentPaise ?? 0)}</span></div>
+              <div className="grow col gap-0"><span className="t-subtitle">{selectedInfo.name}</span>              <span className="t-small muted">{share(selectedRow?.spentPaise ?? 0).toFixed(1)}% of {isIncome ? 'income' : 'spending'} · {(selectedRow?.txnCount ?? 0).toLocaleString('en-IN')} transactions</span></div></div>
+                          <div className="card card--subtle row row--between"><span className="t-small muted">{amountLabel} in {periodName}</span><span className="t-amount">{formatInr(selectedRow?.spentPaise ?? 0)}</span></div>
             <div className="dp-section"><span className="t-overline muted">BY MONTH{mode === 'all' ? ` · ${year}` : ''}</span>
               <div className="bars mini-bars">
                 {miniRows.map((value, index) => (
@@ -374,7 +382,7 @@ export function DashboardPage() {
               <div className="dp-section"><span className="t-overline muted">SUB-CATEGORIES</span>
                 <div className="brk">
                   {subRows.map((item) => {
-                    const pct = selectedRow?.spentPaise ? Math.round((item.spentPaise / selectedRow.spentPaise) * 100) : 0;
+                    const pct = selectedRow && selectedRow.spentPaise > 0 ? Math.max(0, Math.round((item.spentPaise / selectedRow.spentPaise) * 100)) : 0;
                     return (
                       <div className="brk__row" key={item.subcategoryId ?? 'none'}><span />
                         <div className="brk__main"><span className="t-label">{item.subcategoryId == null ? 'No sub-category' : subcategoryNames.get(item.subcategoryId) ?? 'Other'}</span><div className="brk__track"><div className="brk__fill" style={{ width: `${pct}%` }} /></div></div>
